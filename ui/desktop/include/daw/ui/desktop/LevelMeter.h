@@ -19,11 +19,15 @@ public:
     /** Peaks since the previous update (linear gain) and the time that has passed. */
     void update(float leftPeak, float rightPeak, double elapsedSeconds);
 
+    /** The dB scale beside the bars (shown by default). */
+    void setScaleVisible(bool shouldShowScale);
+
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& event) override;
 
 private:
     std::array<engine::dsp::MeterBallistics, 2> channels;
+    bool scaleVisible = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LevelMeter)
 };

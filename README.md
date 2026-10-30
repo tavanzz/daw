@@ -15,8 +15,14 @@ Targets: Windows, macOS and Linux now; iOS/iPadOS and Android later.
 
 ## Status
 
-Phase 1: play a single WAV or AIFF file with transport controls, waveform display
-and level meter. See [CLAUDE.md](CLAUDE.md#status) for the steps.
+Phase 1 (v0.1.0): play a single WAV or AIFF file with transport controls, waveform
+display and level meter.
+
+Phase 2 (v0.2.0): multitrack and mixer. Tracks with clips on a timeline (move,
+trim, delete; one load per file), a ruler in time and bars with grid and snap, zoom
+and scroll, a loop region; a mixer with volume, pan, mute, solo and meters per track
+and a master bus; WAV export through the same code as playback; undo/redo; project
+format version 2. See [CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 
@@ -53,36 +59,54 @@ The macOS app bundle ends up in `build/<preset>/app/daw_app_artefacts/<Config>/D
 
 ## Using the app
 
-Load a WAV or AIFF file by dragging it onto the window or with File > Open Audio
-File. The file is converted to the output device's sample rate when needed.
+Add WAV or AIFF files with File > Import Audio (they land at the playhead, one new
+track each) or by dragging them onto the tracks: one file dropped on a track goes onto
+that track. Files are converted to the output device's sample rate when needed.
+
+- Drag a clip to move it (also onto another track), drag its left or right edge to
+  trim it, click it to select it (Shift adds to the selection). Moves and edges snap
+  to the grid unless Cmd is held. Where clips overlap, the one on top is heard.
+- Click the ruler or an empty part of a track to move the playhead; drag across the
+  ruler to set the loop region.
+- Double-click the tempo or the time signature to change them; double-click a track
+  name to rename it; right-click a track header to delete the track.
+- In the mixer, double-click a fader or a pan knob to reset it.
 
 | Action | Shortcut |
 |--------|----------|
 | Play / pause | Space |
-| Stop and return to the start | Return |
-| Loop the whole file | L |
-| Move the playhead | click or drag on the waveform |
-| Open audio file / project | Cmd+O / Shift+Cmd+O (Ctrl on Windows and Linux) |
-| Save project / save as | Cmd+S / Shift+Cmd+S |
+| Stop (back to where playback started; again: to the start) | Return |
+| Loop / Snap / Mixer | L / N / X |
+| Undo / Redo | Cmd+Z / Shift+Cmd+Z |
+| Delete the selected clips | Backspace or Delete |
+| New track | Cmd+T |
+| Import audio / Export mix | Cmd+I / Cmd+E |
+| New / Open / Save / Save As project | Cmd+N / Cmd+O / Cmd+S / Shift+Cmd+S |
+| Zoom in / out / to fit | Cmd+= / Cmd+- / Cmd+0 (or Cmd + wheel, or pinch) |
 | Choose the audio output | Cmd+, |
 
-Projects (`.dawproject`) are small JSON files that refer to the audio file; keep
-the audio next to the project (or in a subfolder) and the folder can be moved as a
-whole. Manual checks with reference files: [docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md).
+(Ctrl instead of Cmd on Windows and Linux.)
+
+Projects (`.dawproject`) are small JSON files that refer to the audio files; keep the
+audio next to the project (or in a subfolder) and the folder can be moved as a whole.
+Projects saved by Phase 1 open too. Manual checks with reference files:
+[docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md). How many tracks fit in an audio
+callback: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Repository layout
 
 | Path          | Contents                                                        |
 |---------------|-----------------------------------------------------------------|
 | `engine/`     | audio engine; never depends on the user interface               |
-| `model/`      | project state and versioned project files                       |
+| `model/`      | project state, timeline time, grid, versioned project files     |
+| `controller/` | maps the project onto the engine; shared by every UI            |
 | `ui/desktop/` | mouse and keyboard interface                                    |
 | `ui/mobile/`  | touch interface (placeholder)                                   |
 | `app/`        | application entry point                                         |
-| `tests/`      | unit tests                                                      |
+| `tests/`      | unit tests; `tests/bench/` the mixing benchmark                 |
 | `cmake/`      | build helpers: dependencies, warnings, architecture checks      |
 | `tools/`      | development scripts (listening-test files)                      |
-| `docs/`       | manual test procedures                                          |
+| `docs/`       | manual test procedures, performance measurements               |
 
 Architecture, audio-thread rules and coding conventions are described in
 [CLAUDE.md](CLAUDE.md).

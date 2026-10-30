@@ -1,6 +1,7 @@
 #pragma once
 
-#include "daw/engine/AudioData.h"
+#include "daw/engine/Arrangement.h"
+#include "daw/engine/Mixer.h"
 #include "daw/engine/Transport.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
 #include "daw/engine/rt/SpscQueue.h"
@@ -27,31 +28,49 @@ struct EngineCommand
         pause,
         stop,
         seek,
-        setLooping
+        setLooping,
+        resetTransport
     };
 
     Type type = Type::play;
     juce::int64 value = 0;
 };
+
+/** An arrangement with the mixer state that goes with it: what the message thread
+    hands to the audio thread in one piece. */
+struct EngineSnapshot
+{
+    std::unique_ptr<Arrangement> arrangement;
+    MixState mix;
+};
 } // namespace detail
 
 /**
-    Top-level audio engine: plays one AudioData through a Transport.
+    Top-level audio engine: plays an Arrangement through a Transport and the Mixer.
 
     Threads:
     - Message thread: the constructor, the destructor, prepare() (while the audio
-      device is stopped), setAudio(), the transport commands and collectGarbage().
-      Commands are queued and take effect at the start of the next audio block.
+      device is stopped), setArrangement(), the transport commands and
+      collectGarbage(). Commands are queued and take effect at the start of the next
+      audio block, after any new arrangement.
     - Audio thread: process() only. It never allocates, frees, locks or blocks.
     - Any thread: the get...() functions, which return what the audio thread last
       published.
+
+    A new arrangement replaces the current one as a whole, through one atomic
+    pointer exchange. If it changes what the tracks play while playback is running,
+    the old and the new are crossfaded over crossfadeSeconds; gain changes ramp in
+    the mixer instead. Replaced arrangements go back to the message thread on a
+    queue and are freed by collectGarbage().
 */
-class Engine
+class Engine final : private TimelineRenderer
 {
 public:
+    static constexpr double crossfadeSeconds = 0.005;
+
     Engine() = default;
 
-    /** Message thread, with the audio device stopped: frees all audio data. */
+    /** Message thread, with the audio device stopped: frees everything. */
     ~Engine();
 
     Engine(const Engine&) = delete;
@@ -64,11 +83,11 @@ public:
     /** Audio thread. Overwrites the whole buffer with the next block of output. */
     void process(juce::AudioBuffer<float>& output) noexcept;
 
-    /** Message thread. Replaces the audio being played. If something is playing,
-        it is faded out first; the new audio starts stopped at position 0. Its
+    /** Message thread. Replaces what is played, from the next audio block. Its
         sample rate must match the one given to prepare(), otherwise the engine
-        plays silence. */
-    void setAudio(std::unique_ptr<AudioData> audio);
+        plays silence. An arrangement the audio thread has not picked up yet is
+        replaced (and freed here). */
+    void setArrangement(std::unique_ptr<Arrangement> arrangement);
 
     /** Message thread. Transport commands, see Transport for their behaviour. */
     void play();
@@ -76,9 +95,11 @@ public:
     void stop();
     void seek(juce::int64 position);
     void setLooping(bool shouldLoop);
+    /** Stops and goes to 0 (for a new project). */
+    void resetTransport();
 
-    /** Message thread. Frees audio data the audio thread no longer uses. setAudio()
-        calls it too; call it regularly (a UI timer is fine). */
+    /** Message thread. Frees arrangements the audio thread no longer uses.
+        setArrangement() calls it too; call it regularly (a UI timer is fine). */
     void collectGarbage();
 
     [[nodiscard]] double getSampleRate() const noexcept { return sampleRate; }
@@ -87,36 +108,51 @@ public:
     /** Any thread: state as of the last audio block. */
     [[nodiscard]] TransportState getTransportState() const noexcept;
     [[nodiscard]] juce::int64 getPlayheadPosition() const noexcept;
-    [[nodiscard]] juce::int64 getAudioLength() const noexcept;
+    [[nodiscard]] juce::int64 getLength() const noexcept;
     [[nodiscard]] bool isLooping() const noexcept;
 
     /** One reader thread (the UI): highest absolute output sample on the channel
-        (0 = left, 1 = right) since the previous call, as a linear gain. */
+        (0 = left, 1 = right) since the previous call, as a linear gain. This is the
+        master meter: after the master volume and the transport fades. */
     [[nodiscard]] float takeOutputPeak(int channel) noexcept;
 
 private:
     using Command = detail::EngineCommand;
+    using Snapshot = detail::EngineSnapshot;
+
+    void renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
+                        int outputStart, int numSamples) noexcept override;
+    void renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
+                     int outputStart, int numSamples) noexcept;
 
     void send(Command command);
     void apply(const Command& command) noexcept;
-    void adoptPendingAudio() noexcept;
-    void retire(AudioData* audio) noexcept;
+    void adoptPendingSnapshot() noexcept;
+    void finishCrossfade() noexcept;
+    void retire(Snapshot* snapshot) noexcept;
+    [[nodiscard]] bool canPlay(const Snapshot* snapshot) const noexcept;
     void publish() noexcept;
 
     double sampleRate = 0.0;
     int maximumBlockSize = 0;
+    int crossfadeLength = 1;
 
     // Audio thread only.
     Transport transport;
-    AudioData* current = nullptr;
-    AudioData* waitingToRetire = nullptr; // only if the retired queue was full
+    Mixer mixer;
+    Snapshot* current = nullptr;
+    Snapshot* fadingOut = nullptr; // the previous snapshot, during a crossfade
+    int crossfadeDone = 0;
+    juce::AudioBuffer<float> crossfadeBuffer;
+    juce::AudioBuffer<float> stereoBuffer; // for devices with fewer than two outputs
+    Snapshot* waitingToRetire = nullptr; // only if the retired queue was full
 
     // Message thread -> audio thread.
     rt::SpscQueue<Command, 256> commands;
-    std::atomic<AudioData*> pendingAudio{nullptr};
+    std::atomic<Snapshot*> pendingSnapshot{nullptr};
 
-    // Audio thread -> message thread: audio to free.
-    rt::SpscQueue<AudioData*, 32> retired;
+    // Audio thread -> message thread: snapshots to free.
+    rt::SpscQueue<Snapshot*, 256> retired;
 
     // Audio thread -> any thread.
     std::atomic<TransportState> publishedState{TransportState::stopped};

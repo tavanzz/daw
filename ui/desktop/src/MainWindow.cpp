@@ -3,14 +3,14 @@
 namespace daw::ui::desktop
 {
 
-MainWindow::MainWindow(const juce::String& windowTitle, engine::Engine& engine,
+MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& session,
                        juce::AudioDeviceManager& deviceManager)
     : DocumentWindow(windowTitle,
                      juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
                          juce::ResizableWindow::backgroundColourId),
                      DocumentWindow::allButtons)
 {
-    auto content = std::make_unique<MainComponent>(engine, deviceManager, commandManager);
+    auto content = std::make_unique<MainComponent>(session, deviceManager, commandManager);
     mainComponent = content.get();
 
     commandManager.registerAllCommandsForTarget(mainComponent);
@@ -22,7 +22,7 @@ MainWindow::MainWindow(const juce::String& windowTitle, engine::Engine& engine,
     setUsingNativeTitleBar(true);
     setContentOwned(content.release(), true);
     setResizable(true, true);
-    setResizeLimits(640, 360, 10000, 10000);
+    setResizeLimits(800, 480, 10000, 10000);
 
 #if JUCE_MAC
     juce::MenuBarModel::setMacMainMenu(this);
@@ -55,33 +55,58 @@ void MainWindow::closeButtonPressed()
 
 juce::StringArray MainWindow::getMenuBarNames()
 {
-    return {"File", "Transport"};
+    return {"File", "Edit", "Track", "Transport", "View"};
 }
 
 juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
 {
     juce::PopupMenu menu;
+    const auto add = [this, &menu](juce::CommandID command) {
+        menu.addCommandItem(&commandManager, command);
+    };
 
-    if (menuIndex == 0)
+    switch (menuIndex)
     {
-        menu.addCommandItem(&commandManager, MainComponent::openAudioFile);
+    case 0:
+        add(MainComponent::newProject);
+        add(MainComponent::openProject);
+        add(MainComponent::saveProject);
+        add(MainComponent::saveProjectAs);
         menu.addSeparator();
-        menu.addCommandItem(&commandManager, MainComponent::openProject);
-        menu.addCommandItem(&commandManager, MainComponent::saveProject);
-        menu.addCommandItem(&commandManager, MainComponent::saveProjectAs);
+        add(MainComponent::importAudio);
+        add(MainComponent::exportMix);
         menu.addSeparator();
-        menu.addCommandItem(&commandManager, MainComponent::audioSettings);
+        add(MainComponent::audioSettings);
 #if !JUCE_MAC
         menu.addSeparator();
-        menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
+        add(juce::StandardApplicationCommandIDs::quit);
 #endif
-    }
-    else if (menuIndex == 1)
-    {
-        menu.addCommandItem(&commandManager, MainComponent::playPause);
-        menu.addCommandItem(&commandManager, MainComponent::stop);
+        break;
+    case 1:
+        add(MainComponent::undo);
+        add(MainComponent::redo);
         menu.addSeparator();
-        menu.addCommandItem(&commandManager, MainComponent::toggleLoop);
+        add(MainComponent::deleteSelection);
+        break;
+    case 2:
+        add(MainComponent::newTrack);
+        break;
+    case 3:
+        add(MainComponent::playPause);
+        add(MainComponent::stop);
+        menu.addSeparator();
+        add(MainComponent::toggleLoop);
+        add(MainComponent::toggleSnap);
+        break;
+    case 4:
+        add(MainComponent::zoomIn);
+        add(MainComponent::zoomOut);
+        add(MainComponent::zoomToFit);
+        menu.addSeparator();
+        add(MainComponent::toggleMixer);
+        break;
+    default:
+        break;
     }
 
     return menu;

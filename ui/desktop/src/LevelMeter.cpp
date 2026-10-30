@@ -34,10 +34,16 @@ void LevelMeter::update(float leftPeak, float rightPeak, double elapsedSeconds)
     repaint();
 }
 
+void LevelMeter::setScaleVisible(bool shouldShowScale)
+{
+    scaleVisible = shouldShowScale;
+    repaint();
+}
+
 void LevelMeter::paint(juce::Graphics& g)
 {
     auto area = getLocalBounds().toFloat();
-    auto scaleArea = area.removeFromRight(static_cast<float>(scaleWidth));
+    auto scaleArea = area.removeFromRight(scaleVisible ? static_cast<float>(scaleWidth) : 0.0f);
     const auto clipArea = area.removeFromTop(static_cast<float>(clipIndicatorHeight));
     area.removeFromTop(2.0f);
 
@@ -73,13 +79,17 @@ void LevelMeter::paint(juce::Graphics& g)
         g.fillRect(juce::Rectangle<float>(x, clipArea.getY(), barWidth, clipArea.getHeight()));
     }
 
+    if (!scaleVisible)
+        return;
+
     g.setColour(juce::Colours::grey);
     g.setFont(juce::FontOptions(10.0f));
     for (const float decibels : scaleMarksDb)
     {
         const float y = yForDecibels(decibels, area);
-        g.drawText(juce::String(static_cast<int>(decibels)),
-                   juce::Rectangle<float>(scaleArea.getX() + 2.0f, y - 6.0f, scaleArea.getWidth() - 2.0f, 12.0f),
+        const juce::Rectangle<float> label(scaleArea.getX() + 2.0f, y - 6.0f,
+                                           scaleArea.getWidth() - 2.0f, 12.0f);
+        g.drawText(juce::String(static_cast<int>(decibels)), label,
                    juce::Justification::centredLeft);
     }
 }

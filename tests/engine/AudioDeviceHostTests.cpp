@@ -1,6 +1,7 @@
 #include "daw/engine/io/AudioDeviceHost.h"
 
 #include "support/RealtimeCheck.h"
+#include "support/TestArrangements.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -8,7 +9,6 @@
 #include <memory>
 #include <vector>
 
-using daw::engine::AudioData;
 using daw::engine::Engine;
 using daw::engine::io::AudioDeviceHost;
 
@@ -19,12 +19,8 @@ constexpr int blockSize = 512;
 
 void loadConstant(Engine& engine, float value)
 {
-    auto audio = std::make_unique<AudioData>();
-    audio->sampleRate = 48000.0;
-    audio->samples.setSize(2, 48000);
-    for (int channel = 0; channel < 2; ++channel)
-        juce::FloatVectorOperations::fill(audio->samples.getWritePointer(channel), value, 48000);
-    engine.setAudio(std::move(audio));
+    engine.setArrangement(daw::test::makeWholeFileArrangement(
+        daw::test::makeConstantSource(2, 48000, value, 48000.0)));
 }
 
 // Device buffers, pre-filled with junk that the callback must overwrite.

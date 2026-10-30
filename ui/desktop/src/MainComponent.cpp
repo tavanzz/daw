@@ -1,5 +1,8 @@
 #include "daw/ui/desktop/MainComponent.h"
 
+#include "daw/model/ProjectFile.h"
+#include "daw/ui/desktop/ExportDialog.h"
+
 #include <juce_audio_utils/juce_audio_utils.h>
 
 namespace daw::ui::desktop
@@ -15,42 +18,25 @@ bool isProjectFile(const juce::File& file)
 {
     return file.hasFileExtension("dawproject");
 }
-
-bool isAudioFile(const juce::File& file)
-{
-    return file.hasFileExtension("wav;wave;aif;aiff;aifc");
-}
 } // namespace
 
-MainComponent::MainComponent(engine::Engine& engineToShow,
+MainComponent::MainComponent(controller::Session& sessionToShow,
                              juce::AudioDeviceManager& audioDeviceManager,
                              juce::ApplicationCommandManager& applicationCommandManager)
-    : engine(engineToShow)
+    : session(sessionToShow)
     , deviceManager(audioDeviceManager)
     , commandManager(applicationCommandManager)
+    , transportBar(sessionToShow)
+    , arrangeView(sessionToShow)
+    , mixerView(sessionToShow)
 {
-    transportBar.onPlay = [this] { engine.play(); };
-    transportBar.onPause = [this] { engine.pause(); };
-    transportBar.onStop = [this] { engine.stop(); };
-    transportBar.onLoopToggled = [this](bool shouldLoop) {
-        if (onLoopToggled)
-            onLoopToggled(shouldLoop);
-    };
     addAndMakeVisible(transportBar);
+    addAndMakeVisible(arrangeView);
+    masterMeter.setTooltip("Master output level (click to clear the clip indicators)");
+    addAndMakeVisible(masterMeter);
+    addAndMakeVisible(mixerView);
 
-    fileLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    addAndMakeVisible(fileLabel);
-    detailsLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
-    detailsLabel.setJustificationType(juce::Justification::centredRight);
-    addAndMakeVisible(detailsLabel);
-
-    waveform.onSeek = [this](juce::int64 position) { engine.seek(position); };
-    waveform.showMessage(emptyMessage());
-    addAndMakeVisible(waveform);
-
-    addAndMakeVisible(meter);
-
-    setSize(960, 540);
+    setSize(1280, 760);
     lastRefreshSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
     startTimerHz(refreshRateHz);
 }
@@ -60,64 +46,86 @@ MainComponent::~MainComponent()
     stopTimer();
 }
 
-juce::String MainComponent::emptyMessage()
+void MainComponent::openFile(const juce::File& file)
 {
-    return "Drop a WAV or AIFF file here, or choose File > Open Audio File...";
-}
-
-void MainComponent::showMessage(const juce::String& text)
-{
-    hasAudio = false;
-    fileLabel.setText({}, juce::dontSendNotification);
-    detailsLabel.setText({}, juce::dontSendNotification);
-    waveform.showMessage(text);
-    commandManager.commandStatusChanged();
-}
-
-void MainComponent::showAudio(const juce::String& fileName, const juce::String& details,
-                              std::shared_ptr<const engine::dsp::WaveformPeaks> peaks)
-{
-    hasAudio = true;
-    fileLabel.setText(fileName, juce::dontSendNotification);
-    detailsLabel.setText(details, juce::dontSendNotification);
-    waveform.setPeaks(std::move(peaks));
-    commandManager.commandStatusChanged();
+    if (isProjectFile(file))
+        askToSaveChanges([this, file] { openProjectFile(file); });
+    else
+        session.importAudio({file}, arrangeView.getInsertPosition());
 }
 
 void MainComponent::showError(const juce::String& title, const juce::String& message)
 {
     juce::NativeMessageBox::showAsync(
-        juce::MessageBoxOptions::makeOptionsOk(juce::MessageBoxIconType::WarningIcon, title, message,
-                                               "OK", this),
+        juce::MessageBoxOptions::makeOptionsOk(juce::MessageBoxIconType::WarningIcon, title,
+                                               message, "OK", this),
         [](int) {});
+}
+
+void MainComponent::askToSaveChanges(std::function<void()> next)
+{
+    if (!session.hasUnsavedChanges())
+    {
+        next();
+        return;
+    }
+
+    const auto file = session.getProjectFile();
+    const auto name = file != juce::File() ? file.getFileNameWithoutExtension()
+                                           : juce::String("Untitled");
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle("Save changes?")
+                             .withMessage("Do you want to save the changes to \"" + name + "\"?")
+                             .withButton("Save")
+                             .withButton("Don't Save")
+                             .withButton("Cancel")
+                             .withAssociatedComponent(this);
+
+    juce::NativeMessageBox::showAsync(options, [this, next = std::move(next)](int button) {
+        if (button == 0)
+            saveThen(next);
+        else if (button == 1)
+            next();
+    });
+}
+
+void MainComponent::saveThen(std::function<void()> afterSaving)
+{
+    if (session.getProjectFile() == juce::File())
+    {
+        chooseProjectToSave(std::move(afterSaving));
+        return;
+    }
+
+    if (const auto result = session.saveProject(session.getProjectFile()); result.failed())
+        showError("Could not save the project", result.getErrorMessage());
+    else if (afterSaving)
+        afterSaving();
 }
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced(12);
+    auto area = getLocalBounds().reduced(8);
 
-    transportBar.setBounds(area.removeFromTop(32));
-    area.removeFromTop(10);
+    transportBar.setBounds(area.removeFromTop(30));
+    area.removeFromTop(8);
 
-    auto info = area.removeFromTop(24);
-    detailsLabel.setBounds(info.removeFromRight(info.getWidth() / 2));
-    fileLabel.setBounds(info);
-    area.removeFromTop(6);
+    mixerView.setVisible(mixerVisible);
+    if (mixerVisible)
+    {
+        mixerView.setBounds(area.removeFromBottom(MixerView::preferredHeight));
+        area.removeFromBottom(8);
+    }
 
-    meter.setBounds(area.removeFromRight(56));
-    area.removeFromRight(10);
-    waveform.setBounds(area);
+    masterMeter.setBounds(area.removeFromRight(40));
+    area.removeFromRight(8);
+    arrangeView.setBounds(area);
 }
 
 void MainComponent::paint(juce::Graphics& g)
 {
     g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
-
-    if (dragHover)
-    {
-        g.setColour(juce::Colour(0xff4fc3f7));
-        g.drawRect(waveform.getBounds().expanded(3), 2);
-    }
 }
 
 void MainComponent::timerCallback()
@@ -126,42 +134,57 @@ void MainComponent::timerCallback()
     const double elapsed = now - lastRefreshSeconds;
     lastRefreshSeconds = now;
 
-    const auto state = engine.getTransportState();
-    const auto position = engine.getPlayheadPosition();
-    const bool looping = engine.isLooping();
+    transportBar.refresh();
+    arrangeView.refresh();
 
-    transportBar.update(state, position, engine.getAudioLength(), engine.getSampleRate(), looping,
-                        hasAudio);
-    waveform.setPlayhead(position);
-    meter.update(engine.takeOutputPeak(0), engine.takeOutputPeak(1), elapsed);
+    // The output peaks can be taken once: both master meters get the same reading.
+    auto& engine = session.getEngine();
+    const float left = engine.takeOutputPeak(0);
+    const float right = engine.takeOutputPeak(1);
+    masterMeter.update(left, right, elapsed);
+    if (mixerVisible)
+        mixerView.refresh(left, right, elapsed);
 
-    // Menu items show play/pause state and the loop tick.
-    if (state != lastState || looping != lastLooping)
+    // Menu items show play/pause state, ticks and what can be undone.
+    const auto state = session.getTransportState();
+    const bool selection = arrangeView.hasSelection();
+    if (state != lastState || session.getRevision() != lastRevision || selection != lastSelection)
     {
         lastState = state;
-        lastLooping = looping;
+        lastRevision = session.getRevision();
+        lastSelection = selection;
         commandManager.commandStatusChanged();
     }
 }
 
 void MainComponent::togglePlayPause()
 {
-    if (engine.getTransportState() == engine::TransportState::playing)
-        engine.pause();
+    if (session.getTransportState() == engine::TransportState::playing)
+        session.pause();
     else
-        engine.play();
+        session.play();
 }
 
-void MainComponent::chooseAudioFile()
+void MainComponent::openProjectFile(const juce::File& file)
 {
-    fileChooser = std::make_unique<juce::FileChooser>("Open an audio file", juce::File(),
+    const auto result = session.openProject(file);
+    if (result.failed())
+        showError("Could not open the project", result.getErrorMessage());
+    else
+        arrangeView.zoomToFit();
+}
+
+void MainComponent::chooseAudioToImport()
+{
+    fileChooser = std::make_unique<juce::FileChooser>("Import audio files", juce::File(),
                                                       audioFilePatterns);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
-                                 juce::FileBrowserComponent::canSelectFiles,
+                                 juce::FileBrowserComponent::canSelectFiles |
+                                 juce::FileBrowserComponent::canSelectMultipleItems,
                              [this](const juce::FileChooser& chooser) {
-                                 const auto file = chooser.getResult();
-                                 if (file != juce::File() && onOpenAudioFile)
-                                     onOpenAudioFile(file);
+                                 const auto files = chooser.getResults();
+                                 if (!files.isEmpty())
+                                     session.importAudio(files, arrangeView.getInsertPosition());
                              });
 }
 
@@ -173,22 +196,28 @@ void MainComponent::chooseProjectToOpen()
                                  juce::FileBrowserComponent::canSelectFiles,
                              [this](const juce::FileChooser& chooser) {
                                  const auto file = chooser.getResult();
-                                 if (file != juce::File() && onOpenProject)
-                                     onOpenProject(file);
+                                 if (file != juce::File())
+                                     openProjectFile(file);
                              });
 }
 
-void MainComponent::chooseProjectToSave()
+void MainComponent::chooseProjectToSave(std::function<void()> afterSaving)
 {
-    fileChooser = std::make_unique<juce::FileChooser>("Save the project", juce::File(),
+    fileChooser = std::make_unique<juce::FileChooser>("Save the project", session.getProjectFile(),
                                                       projectFilePattern);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode |
                                  juce::FileBrowserComponent::canSelectFiles |
                                  juce::FileBrowserComponent::warnAboutOverwriting,
-                             [this](const juce::FileChooser& chooser) {
+                             [this, afterSaving](const juce::FileChooser& chooser) {
                                  const auto file = chooser.getResult();
-                                 if (file != juce::File() && onSaveProjectAs)
-                                     onSaveProjectAs(file);
+                                 if (file == juce::File())
+                                     return;
+                                 const auto result = session.saveProject(file);
+                                 if (result.failed())
+                                     showError("Could not save the project",
+                                               result.getErrorMessage());
+                                 else if (afterSaving)
+                                     afterSaving();
                              });
 }
 
@@ -201,7 +230,8 @@ void MainComponent::showAudioSettings()
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(selector.release());
     options.dialogTitle = "Audio Output";
-    options.dialogBackgroundColour = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+    options.dialogBackgroundColour =
+        getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -217,24 +247,28 @@ juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
 
 void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
 {
-    commands.addArray({openAudioFile, openProject, saveProject, saveProjectAs, audioSettings,
-                       playPause, stop, toggleLoop});
+    commands.addArray({newProject, openProject, saveProject, saveProjectAs, importAudio, exportMix,
+                       audioSettings, undo, redo, newTrack, deleteSelection, playPause, stop,
+                       toggleLoop, toggleSnap, zoomIn, zoomOut, zoomToFit, toggleMixer});
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationCommandInfo& result)
 {
     const auto command = juce::ModifierKeys::commandModifier;
-    const auto shiftCommand = juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier;
+    const auto shiftCommand =
+        juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier;
+    const auto& project = session.getProject();
+    const bool hasClips = project.getEnd() > 0;
 
     switch (commandId)
     {
-    case openAudioFile:
-        result.setInfo("Open Audio File...", "Loads a WAV or AIFF file", "File", 0);
-        result.addDefaultKeypress('o', command);
+    case newProject:
+        result.setInfo("New Project", "Closes this project and starts an empty one", "File", 0);
+        result.addDefaultKeypress('n', command);
         break;
     case openProject:
         result.setInfo("Open Project...", "Opens a saved project", "File", 0);
-        result.addDefaultKeypress('o', shiftCommand);
+        result.addDefaultKeypress('o', command);
         break;
     case saveProject:
         result.setInfo("Save Project", "Saves the project", "File", 0);
@@ -244,25 +278,81 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setInfo("Save Project As...", "Saves the project to a new file", "File", 0);
         result.addDefaultKeypress('s', shiftCommand);
         break;
+    case importAudio:
+        result.setInfo("Import Audio...", "Adds WAV or AIFF files on new tracks, at the playhead",
+                       "File", 0);
+        result.addDefaultKeypress('i', command);
+        break;
+    case exportMix:
+        result.setInfo("Export Mix...", "Writes the mix to a WAV file", "File", 0);
+        result.addDefaultKeypress('e', command);
+        result.setActive(hasClips);
+        break;
     case audioSettings:
         result.setInfo("Audio Output...", "Chooses the audio output device", "File", 0);
         result.addDefaultKeypress(',', command);
         break;
+    case undo:
+        result.setInfo(session.canUndo() ? "Undo " + session.getUndoDescription() : "Undo",
+                       "Undoes the last change", "Edit", 0);
+        result.addDefaultKeypress('z', command);
+        result.setActive(session.canUndo());
+        break;
+    case redo:
+        result.setInfo(session.canRedo() ? "Redo " + session.getRedoDescription() : "Redo",
+                       "Redoes the last undone change", "Edit", 0);
+        result.addDefaultKeypress('z', shiftCommand);
+        result.setActive(session.canRedo());
+        break;
+    case newTrack:
+        result.setInfo("New Track", "Adds an empty track", "Track", 0);
+        result.addDefaultKeypress('t', command);
+        break;
+    case deleteSelection:
+        result.setInfo("Delete", "Deletes the selected clips", "Edit", 0);
+        result.addDefaultKeypress(juce::KeyPress::backspaceKey, 0);
+        result.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
+        result.setActive(arrangeView.hasSelection());
+        break;
     case playPause:
-        result.setInfo(engine.getTransportState() == engine::TransportState::playing ? "Pause" : "Play",
+        result.setInfo(session.getTransportState() == engine::TransportState::playing ? "Pause"
+                                                                                      : "Play",
                        "Starts or pauses playback", "Transport", 0);
         result.addDefaultKeypress(juce::KeyPress::spaceKey, 0);
-        result.setActive(hasAudio);
+        result.setActive(hasClips);
         break;
     case stop:
-        result.setInfo("Stop", "Stops and returns to the start", "Transport", 0);
+        result.setInfo("Stop", "Stops and goes back to where playback started (again: to 0)",
+                       "Transport", 0);
         result.addDefaultKeypress(juce::KeyPress::returnKey, 0);
-        result.setActive(hasAudio);
         break;
     case toggleLoop:
-        result.setInfo("Loop", "Loops the whole file", "Transport", 0);
+        result.setInfo("Loop", "Loops the loop region, or the whole project", "Transport", 0);
         result.addDefaultKeypress('l', 0);
-        result.setTicked(engine.isLooping());
+        result.setTicked(project.isLoopEnabled());
+        break;
+    case toggleSnap:
+        result.setInfo("Snap to Grid", "Snaps clips and edits to the grid", "Transport", 0);
+        result.addDefaultKeypress('n', 0);
+        result.setTicked(project.isSnapEnabled());
+        break;
+    case zoomIn:
+        result.setInfo("Zoom In", "Shows less of the timeline, in more detail", "View", 0);
+        result.addDefaultKeypress('=', command);
+        result.addDefaultKeypress('+', command);
+        break;
+    case zoomOut:
+        result.setInfo("Zoom Out", "Shows more of the timeline", "View", 0);
+        result.addDefaultKeypress('-', command);
+        break;
+    case zoomToFit:
+        result.setInfo("Zoom to Fit", "Shows the whole project", "View", 0);
+        result.addDefaultKeypress('0', command);
+        break;
+    case toggleMixer:
+        result.setInfo("Mixer", "Shows or hides the mixer", "View", 0);
+        result.addDefaultKeypress('x', 0);
+        result.setTicked(mixerVisible);
         break;
     default:
         break;
@@ -273,64 +363,80 @@ bool MainComponent::perform(const InvocationInfo& info)
 {
     switch (info.commandID)
     {
-    case openAudioFile:
-        chooseAudioFile();
-        return true;
+    case newProject:
+        askToSaveChanges([this] { session.newProject(); });
+        break;
     case openProject:
-        chooseProjectToOpen();
-        return true;
+        askToSaveChanges([this] { chooseProjectToOpen(); });
+        break;
     case saveProject:
-        if (!onSaveProject || !onSaveProject())
-            chooseProjectToSave();
-        return true;
+        saveThen({});
+        break;
     case saveProjectAs:
         chooseProjectToSave();
-        return true;
+        break;
+    case importAudio:
+        chooseAudioToImport();
+        break;
+    case exportMix:
+        ExportDialog::show(session, this);
+        break;
     case audioSettings:
         showAudioSettings();
-        return true;
+        break;
+    case undo:
+        session.undo();
+        break;
+    case redo:
+        session.redo();
+        break;
+    case newTrack:
+        session.addTrack();
+        break;
+    case deleteSelection:
+        arrangeView.deleteSelection();
+        break;
     case playPause:
         togglePlayPause();
-        return true;
+        break;
     case stop:
-        engine.stop();
-        return true;
+        session.stop();
+        break;
     case toggleLoop:
-        if (onLoopToggled)
-            onLoopToggled(!engine.isLooping());
-        return true;
+        session.setLoopEnabled(!session.getProject().isLoopEnabled());
+        break;
+    case toggleSnap:
+        session.setSnapEnabled(!session.getProject().isSnapEnabled());
+        break;
+    case zoomIn:
+        arrangeView.zoomIn();
+        break;
+    case zoomOut:
+        arrangeView.zoomOut();
+        break;
+    case zoomToFit:
+        arrangeView.zoomToFit();
+        break;
+    case toggleMixer:
+        mixerVisible = !mixerVisible;
+        resized();
+        commandManager.commandStatusChanged();
+        break;
     default:
         return false;
     }
+
+    return true;
 }
 
 bool MainComponent::isInterestedInFileDrag(const juce::StringArray& files)
 {
-    const bool interested = files.size() == 1 &&
-                            (isAudioFile(juce::File(files[0])) || isProjectFile(juce::File(files[0])));
-    if (interested != dragHover)
-    {
-        dragHover = interested;
-        repaint();
-    }
-    return interested;
+    return files.size() == 1 && isProjectFile(juce::File(files[0]));
 }
 
 void MainComponent::filesDropped(const juce::StringArray& files, int, int)
 {
-    dragHover = false;
-    repaint();
-
-    const juce::File file(files[0]);
-    if (isProjectFile(file))
-    {
-        if (onOpenProject)
-            onOpenProject(file);
-    }
-    else if (onOpenAudioFile)
-    {
-        onOpenAudioFile(file);
-    }
+    openFile(juce::File(files[0]));
 }
 
 } // namespace daw::ui::desktop

@@ -18,24 +18,27 @@ void Transport::prepare(double sampleRate) noexcept
         level = running ? fadeLength : 0;
 }
 
-void Transport::setSourceLength(juce::int64 lengthInSamples) noexcept
+void Transport::setLength(juce::int64 lengthInSamples) noexcept
 {
     jassert(lengthInSamples >= 0);
+    length = std::max(juce::int64{0}, lengthInSamples);
+}
 
-    sourceLength = std::max(juce::int64{0}, lengthInSamples);
+void Transport::reset() noexcept
+{
     state = TransportState::stopped;
-    position = 0;
-    loopStart = 0;
-    loopEnd = sourceLength;
-    running = false;
-    fadingOut = false;
-    level = 0;
+    returnPosition = 0;
     hasPendingSeek = false;
+
+    if (running)
+        fadingOut = true; // lands on 0 when the fade-out ends
+    else
+        position = 0;
 }
 
 void Transport::play() noexcept
 {
-    if (sourceLength == 0 || state == TransportState::playing)
+    if (length == 0 || state == TransportState::playing)
         return;
 
     const bool wasStopped = state == TransportState::stopped;
@@ -43,12 +46,15 @@ void Transport::play() noexcept
 
     if (!running)
     {
+        if (wasStopped)
+            returnPosition = position;
         startFadeIn();
     }
     else if (wasStopped)
     {
-        // Still fading out after stop(): finish stopping, then start again from 0.
-        seekTarget = 0;
+        // Still fading out after stop(): finish stopping, then start again from
+        // where the stop is taking playback.
+        seekTarget = returnPosition;
         hasPendingSeek = true;
         fadingOut = true;
     }
@@ -69,19 +75,27 @@ void Transport::pause() noexcept
 
 void Transport::stop() noexcept
 {
+    if (state == TransportState::stopped && !running)
+    {
+        position = 0;
+        returnPosition = 0;
+        return;
+    }
+
     const bool wasPlaying = state == TransportState::playing;
     state = TransportState::stopped;
     hasPendingSeek = false;
 
     if (wasPlaying)
-        fadingOut = true; // the position returns to 0 when the fade-out ends
+        fadingOut = true; // the position goes back when the fade-out ends
     else if (!running)
-        position = 0;
+        position = returnPosition;
 }
 
 void Transport::seek(juce::int64 newPosition) noexcept
 {
-    newPosition = std::clamp(newPosition, juce::int64{0}, sourceLength);
+    newPosition = std::max(juce::int64{0}, newPosition);
+    returnPosition = newPosition;
 
     if (running)
     {
@@ -102,25 +116,23 @@ void Transport::setLooping(bool shouldLoop) noexcept
 
 void Transport::setLoopRange(juce::int64 start, juce::int64 end) noexcept
 {
-    start = std::clamp(start, juce::int64{0}, sourceLength);
-    end = std::clamp(end, juce::int64{0}, sourceLength);
-
-    if (end > start)
-    {
-        loopStart = start;
-        loopEnd = end;
-    }
-    else
-    {
-        loopStart = 0;
-        loopEnd = sourceLength;
-    }
+    loopStart = std::max(juce::int64{0}, start);
+    loopEnd = std::max(juce::int64{0}, end);
 }
 
-void Transport::render(const juce::AudioBuffer<float>& source, juce::AudioBuffer<float>& output,
+juce::int64 Transport::getLoopStart() const noexcept
+{
+    return hasLoopRange() ? loopStart : 0;
+}
+
+juce::int64 Transport::getLoopEnd() const noexcept
+{
+    return hasLoopRange() ? loopEnd : length;
+}
+
+void Transport::render(TimelineRenderer& renderer, juce::AudioBuffer<float>& output,
                        int startSample, int numSamples) noexcept
 {
-    jassert(source.getNumSamples() == sourceLength);
     jassert(startSample >= 0 && startSample + numSamples <= output.getNumSamples());
 
     int done = 0;
@@ -135,23 +147,25 @@ void Transport::render(const juce::AudioBuffer<float>& source, juce::AudioBuffer
         }
 
         // Arriving exactly at the loop end wraps; a position already past it (after a
-        // seek) plays on to the end of the source.
-        const juce::int64 limit = looping && position <= loopEnd ? loopEnd : sourceLength;
+        // seek) plays on to the end of the timeline.
+        const juce::int64 end = getLoopEnd();
+        const juce::int64 limit = looping && position <= end ? end : length;
         if (position >= limit)
         {
             reachEnd();
             continue;
         }
 
-        int length = static_cast<int>(std::min<juce::int64>(numSamples - done, limit - position));
+        int segment = static_cast<int>(std::min<juce::int64>(numSamples - done, limit - position));
 
         const int levelsToGo = std::abs(targetLevel() - level);
         if (levelsToGo > 0)
-            length = std::min(length, levelsToGo);
+            segment = std::min(segment, levelsToGo);
 
-        writeSegment(source, output, startSample + done, length);
-        position += length;
-        done += length;
+        renderer.renderTimeline(position, output, startSample + done, segment);
+        applyFade(output, startSample + done, segment);
+        position += segment;
+        done += segment;
 
         if (fadingOut && level == 0)
             finishFadeOut();
@@ -184,63 +198,53 @@ void Transport::finishFadeOut() noexcept
 
     running = false;
     if (state == TransportState::stopped)
-        position = 0;
+        position = returnPosition;
 }
 
 void Transport::reachEnd() noexcept
 {
-    if (looping && position == loopEnd && loopEnd > loopStart)
+    const juce::int64 start = getLoopStart();
+    if (looping && position == getLoopEnd() && getLoopEnd() > start)
     {
-        position = loopStart;
+        position = start;
         return;
     }
 
     state = TransportState::stopped;
-    position = 0;
+    position = returnPosition;
     running = false;
     fadingOut = false;
     level = 0;
     hasPendingSeek = false;
 }
 
-void Transport::writeSegment(const juce::AudioBuffer<float>& source,
-                             juce::AudioBuffer<float>& output, int outputStart,
-                             int length) noexcept
+void Transport::applyFade(juce::AudioBuffer<float>& output, int outputStart,
+                          int numSamples) noexcept
 {
     const int step = level < targetLevel() ? 1 : (level > targetLevel() ? -1 : 0);
+
+    if (step == 0)
+    {
+        jassert(level == fadeLength); // not fading while running means full gain
+        return;
+    }
+
     const auto fullLevel = static_cast<float>(fadeLength);
-    const int sourceChannels = source.getNumChannels();
-    const auto sourceStart = static_cast<int>(position);
 
     for (int channel = 0; channel < output.getNumChannels(); ++channel)
     {
-        float* destination = output.getWritePointer(channel, outputStart);
-
-        if (channel >= 2 || sourceChannels == 0)
-        {
-            juce::FloatVectorOperations::clear(destination, length);
-            continue;
-        }
-
-        const float* samples = source.getReadPointer(std::min(channel, sourceChannels - 1), sourceStart);
-
-        if (step == 0)
-        {
-            jassert(level == fadeLength); // not fading while running means full gain
-            juce::FloatVectorOperations::copy(destination, samples, length);
-            continue;
-        }
-
+        float* samples = output.getWritePointer(channel, outputStart);
         int sampleLevel = level;
-        for (int i = 0; i < length; ++i)
+
+        for (int i = 0; i < numSamples; ++i)
         {
             sampleLevel += step;
             // Division, not a reciprocal multiply: the last fade-in sample gets exactly 1.
-            destination[i] = samples[i] * (static_cast<float>(sampleLevel) / fullLevel);
+            samples[i] *= static_cast<float>(sampleLevel) / fullLevel;
         }
     }
 
-    level += step * length;
+    level += step * numSamples;
 }
 
 } // namespace daw::engine
