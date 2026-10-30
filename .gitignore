@@ -1,0 +1,16 @@
+# Build output (one directory per CMake preset)
+/build/
+/out/
+
+# Downloaded dependency archives, see cmake/Dependencies.cmake
+/.cache/
+
+# Personal CMake overrides
+CMakeUserPresets.json
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+compile_commands.json
