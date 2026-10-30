@@ -2,6 +2,7 @@
 # Never depends on any UI module (see CLAUDE.md, Architecture).
 
 add_library(daw_engine STATIC
+    src/AudioSource.cpp
     src/Engine.cpp
     src/Transport.cpp
     src/dsp/MeterBallistics.cpp
@@ -9,7 +10,8 @@ add_library(daw_engine STATIC
     src/dsp/Resampler.cpp
     src/dsp/WaveformPeaks.cpp
     src/io/AudioDeviceHost.cpp
-    src/io/AudioFileLoader.cpp)
+    src/io/AudioFileLoader.cpp
+    src/io/SourcePool.cpp)
 add_library(daw::engine ALIAS daw_engine)
 
 target_include_directories(daw_engine PUBLIC include PRIVATE src)

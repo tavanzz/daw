@@ -40,10 +40,13 @@ Modules with one-way dependencies:
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
 - Anything both UIs will need (waveform peaks, meter values, transport state) lives
   in `engine` or `model`, never in a UI module.
-- Audio files (Phase 1): `engine::io::loadAudioFile()` decodes a whole WAV/AIFF into
-  memory and converts it to the device sample rate with `engine::dsp::resample()`
-  (offline windowed sinc), off the audio thread. The engine then plays `AudioData`
-  at its native rate. Streaming from disk comes with multitrack.
+- Audio files: `engine::io::loadAudioFile()` decodes a whole WAV/AIFF into memory
+  and converts it to the device sample rate with `engine::dsp::resample()` (offline
+  windowed sinc), off the audio thread. `engine::io::SourcePool` loads each file
+  once however many clips use it, on worker threads; finished loads are applied
+  when the owner calls `collectFinishedLoads()`. Clips read audio only through
+  `engine::AudioSource::read()` (real-time safe; `MemoryAudioSource` today), so a
+  streaming source can replace the in-memory one later without touching the mixer.
 - Engine threading (Phase 1): UI commands go through an `SpscQueue` and apply at the
   next block; new `AudioData` arrives through an atomic pointer and is swapped in only
   after the current audio has faded out; replaced audio goes back on a second queue
@@ -218,7 +221,7 @@ automation, mobile UI.
 - [x] 2. Multitrack model: track mixer settings, clip position/offset/length, ids,
       undoable editing operations
 - [x] 3. Project format version 2 and the migration from version 1
-- [ ] 4. Audio sources: `AudioSource` interface, `SourcePool` loading each file once
+- [x] 4. Audio sources: `AudioSource` interface, `SourcePool` loading each file once
 - [ ] 5. Mix renderer: immutable `Arrangement` snapshot, sample-exact clips,
       volume/pan/mute/solo with smoothing, track and master meters
 - [ ] 6. Engine on the timeline: atomic snapshot exchange, crossfade on structural

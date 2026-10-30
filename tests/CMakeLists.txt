@@ -10,6 +10,7 @@ add_executable(daw_tests
     engine/EngineTests.cpp
     engine/MeterTests.cpp
     engine/ResamplerTests.cpp
+    engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp
     engine/TransportTests.cpp
     engine/WaveformPeaksTests.cpp
