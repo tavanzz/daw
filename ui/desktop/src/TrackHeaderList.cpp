@@ -71,7 +71,7 @@ public:
             menu.addItem("Delete Track", [this] {
                 // Deleting destroys this header: leave the menu callback first.
                 juce::MessageManager::callAsync(
-                    [&session = session, id = trackId] { session.removeTrack(id); });
+                    [&owner = session, id = trackId] { owner.removeTrack(id); });
             });
             menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this));
         }

@@ -207,8 +207,11 @@ ctest --preset debug            # run all tests
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
-- Listening tests: `docs/LISTENING_TESTS.md`; reference files from
-  `python3 tools/make_listening_test_files.py` (into `build/listening-tests/`).
+- Listening tests: `docs/LISTENING_TESTS.md`; reference files and the Phase 2 demo
+  project from `python3 tools/make_listening_test_files.py` (into
+  `build/listening-tests/`).
+- Mixing benchmark (Release only, not in CTest): `build/release/tests/daw_bench`;
+  results in `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen.
 
@@ -279,7 +282,10 @@ automation, mobile UI.
 - [ ] 9. Benchmark: tracks per audio callback budget (Release)
 - [x] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap
 - [x] 11. Desktop UI: mixer, export dialog, undo/redo, new project, unsaved changes
-- [ ] 12. Listening-test files and `docs/LISTENING_TESTS.md` for Phase 2
+- [x] 12. Listening-test files and `docs/LISTENING_TESTS.md` for Phase 2
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 1–31) on macOS
+- [ ] CI green on Windows, macOS and Linux (jobs not started since step 8: GitHub
+      account billing)
 
 Phase 2 decisions (agreed before starting):
 
