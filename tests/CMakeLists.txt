@@ -5,6 +5,9 @@ add_executable(daw_tests
     support/RealtimeCheckTests.cpp
     support/TestMain.cpp
     support/TestAudioFiles.cpp
+    controller/ArrangementBuilderTests.cpp
+    controller/SessionTests.cpp
+    controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
     engine/AudioFileLoaderTests.cpp
     engine/BounceTests.cpp
@@ -22,7 +25,7 @@ add_executable(daw_tests
     model/TimelineTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(daw_tests PRIVATE daw::engine daw::model Catch2::Catch2)
+target_link_libraries(daw_tests PRIVATE daw::controller daw::engine daw::model Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 
 # PRE_TEST: tests are listed when CTest runs, not at build time, so building
@@ -56,3 +59,8 @@ add_test(NAME architecture.detects_engine_include_in_model
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_engine_include_in_model PROPERTIES
     PASS_REGULAR_EXPRESSION "model/src/UsesEngine\\.cpp: <daw/engine/Engine\\.h>")
+
+add_test(NAME architecture.detects_gui_include_in_controller
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_gui_include_in_controller PROPERTIES
+    PASS_REGULAR_EXPRESSION "controller/src/UsesGui\\.cpp: <juce_gui_basics/juce_gui_basics\\.h>")

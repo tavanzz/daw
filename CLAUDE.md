@@ -23,18 +23,20 @@ Modules with one-way dependencies:
 |---------------|-------------------------------------------------------------------|----------------------------------|
 | `engine/`     | audio engine: processing graph, transport, mixer, DSP, audio I/O  | non-GUI JUCE modules             |
 | `model/`      | project state (tracks, clips, parameters), versioned project files | non-GUI JUCE modules            |
-| `ui/desktop/` | mouse and keyboard interface                                      | engine, model, JUCE GUI          |
-| `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | engine, model, JUCE GUI          |
+| `controller/` | maps the model onto the engine: session, undo, loading, export, timeline view math | engine, model, non-GUI JUCE |
+| `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, JUCE GUI |
+| `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
-| `tests/`      | unit tests, mainly for engine and model                           | engine, model                    |
+| `tests/`      | unit tests for engine, model and controller                       | controller, engine, model        |
 
-- `engine` never depends on any UI. `engine` and `model` don't depend on each other;
-  `app` (later, a controller layer) maps the model onto the engine.
+- `engine` never depends on any UI. `engine` and `model` don't depend on each other
+  nor on `controller`; `controller` maps the model onto the engine.
 - Enforced by the CMake target graph and by the `architecture.*` CTest tests
-  (`cmake/CheckArchitecture.cmake`): they fail if `engine/` or `model/` include GUI
-  JUCE modules, `JuceHeader.h`, `daw/ui/...`, or each other.
+  (`cmake/CheckArchitecture.cmake`): they fail if `engine/`, `model/` or
+  `controller/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, or if
+  `engine/` and `model/` include each other or `controller/`.
 - Every module has public headers in `include/daw/<module>/` and private code in
-  `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::ui::desktop`.
+  `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`, `daw::ui::desktop`.
 - JUCE is compiled once into the internal static library `daw::juce`
   (`cmake/JuceLibrary.cmake`), with JUCE's own flags. Include JUCE module headers
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
@@ -103,6 +105,16 @@ Modules with one-way dependencies:
   once; `model::Grid` gives grid lines (restarting at every bar line) and snapping.
   The engine never sees ticks: they become samples when the arrangement is built.
 
+- Controller (Phase 2): `controller::Session` owns the open project, its
+  `juce::UndoManager` (gestures group a drag into one step), a `SourcePool` at the
+  device rate, and the per-track meters; it listens to the project's ValueTree and,
+  at the next `update()` (UI timer), rebuilds the arrangement with
+  `buildArrangement()` and hands it to the engine. Lengths learnt from loaded files
+  fill in unknown clip lengths without counting as edits. `TimelineViewport` holds
+  zoom/scroll and pixel↔tick conversion, `timeRulerMarks()` / `barRulerMarks()`
+  the rulers; `ClipEditing.h` the move/trim rules with `Snapper`. `ExportJob` copies
+  the project on the message thread and exports on another, loading files at the
+  export rate when it differs from the device's.
 - Audio output: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
   forwards the device callback to `Engine::process()` (stereo; extra outputs cleared).
 - Desktop UI (`ui/desktop`): views only. `MainComponent` polls the engine at 60 Hz,
@@ -253,7 +265,7 @@ automation, mobile UI.
 - [x] 6. Engine on the timeline: atomic snapshot exchange, crossfade on structural
       changes, transport over the timeline with a loop region
 - [x] 7. Offline bounce to WAV (16/24-bit, 32-bit float; sample rate; dither)
-- [ ] 8. `controller` module: session, snapshot building, timeline viewport and ruler,
+- [x] 8. `controller` module: session, snapshot building, timeline viewport and ruler,
       clip drags with snap
 - [ ] 9. Benchmark: tracks per audio callback budget (Release)
 - [ ] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap

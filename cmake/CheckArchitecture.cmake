@@ -5,8 +5,9 @@
 #   cmake -DDAW_SOURCE_DIR=<repository root> -P cmake/CheckArchitecture.cmake
 #
 # Rules:
-#   - engine/ and model/ never include GUI JUCE modules, JuceHeader.h or daw/ui/
-#   - engine/ and model/ never include each other
+#   - engine/, model/ and controller/ never include GUI JUCE modules, JuceHeader.h
+#     or daw/ui/
+#   - engine/ and model/ never include each other, nor controller/
 
 if(NOT DAW_SOURCE_DIR)
     message(FATAL_ERROR "DAW_SOURCE_DIR is not set")
@@ -59,8 +60,9 @@ function(check_module module_dir)
     set(violations "${found}" PARENT_SCOPE)
 endfunction()
 
-check_module(engine ${gui_includes} "daw/model/")
-check_module(model ${gui_includes} "daw/engine/")
+check_module(engine ${gui_includes} "daw/model/" "daw/controller/")
+check_module(model ${gui_includes} "daw/engine/" "daw/controller/")
+check_module(controller ${gui_includes})
 
 if(violations)
     message(FATAL_ERROR "Module dependency rules violated (see CLAUDE.md, Architecture):${violations}")
