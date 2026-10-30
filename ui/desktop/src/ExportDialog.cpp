@@ -20,8 +20,8 @@ public:
 
     void run() override
     {
-        result = job.run([this](double progress) {
-            setProgress(progress);
+        result = job.run([this](double fraction) {
+            setProgress(fraction);
             return !threadShouldExit();
         });
     }
@@ -30,18 +30,18 @@ public:
     {
         const auto& settings = job.getSettings();
         juce::String title = "Export finished";
-        juce::String message;
+        juce::String text;
         auto icon = juce::MessageBoxIconType::InfoIcon;
 
         if (userPressedCancel || result.cancelled)
         {
             title = "Export cancelled";
-            message = "Nothing was written.";
+            text = "Nothing was written.";
         }
         else if (result.result.failed())
         {
             title = "Export failed";
-            message = result.result.getErrorMessage();
+            text = result.result.getErrorMessage();
             icon = juce::MessageBoxIconType::WarningIcon;
         }
         else
@@ -53,25 +53,25 @@ public:
             const auto peak = result.peak > 0.0f
                                   ? juce::String(20.0 * std::log10(result.peak), 1) + " dBFS"
                                   : juce::String("silence");
-            message << settings.file.getFullPathName() << "\n" << juce::String(seconds, 2)
-                    << " s at " << juce::String(settings.sampleRate / 1000.0, 1) << " kHz, "
-                    << format << ". Peak " << peak << ".";
+            text << settings.file.getFullPathName() << "\n" << juce::String(seconds, 2)
+                 << " s at " << juce::String(settings.sampleRate / 1000.0, 1) << " kHz, "
+                 << format << ". Peak " << peak << ".";
 
             if (result.peak > 1.0f)
             {
                 icon = juce::MessageBoxIconType::WarningIcon;
-                message << "\n\nThe mix goes over 0 dBFS: ";
+                text << "\n\nThe mix goes over 0 dBFS: ";
                 if (settings.bitsPerSample == 32)
-                    message << "the float file keeps it, but it will clip when played or "
-                               "converted.";
+                    text << "the float file keeps it, but it will clip when played or "
+                            "converted.";
                 else
-                    message << "it is clipped in the file. Lower the master volume and export "
-                               "again.";
+                    text << "it is clipped in the file. Lower the master volume and export "
+                            "again.";
             }
         }
 
         juce::NativeMessageBox::showAsync(
-            juce::MessageBoxOptions::makeOptionsOk(icon, title, message), nullptr);
+            juce::MessageBoxOptions::makeOptionsOk(icon, title, text), nullptr);
         delete this; // launched with new, owns itself
     }
 
