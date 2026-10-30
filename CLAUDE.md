@@ -52,6 +52,18 @@ Modules with one-way dependencies:
   after the current audio has faded out; replaced audio goes back on a second queue
   and `Engine::collectGarbage()` frees it on the message thread. State for the UI is
   published with relaxed atomics after every block.
+- Mixing (Phase 2): the message thread builds an immutable `engine::Arrangement`
+  (tracks with target gains and their audible `ClipSegment`s, sorted and disjoint;
+  master gain; length; loop region; the sources it reads, kept alive by
+  `shared_ptr`). `flattenClips()` resolves overlaps (the clip on top hides what it
+  covers) and puts 5 ms fades on cut edges only. `engine::Mixer::render()` is the
+  one mixing function, for playback and export: per track it reads the segments,
+  applies fades and the ramped L/R gains (`dsp::GainRamp`, 20 ms, each gain computed
+  from the ramp start), meters the track, and adds it to the mix (plain adds, no
+  fused multiply-add); then the master gain. The result is bit-identical however the
+  timeline is cut into blocks (tested). `MixState` holds the ramps of one
+  arrangement; `continueFrom()` carries them over by track id. Pan law:
+  `dsp::panGains()`, constant power compensated to 0 dB in the centre.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -222,7 +234,7 @@ automation, mobile UI.
       undoable editing operations
 - [x] 3. Project format version 2 and the migration from version 1
 - [x] 4. Audio sources: `AudioSource` interface, `SourcePool` loading each file once
-- [ ] 5. Mix renderer: immutable `Arrangement` snapshot, sample-exact clips,
+- [x] 5. Mix renderer: immutable `Arrangement` snapshot, sample-exact clips,
       volume/pan/mute/solo with smoothing, track and master meters
 - [ ] 6. Engine on the timeline: atomic snapshot exchange, crossfade on structural
       changes, transport over the timeline with a loop region

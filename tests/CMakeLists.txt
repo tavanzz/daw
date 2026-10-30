@@ -9,6 +9,7 @@ add_executable(daw_tests
     engine/AudioFileLoaderTests.cpp
     engine/EngineTests.cpp
     engine/MeterTests.cpp
+    engine/MixerTests.cpp
     engine/ResamplerTests.cpp
     engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp

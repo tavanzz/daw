@@ -2,10 +2,14 @@
 # Never depends on any UI module (see CLAUDE.md, Architecture).
 
 add_library(daw_engine STATIC
+    src/Arrangement.cpp
     src/AudioSource.cpp
     src/Engine.cpp
+    src/Mixer.cpp
     src/Transport.cpp
+    src/dsp/GainRamp.cpp
     src/dsp/MeterBallistics.cpp
+    src/dsp/PanLaw.cpp
     src/dsp/PeakLevelMeter.cpp
     src/dsp/Resampler.cpp
     src/dsp/WaveformPeaks.cpp
