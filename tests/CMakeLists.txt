@@ -28,6 +28,11 @@ target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::controller daw::engine daw::model Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 
+# Not a test: measures how many tracks fit in an audio callback (see the source).
+add_executable(daw_bench bench/MixBenchmark.cpp)
+target_link_libraries(daw_bench PRIVATE daw::engine)
+daw_enable_warnings(daw_bench)
+
 # PRE_TEST: tests are listed when CTest runs, not at build time, so building
 # never needs to execute the test binary.
 catch_discover_tests(daw_tests DISCOVERY_MODE PRE_TEST)

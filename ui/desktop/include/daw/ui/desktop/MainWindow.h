@@ -1,6 +1,6 @@
 #pragma once
 
-#include "daw/engine/Engine.h"
+#include "daw/controller/Session.h"
 #include "daw/ui/desktop/MainComponent.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -15,7 +15,7 @@ namespace daw::ui::desktop
 class MainWindow final : public juce::DocumentWindow, public juce::MenuBarModel
 {
 public:
-    MainWindow(const juce::String& windowTitle, engine::Engine& engine,
+    MainWindow(const juce::String& windowTitle, controller::Session& session,
                juce::AudioDeviceManager& deviceManager);
     ~MainWindow() override;
 

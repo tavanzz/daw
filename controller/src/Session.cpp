@@ -102,6 +102,7 @@ void Session::replaceProject(model::Project newProject)
 
     requestAllSources();
     arrangementOutOfDate = true;
+    ++revision;
 }
 
 // Reading ----------------------------------------------------------------------------
@@ -403,6 +404,7 @@ void Session::sourceChanged(const juce::File& file)
 {
     resolveLengths(file);
     arrangementOutOfDate = true;
+    ++revision;
 }
 
 void Session::resolveLengths(const juce::File& file)
@@ -455,6 +457,7 @@ std::optional<model::Track> Session::findTrack(model::ObjectId trackId) const
 void Session::projectChanged()
 {
     arrangementOutOfDate = true;
+    ++revision;
     if (!resolvingLengths)
         unsavedChanges = true;
 }

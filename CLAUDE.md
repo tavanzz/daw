@@ -117,15 +117,19 @@ Modules with one-way dependencies:
   export rate when it differs from the device's.
 - Audio output: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
   forwards the device callback to `Engine::process()` (stereo; extra outputs cleared).
-- Desktop UI (`ui/desktop`): views only. `MainComponent` polls the engine at 60 Hz,
-  sends transport commands to it, and hands file/project/loop actions to `app/`
-  through `on...` callbacks. Shortcuts and menus use JUCE's ApplicationCommandManager.
-- `app/AppController` is the controller: loads audio on a background thread
-  (`juce::ThreadPool`, results back via `MessageManager::callAsync` and a
-  `WeakReference`), mirrors file and loop choices into the project, saves/opens
-  projects, reloads audio when the device sample rate changes, and stores the chosen
-  device in the user settings (`~/Library/Application Support/DAW/DAW.settings` on macOS).
-  Phase 1 projects hold one track with one clip.
+- Desktop UI (`ui/desktop`): views over a `controller::Session`; every edit goes
+  through it. `MainComponent` (transport bar, `ArrangeView`, master meter) refreshes
+  at 60 Hz and handles the commands (menus and shortcuts, JUCE's
+  ApplicationCommandManager). `ArrangeView` = `TimelineRuler` + `TrackHeaderList` +
+  `TrackLanes` (drawing and clip mouse editing), sharing an `ArrangeState` (session,
+  `TimelineViewport`, selection). Views redraw when `Session::getRevision()` changes.
+- `app/AppController` owns the engine, the device host, the session and the window;
+  drives `Session::update()` at 60 Hz, passes device sample-rate changes to the
+  session, keeps the window title, and stores the chosen device in the user settings
+  (`~/Library/Application Support/DAW/DAW.settings` on macOS).
+- macOS asks the user before an app reads files in Documents, Desktop or Downloads;
+  until they answer, file loads block in `open()`. Test from a session with audio
+  copied outside those folders.
 
 ## Project file format rules
 
@@ -268,7 +272,7 @@ automation, mobile UI.
 - [x] 8. `controller` module: session, snapshot building, timeline viewport and ruler,
       clip drags with snap
 - [ ] 9. Benchmark: tracks per audio callback budget (Release)
-- [ ] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap
+- [x] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap
 - [ ] 11. Desktop UI: mixer, export dialog, undo/redo, new project, unsaved changes
 - [ ] 12. Listening-test files and `docs/LISTENING_TESTS.md` for Phase 2
 

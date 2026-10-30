@@ -62,6 +62,10 @@ public:
     [[nodiscard]] juce::File getProjectFile() const { return projectFile; }
     [[nodiscard]] bool hasUnsavedChanges() const noexcept { return unsavedChanges; }
 
+    /** Goes up whenever anything a view shows may have changed: an edit, undo, a
+        file finishing loading, another project. Views compare it to redraw. */
+    [[nodiscard]] juce::uint64 getRevision() const noexcept { return revision; }
+
     // Reading the project -------------------------------------------------------------
 
     /** For views: change the project only through the Session. */
@@ -157,6 +161,7 @@ private:
     juce::File projectFile;
     std::map<model::ObjectId, std::shared_ptr<engine::dsp::PeakLevelMeter>> meters;
 
+    juce::uint64 revision = 1;
     bool arrangementOutOfDate = true;
     bool unsavedChanges = false;
     bool inGesture = false;
