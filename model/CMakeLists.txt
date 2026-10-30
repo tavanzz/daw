@@ -5,6 +5,7 @@ add_library(daw_model STATIC
     src/Clip.cpp
     src/FormatVersion.cpp
     src/Grid.cpp
+    src/ObjectIds.cpp
     src/Project.cpp
     src/ProjectFile.cpp
     src/TempoMap.cpp

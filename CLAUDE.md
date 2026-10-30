@@ -54,8 +54,18 @@ Modules with one-way dependencies:
   readings into what a meter shows (time-based, so refresh-rate independent);
   `dsp::WaveformPeaks` keeps min/max per 256-sample bucket. All three are UI-agnostic.
 - Project model: `model::Project` / `Track` / `Clip` are typed handles onto a
-  `juce::ValueTree` (undo and listeners come for free later). `model::ProjectFile`
-  maps it explicitly to JSON (`.dawproject`, LF, UTF-8) with `"formatVersion"`.
+  `juce::ValueTree`. `model::ProjectFile` maps it explicitly to JSON (`.dawproject`,
+  LF, UTF-8) with `"formatVersion"`.
+  - Tracks hold mixer settings (volume as linear gain 0 to +6 dB, pan -1 to 1, mute,
+    solo) and clips in stacking order (last = on top). `Project::isTrackAudible()`
+    is the one place with the mute/solo rule. A clip is a file, a timeline position,
+    an offset into the file and a length (unknown until the file is read, for
+    migrated projects: `Clip::resolveLength()`).
+  - Tracks and clips have ids, unique across both, computed as the largest id in
+    the project + 1 (no hidden counter; see `model/src/ObjectIds.h`).
+  - Undo: setters that take a `juce::UndoManager*` are undoable; the others (loop
+    on/off, snap, grid, length resolution) deliberately are not. The caller groups
+    changes into transactions.
 - Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
   integers at 282,240,000 per second, a number every common sample rate divides, so
   sample positions at any of them are exact and the project has no sample rate of its
@@ -205,7 +215,7 @@ automation, mobile UI.
 
 - [x] 0. Plan (this list) and draft pull request
 - [x] 1. Timeline time in the model: ticks, tempo and metre, conversions, grid, snap
-- [ ] 2. Multitrack model: track mixer settings, clip position/offset/length, ids,
+- [x] 2. Multitrack model: track mixer settings, clip position/offset/length, ids,
       undoable editing operations
 - [ ] 3. Project format version 2 and the migration from version 1
 - [ ] 4. Audio sources: `AudioSource` interface, `SourcePool` loading each file once

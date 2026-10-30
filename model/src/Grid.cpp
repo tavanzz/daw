@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <utility>
 
 namespace daw::model
 {
@@ -33,7 +34,36 @@ int noteValue(GridDivision division) noexcept
     return 0;
 }
 
+constexpr std::array<std::pair<GridDivision, const char*>, 7> divisionNames{{
+    {GridDivision::automatic, "auto"},
+    {GridDivision::bar, "bar"},
+    {GridDivision::half, "1/2"},
+    {GridDivision::quarter, "1/4"},
+    {GridDivision::eighth, "1/8"},
+    {GridDivision::sixteenth, "1/16"},
+    {GridDivision::thirtySecond, "1/32"},
+}};
+
 } // namespace
+
+juce::String toString(GridDivision division)
+{
+    for (const auto& [value, name] : divisionNames)
+        if (value == division)
+            return name;
+
+    jassertfalse;
+    return {};
+}
+
+std::optional<GridDivision> gridDivisionFromString(const juce::String& text)
+{
+    for (const auto& [value, name] : divisionNames)
+        if (text == name)
+            return value;
+
+    return std::nullopt;
+}
 
 Grid::Grid(const TempoMap& map, GridDivision gridDivision) noexcept
     : tempoMap(map)

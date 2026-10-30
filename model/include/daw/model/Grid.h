@@ -3,6 +3,7 @@
 #include "daw/model/TempoMap.h"
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace daw::model
@@ -20,6 +21,11 @@ enum class GridDivision : std::uint8_t
     sixteenth,
     thirtySecond
 };
+
+/** Names of grid divisions as stored in project files and shown in menus: "auto",
+    "bar", "1/2", "1/4", "1/8", "1/16", "1/32". */
+[[nodiscard]] juce::String toString(GridDivision division);
+[[nodiscard]] std::optional<GridDivision> gridDivisionFromString(const juce::String& text);
 
 /**
     The grid lines of a TempoMap at one division, and snapping to them.
