@@ -302,7 +302,7 @@ TEST_CASE("Quantising rounds to the nearest step and clips at full scale", "[eng
     CHECK(quantise(0.0f, 16, 0.75f) == 1);            // dither pushes it over
 }
 
-TEST_CASE("Dither is ±1 LSB of triangular noise, the same on every export", "[engine][bounce]")
+TEST_CASE("Dither is one LSB of triangular noise, the same on every export", "[engine][bounce]")
 {
     TemporaryDirectory directory;
     const auto silence = std::make_unique<Arrangement>();

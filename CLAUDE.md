@@ -189,6 +189,8 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
 - No `using namespace` in headers. Use `[[nodiscard]]`, `const` and `noexcept`
   where they carry meaning.
 - Code, comments, commit messages and UI text in English.
+- Test case names in plain ASCII: CTest passes each name on the command line, and on
+  Windows other characters arrive mangled, so the test is not found and fails.
 - Commits are authored as `tavanzz` with the GitHub noreply address
   (`94704314+tavanzz@users.noreply.github.com`, set in the repository's git config):
   the repository is public, so no personal email in new commits.
