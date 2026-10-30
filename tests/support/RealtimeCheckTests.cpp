@@ -14,17 +14,30 @@
 using daw::test::heapOperationsDuring;
 using daw::test::heapOperationsOnThisThread;
 
+namespace
+{
+// Makes a pointer observable, so the optimiser cannot drop the allocation behind it.
+void escape(const void* pointer)
+{
+    [[maybe_unused]] static const void* volatile sink = nullptr;
+    sink = pointer;
+}
+} // namespace
+
 TEST_CASE("Heap operations are counted for new, delete and growing containers", "[test-support]")
 {
+    // Direct calls: the optimiser may remove a matching new-expression/delete pair
+    // altogether (GCC does in release builds), but never a call to operator new.
     const auto beforeNew = heapOperationsOnThisThread();
-    auto* value = new int(42);
-    delete value;
+    void* memory = ::operator new(sizeof(int));
+    ::operator delete(memory);
     const auto newAndDelete = heapOperationsOnThisThread() - beforeNew;
 
     const auto beforeVector = heapOperationsOnThisThread();
     {
         std::vector<float> samples;
         samples.push_back(1.0f);
+        escape(samples.data());
     }
     const auto vectorGrowth = heapOperationsOnThisThread() - beforeVector;
 
@@ -63,8 +76,20 @@ TEST_CASE("heapOperationsDuring reports code that allocates", "[test-support]")
     if constexpr (daw::test::realtimeSanitizerEnabled)
         SKIP("RealtimeSanitizer stops the process on the first allocation instead");
 
-    const auto count = heapOperationsDuring([] { std::vector<double> values(64); });
-    CHECK(count == 2);
+    const auto direct = heapOperationsDuring([] {
+        void* memory = ::operator new(64);
+        ::operator delete(memory);
+    });
+
+    // At least the vector's own allocation and deallocation; MSVC debug builds add a
+    // bookkeeping block per container.
+    const auto container = heapOperationsDuring([] {
+        std::vector<double> values(64);
+        escape(values.data());
+    });
+
+    CHECK(direct == 2);
+    CHECK(container >= 2);
 }
 
 // Not discovered as a normal test (the "." tag hides it). In RealtimeSanitizer
