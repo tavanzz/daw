@@ -6,9 +6,11 @@ add_executable(daw_tests
     support/TestAudioFiles.cpp
     engine/AudioFileLoaderTests.cpp
     engine/EngineTests.cpp
+    engine/MeterTests.cpp
     engine/ResamplerTests.cpp
     engine/SpscQueueTests.cpp
     engine/TransportTests.cpp
+    engine/WaveformPeaksTests.cpp
     model/FormatVersionTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

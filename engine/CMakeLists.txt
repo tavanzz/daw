@@ -4,7 +4,10 @@
 add_library(daw_engine STATIC
     src/Engine.cpp
     src/Transport.cpp
+    src/dsp/MeterBallistics.cpp
+    src/dsp/PeakLevelMeter.cpp
     src/dsp/Resampler.cpp
+    src/dsp/WaveformPeaks.cpp
     src/io/AudioFileLoader.cpp)
 add_library(daw::engine ALIAS daw_engine)
 

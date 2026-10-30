@@ -49,6 +49,10 @@ Modules with one-way dependencies:
   after the current audio has faded out; replaced audio goes back on a second queue
   and `Engine::collectGarbage()` frees it on the message thread. State for the UI is
   published with relaxed atomics after every block.
+- Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
+  (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
+  readings into what a meter shows (time-based, so refresh-rate independent);
+  `dsp::WaveformPeaks` keeps min/max per 256-sample bucket. All three are UI-agnostic.
 
 ## Audio thread rules (non-negotiable)
 
@@ -149,6 +153,6 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 - [x] 2. Real-time primitives: lock-free queue, allocation guard for tests
 - [x] 3. WAV/AIFF loading and sample-rate conversion
 - [x] 4. Transport: play, pause, stop, loop, seek, de-click fades
-- [ ] 5. Level meter and waveform peaks
+- [x] 5. Level meter and waveform peaks
 - [ ] 6. Project model and versioned project files
 - [ ] 7. Desktop UI and audio device output

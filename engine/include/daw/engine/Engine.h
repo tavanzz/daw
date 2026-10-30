@@ -2,6 +2,7 @@
 
 #include "daw/engine/AudioData.h"
 #include "daw/engine/Transport.h"
+#include "daw/engine/dsp/PeakLevelMeter.h"
 #include "daw/engine/rt/SpscQueue.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -89,6 +90,10 @@ public:
     [[nodiscard]] juce::int64 getAudioLength() const noexcept;
     [[nodiscard]] bool isLooping() const noexcept;
 
+    /** One reader thread (the UI): highest absolute output sample on the channel
+        (0 = left, 1 = right) since the previous call, as a linear gain. */
+    [[nodiscard]] float takeOutputPeak(int channel) noexcept;
+
 private:
     using Command = detail::EngineCommand;
 
@@ -118,6 +123,7 @@ private:
     std::atomic<juce::int64> publishedPosition{0};
     std::atomic<juce::int64> publishedLength{0};
     std::atomic<bool> publishedLooping{false};
+    dsp::PeakLevelMeter outputMeter;
 };
 
 } // namespace daw::engine

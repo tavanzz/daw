@@ -45,6 +45,7 @@ void Engine::process(juce::AudioBuffer<float>& output) noexcept
     else
         output.clear();
 
+    outputMeter.process(output, 0, output.getNumSamples());
     publish();
 }
 
@@ -108,6 +109,11 @@ juce::int64 Engine::getAudioLength() const noexcept
 bool Engine::isLooping() const noexcept
 {
     return publishedLooping.load(std::memory_order_relaxed);
+}
+
+float Engine::takeOutputPeak(int channel) noexcept
+{
+    return outputMeter.takePeak(channel);
 }
 
 void Engine::send(Command command)
