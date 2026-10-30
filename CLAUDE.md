@@ -40,6 +40,10 @@ Modules with one-way dependencies:
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
 - Anything both UIs will need (waveform peaks, meter values, transport state) lives
   in `engine` or `model`, never in a UI module.
+- Audio files (Phase 1): `engine::io::loadAudioFile()` decodes a whole WAV/AIFF into
+  memory and converts it to the device sample rate with `engine::dsp::resample()`
+  (offline windowed sinc), off the audio thread. The engine then plays `AudioData`
+  at its native rate. Streaming from disk comes with multitrack.
 
 ## Audio thread rules (non-negotiable)
 
@@ -138,7 +142,7 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 - [x] 0. Skeleton: CMake, presets, dependencies, empty modules, architecture tests
 - [x] 1. CI on GitHub Actions (Windows, macOS, Linux)
 - [x] 2. Real-time primitives: lock-free queue, allocation guard for tests
-- [ ] 3. WAV/AIFF loading and sample-rate conversion
+- [x] 3. WAV/AIFF loading and sample-rate conversion
 - [ ] 4. Transport: play, pause, stop, loop, seek, de-click fades
 - [ ] 5. Level meter and waveform peaks
 - [ ] 6. Project model and versioned project files

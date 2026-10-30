@@ -3,7 +3,10 @@ include(Catch)
 add_executable(daw_tests
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
+    support/TestAudioFiles.cpp
+    engine/AudioFileLoaderTests.cpp
     engine/EngineTests.cpp
+    engine/ResamplerTests.cpp
     engine/SpscQueueTests.cpp
     model/FormatVersionTests.cpp)
 
