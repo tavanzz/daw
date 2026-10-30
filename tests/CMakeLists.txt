@@ -11,7 +11,9 @@ add_executable(daw_tests
     engine/SpscQueueTests.cpp
     engine/TransportTests.cpp
     engine/WaveformPeaksTests.cpp
-    model/FormatVersionTests.cpp)
+    model/FormatVersionTests.cpp
+    model/ProjectFileTests.cpp
+    model/ProjectTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::engine daw::model Catch2::Catch2WithMain)

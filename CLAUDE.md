@@ -53,6 +53,19 @@ Modules with one-way dependencies:
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
   `dsp::WaveformPeaks` keeps min/max per 256-sample bucket. All three are UI-agnostic.
+- Project model: `model::Project` / `Track` / `Clip` are typed handles onto a
+  `juce::ValueTree` (undo and listeners come for free later). `model::ProjectFile`
+  maps it explicitly to JSON (`.dawproject`, LF, UTF-8) with `"formatVersion"`.
+
+## Project file format rules
+
+- Any change to what is written to disk bumps `model::currentFormatVersion`
+  (`model/include/daw/model/FormatVersion.h`) and appends a migration to the chain
+  in `model/src/ProjectFile.cpp` that upgrades the previous version's JSON.
+- Update the golden test ("The file format is exactly the documented JSON") in the
+  same commit, and add a test that loads a file of the previous version.
+- Never reuse or rename a JSON field without a migration; unknown fields are ignored
+  on load, files from newer versions are refused with a message.
 
 ## Audio thread rules (non-negotiable)
 
@@ -154,5 +167,5 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 - [x] 3. WAV/AIFF loading and sample-rate conversion
 - [x] 4. Transport: play, pause, stop, loop, seek, de-click fades
 - [x] 5. Level meter and waveform peaks
-- [ ] 6. Project model and versioned project files
+- [x] 6. Project model and versioned project files
 - [ ] 7. Desktop UI and audio device output
