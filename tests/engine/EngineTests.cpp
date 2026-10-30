@@ -1,5 +1,7 @@
 #include "daw/engine/Engine.h"
 
+#include "support/RealtimeCheck.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 TEST_CASE("Engine remembers the stream format it was prepared with", "[engine]")
@@ -22,7 +24,8 @@ TEST_CASE("Engine overwrites the output with silence when nothing is loaded", "[
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         juce::FloatVectorOperations::fill(buffer.getWritePointer(channel), 0.5f, numSamples);
 
-    engine.process(buffer);
+    const auto heapOperations = daw::test::heapOperationsDuring([&] { engine.process(buffer); });
 
+    CHECK(heapOperations == 0);
     CHECK(buffer.getMagnitude(0, numSamples) == 0.0f);
 }

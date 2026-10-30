@@ -1,15 +1,27 @@
 include(Catch)
 
 add_executable(daw_tests
+    support/RealtimeCheck.cpp
+    support/RealtimeCheckTests.cpp
     engine/EngineTests.cpp
+    engine/SpscQueueTests.cpp
     model/FormatVersionTests.cpp)
 
+target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::engine daw::model Catch2::Catch2WithMain)
 daw_enable_warnings(daw_tests)
 
 # PRE_TEST: tests are listed when CTest runs, not at build time, so building
 # never needs to execute the test binary.
 catch_discover_tests(daw_tests DISCOVERY_MODE PRE_TEST)
+
+if(DAW_ENABLE_RTSAN)
+    # Proves the sanitizer is really active: this hidden test calls malloc from
+    # audio-thread code and must be stopped with RTSan's report.
+    add_test(NAME rtsan.self_test COMMAND daw_tests "[.rtsan-self-test]")
+    set_tests_properties(rtsan.self_test PROPERTIES
+        PASS_REGULAR_EXPRESSION "RealtimeSanitizer")
+endif()
 
 # Module dependency rules (see cmake/CheckArchitecture.cmake).
 set(check_architecture "${PROJECT_SOURCE_DIR}/cmake/CheckArchitecture.cmake")

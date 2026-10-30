@@ -57,6 +57,13 @@ single consumer) or atomics. Memory the audio thread stops using is sent back on
 queue and freed on another thread. Mark audio-thread functions `noexcept` and say
 "Audio thread" in their doc comment.
 
+- Queues: `daw::engine::rt::SpscQueue<T, Capacity>` (fixed capacity, no allocation).
+- Every test that exercises audio-thread code runs it through
+  `daw::test::heapOperationsDuring(...)` (`tests/support/RealtimeCheck.h`) and
+  requires 0. It counts operator new/delete everywhere; in the `linux-rtsan` CI job
+  RealtimeSanitizer also aborts on malloc, locks, blocking system calls and I/O.
+  Keep Catch2 assertions outside the checked lambda (Catch2 allocates).
+
 ## Verification
 
 - Nobody can listen from the development environment: verify DSP with numeric
@@ -90,6 +97,8 @@ ctest --preset debug            # run all tests
 - Release build: same commands with the `release` preset.
 - macOS universal binary (arm64 + x86_64): preset `macos-universal` (Release). Run the
   Intel slice of the tests with `arch -x86_64 build/macos-universal/tests/daw_tests`.
+- RealtimeSanitizer build (Linux, Clang 20+ only; Apple Clang lacks it): preset
+  `linux-rtsan`, run in CI. Pass `-DCMAKE_CXX_COMPILER=clang++-NN` for a versioned Clang.
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
@@ -99,7 +108,8 @@ ctest --preset debug            # run all tests
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on every
 push to `main`: configure, build and test with the `debug` preset on Linux (GCC),
 macOS (Apple Clang) and Windows (MSVC), plus the `release` preset on Linux, where
-optimiser-only warnings show up.
+optimiser-only warnings show up, and the `linux-rtsan` preset with Clang 22 from
+apt.llvm.org.
 
 - Third-party actions are pinned by commit SHA, with the version in a comment.
 - The repository is private and Actions minutes are limited (macOS and Windows
@@ -127,7 +137,7 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 
 - [x] 0. Skeleton: CMake, presets, dependencies, empty modules, architecture tests
 - [x] 1. CI on GitHub Actions (Windows, macOS, Linux)
-- [ ] 2. Real-time primitives: lock-free queue, allocation guard for tests
+- [x] 2. Real-time primitives: lock-free queue, allocation guard for tests
 - [ ] 3. WAV/AIFF loading and sample-rate conversion
 - [ ] 4. Transport: play, pause, stop, loop, seek, de-click fades
 - [ ] 5. Level meter and waveform peaks

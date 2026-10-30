@@ -15,6 +15,13 @@ set(DAW_COMPANY_NAME "DAW" CACHE STRING "Company name shown in app metadata")
 set(DAW_BUNDLE_ID "com.example.daw" CACHE STRING "Bundle identifier; set a real one before distributing")
 
 option(DAW_BUILD_TESTS "Build the unit tests" ON)
+option(DAW_ENABLE_RTSAN "Build with Clang's RealtimeSanitizer (Clang 20 or newer)" OFF)
+
+if(DAW_ENABLE_RTSAN)
+    # Applied to everything, JUCE included, before any target is created.
+    add_compile_options(-fsanitize=realtime)
+    add_link_options(-fsanitize=realtime)
+endif()
 
 # Same language standard for JUCE and for our code, so they agree on the ABI.
 set(CMAKE_CXX_STANDARD 20)

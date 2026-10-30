@@ -32,6 +32,13 @@ jobs:
           - name: Linux GCC Release
             os: ubuntu-24.04
             preset: release
+          # RealtimeSanitizer (Clang 20+) catches malloc, locks, blocking calls and
+          # file I/O in audio-thread code under test, beyond the operator new count.
+          - name: Linux Clang RealtimeSanitizer
+            os: ubuntu-24.04
+            preset: linux-rtsan
+            llvm: 22
+            cmake-args: -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
           - name: macOS Apple Clang Debug
             os: macos-15
             preset: debug
@@ -45,10 +52,22 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Add the LLVM apt repository (Linux, Clang jobs)
+        if: matrix.llvm
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${{ matrix.llvm }} main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+
       - name: Install build dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
+          if [ -n "${{ matrix.llvm }}" ]; then
+            sudo apt-get install -y --no-install-recommends \
+              clang-${{ matrix.llvm }} libclang-rt-${{ matrix.llvm }}-dev
+          fi
           sudo apt-get install -y --no-install-recommends ninja-build \
             libasound2-dev libfreetype-dev libfontconfig1-dev \
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
