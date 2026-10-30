@@ -3,6 +3,7 @@
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
 #include "daw/ui/desktop/LevelMeter.h"
+#include "daw/ui/desktop/MixerView.h"
 #include "daw/ui/desktop/TransportBar.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -15,7 +16,8 @@ namespace daw::ui::desktop
 {
 
 /**
-    Content of the main window: transport bar, arrange view and master meter.
+    Content of the main window: transport bar, arrange view, master meter and the
+    mixer (shown or hidden with X).
 
     Edits go to the Session; the commands (menus and shortcuts) are handled here.
     It refreshes from the session and the engine on a timer.
@@ -33,7 +35,10 @@ public:
         saveProject,
         saveProjectAs,
         importAudio,
+        exportMix,
         audioSettings,
+        undo,
+        redo,
         newTrack,
         deleteSelection,
         playPause,
@@ -42,7 +47,8 @@ public:
         toggleSnap,
         zoomIn,
         zoomOut,
-        zoomToFit
+        zoomToFit,
+        toggleMixer
     };
 
     MainComponent(controller::Session& sessionToShow, juce::AudioDeviceManager& audioDeviceManager,
@@ -53,6 +59,10 @@ public:
     void openFile(const juce::File& file);
 
     void showError(const juce::String& title, const juce::String& message);
+
+    /** If the project has unsaved changes, asks whether to save them first; then
+        runs next, unless the user cancelled (or saving failed). */
+    void askToSaveChanges(std::function<void()> next);
 
     void resized() override;
     void paint(juce::Graphics& g) override;
@@ -74,7 +84,8 @@ private:
     void openProjectFile(const juce::File& file);
     void chooseAudioToImport();
     void chooseProjectToOpen();
-    void chooseProjectToSave();
+    void chooseProjectToSave(std::function<void()> afterSaving = {});
+    void saveThen(std::function<void()> afterSaving);
     void showAudioSettings();
 
     controller::Session& session;
@@ -84,6 +95,8 @@ private:
     TransportBar transportBar;
     ArrangeView arrangeView;
     LevelMeter masterMeter;
+    MixerView mixerView;
+    bool mixerVisible = true;
     juce::TooltipWindow tooltipWindow{this};
 
     std::unique_ptr<juce::FileChooser> fileChooser;

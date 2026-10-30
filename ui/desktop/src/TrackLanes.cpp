@@ -368,7 +368,8 @@ void TrackLanes::fileDragMove(const juce::StringArray& files, int x, int y)
     const auto top = static_cast<float>(lane * ArrangeState::laneHeight + 2);
     const auto height = static_cast<float>(lanes * ArrangeState::laneHeight - 4);
 
-    dropIndicator = juce::Rectangle<float>(left, top, static_cast<float>(getWidth()) - left, height);
+    const auto width = static_cast<float>(getWidth()) - left;
+    dropIndicator = juce::Rectangle<float>(left, top, width, height);
     repaint();
 }
 

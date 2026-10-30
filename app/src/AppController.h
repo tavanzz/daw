@@ -33,6 +33,9 @@ public:
     /** Opens a project, or imports an audio file (e.g. one given on the command line). */
     void openFile(const juce::File& file);
 
+    /** Quits, after offering to save unsaved changes. */
+    void requestQuit();
+
 private:
     void updateWindowTitle();
     void saveDeviceState();

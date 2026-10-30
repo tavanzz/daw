@@ -49,6 +49,11 @@ void AppController::openFile(const juce::File& file)
     view().openFile(file);
 }
 
+void AppController::requestQuit()
+{
+    view().askToSaveChanges([] { juce::JUCEApplication::getInstance()->quit(); });
+}
+
 void AppController::updateWindowTitle()
 {
     juce::String title = applicationName + "  -  ";

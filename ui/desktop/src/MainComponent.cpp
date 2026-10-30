@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/MainComponent.h"
 
 #include "daw/model/ProjectFile.h"
+#include "daw/ui/desktop/ExportDialog.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
@@ -27,11 +28,13 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
     , commandManager(applicationCommandManager)
     , transportBar(sessionToShow)
     , arrangeView(sessionToShow)
+    , mixerView(sessionToShow)
 {
     addAndMakeVisible(transportBar);
     addAndMakeVisible(arrangeView);
     masterMeter.setTooltip("Master output level (click to clear the clip indicators)");
     addAndMakeVisible(masterMeter);
+    addAndMakeVisible(mixerView);
 
     setSize(1280, 760);
     lastRefreshSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
@@ -46,7 +49,7 @@ MainComponent::~MainComponent()
 void MainComponent::openFile(const juce::File& file)
 {
     if (isProjectFile(file))
-        openProjectFile(file);
+        askToSaveChanges([this, file] { openProjectFile(file); });
     else
         session.importAudio({file}, arrangeView.getInsertPosition());
 }
@@ -59,12 +62,61 @@ void MainComponent::showError(const juce::String& title, const juce::String& mes
         [](int) {});
 }
 
+void MainComponent::askToSaveChanges(std::function<void()> next)
+{
+    if (!session.hasUnsavedChanges())
+    {
+        next();
+        return;
+    }
+
+    const auto file = session.getProjectFile();
+    const auto name = file != juce::File() ? file.getFileNameWithoutExtension()
+                                           : juce::String("Untitled");
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle("Save changes?")
+                             .withMessage("Do you want to save the changes to \"" + name + "\"?")
+                             .withButton("Save")
+                             .withButton("Don't Save")
+                             .withButton("Cancel")
+                             .withAssociatedComponent(this);
+
+    juce::NativeMessageBox::showAsync(options, [this, next = std::move(next)](int button) {
+        if (button == 0)
+            saveThen(next);
+        else if (button == 1)
+            next();
+    });
+}
+
+void MainComponent::saveThen(std::function<void()> afterSaving)
+{
+    if (session.getProjectFile() == juce::File())
+    {
+        chooseProjectToSave(std::move(afterSaving));
+        return;
+    }
+
+    if (const auto result = session.saveProject(session.getProjectFile()); result.failed())
+        showError("Could not save the project", result.getErrorMessage());
+    else if (afterSaving)
+        afterSaving();
+}
+
 void MainComponent::resized()
 {
     auto area = getLocalBounds().reduced(8);
 
     transportBar.setBounds(area.removeFromTop(30));
     area.removeFromTop(8);
+
+    mixerView.setVisible(mixerVisible);
+    if (mixerVisible)
+    {
+        mixerView.setBounds(area.removeFromBottom(MixerView::preferredHeight));
+        area.removeFromBottom(8);
+    }
 
     masterMeter.setBounds(area.removeFromRight(40));
     area.removeFromRight(8);
@@ -85,8 +137,13 @@ void MainComponent::timerCallback()
     transportBar.refresh();
     arrangeView.refresh();
 
+    // The output peaks can be taken once: both master meters get the same reading.
     auto& engine = session.getEngine();
-    masterMeter.update(engine.takeOutputPeak(0), engine.takeOutputPeak(1), elapsed);
+    const float left = engine.takeOutputPeak(0);
+    const float right = engine.takeOutputPeak(1);
+    masterMeter.update(left, right, elapsed);
+    if (mixerVisible)
+        mixerView.refresh(left, right, elapsed);
 
     // Menu items show play/pause state, ticks and what can be undone.
     const auto state = session.getTransportState();
@@ -144,14 +201,14 @@ void MainComponent::chooseProjectToOpen()
                              });
 }
 
-void MainComponent::chooseProjectToSave()
+void MainComponent::chooseProjectToSave(std::function<void()> afterSaving)
 {
     fileChooser = std::make_unique<juce::FileChooser>("Save the project", session.getProjectFile(),
                                                       projectFilePattern);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode |
                                  juce::FileBrowserComponent::canSelectFiles |
                                  juce::FileBrowserComponent::warnAboutOverwriting,
-                             [this](const juce::FileChooser& chooser) {
+                             [this, afterSaving](const juce::FileChooser& chooser) {
                                  const auto file = chooser.getResult();
                                  if (file == juce::File())
                                      return;
@@ -159,6 +216,8 @@ void MainComponent::chooseProjectToSave()
                                  if (result.failed())
                                      showError("Could not save the project",
                                                result.getErrorMessage());
+                                 else if (afterSaving)
+                                     afterSaving();
                              });
 }
 
@@ -188,9 +247,9 @@ juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
 
 void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
 {
-    commands.addArray({newProject, openProject, saveProject, saveProjectAs, importAudio,
-                       audioSettings, newTrack, deleteSelection, playPause, stop, toggleLoop,
-                       toggleSnap, zoomIn, zoomOut, zoomToFit});
+    commands.addArray({newProject, openProject, saveProject, saveProjectAs, importAudio, exportMix,
+                       audioSettings, undo, redo, newTrack, deleteSelection, playPause, stop,
+                       toggleLoop, toggleSnap, zoomIn, zoomOut, zoomToFit, toggleMixer});
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationCommandInfo& result)
@@ -224,9 +283,26 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
                        "File", 0);
         result.addDefaultKeypress('i', command);
         break;
+    case exportMix:
+        result.setInfo("Export Mix...", "Writes the mix to a WAV file", "File", 0);
+        result.addDefaultKeypress('e', command);
+        result.setActive(hasClips);
+        break;
     case audioSettings:
         result.setInfo("Audio Output...", "Chooses the audio output device", "File", 0);
         result.addDefaultKeypress(',', command);
+        break;
+    case undo:
+        result.setInfo(session.canUndo() ? "Undo " + session.getUndoDescription() : "Undo",
+                       "Undoes the last change", "Edit", 0);
+        result.addDefaultKeypress('z', command);
+        result.setActive(session.canUndo());
+        break;
+    case redo:
+        result.setInfo(session.canRedo() ? "Redo " + session.getRedoDescription() : "Redo",
+                       "Redoes the last undone change", "Edit", 0);
+        result.addDefaultKeypress('z', shiftCommand);
+        result.setActive(session.canRedo());
         break;
     case newTrack:
         result.setInfo("New Track", "Adds an empty track", "Track", 0);
@@ -273,6 +349,11 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setInfo("Zoom to Fit", "Shows the whole project", "View", 0);
         result.addDefaultKeypress('0', command);
         break;
+    case toggleMixer:
+        result.setInfo("Mixer", "Shows or hides the mixer", "View", 0);
+        result.addDefaultKeypress('x', 0);
+        result.setTicked(mixerVisible);
+        break;
     default:
         break;
     }
@@ -283,16 +364,13 @@ bool MainComponent::perform(const InvocationInfo& info)
     switch (info.commandID)
     {
     case newProject:
-        session.newProject();
+        askToSaveChanges([this] { session.newProject(); });
         break;
     case openProject:
-        chooseProjectToOpen();
+        askToSaveChanges([this] { chooseProjectToOpen(); });
         break;
     case saveProject:
-        if (session.getProjectFile() == juce::File())
-            chooseProjectToSave();
-        else if (const auto result = session.saveProject(session.getProjectFile()); result.failed())
-            showError("Could not save the project", result.getErrorMessage());
+        saveThen({});
         break;
     case saveProjectAs:
         chooseProjectToSave();
@@ -300,8 +378,17 @@ bool MainComponent::perform(const InvocationInfo& info)
     case importAudio:
         chooseAudioToImport();
         break;
+    case exportMix:
+        ExportDialog::show(session, this);
+        break;
     case audioSettings:
         showAudioSettings();
+        break;
+    case undo:
+        session.undo();
+        break;
+    case redo:
+        session.redo();
         break;
     case newTrack:
         session.addTrack();
@@ -330,6 +417,11 @@ bool MainComponent::perform(const InvocationInfo& info)
     case zoomToFit:
         arrangeView.zoomToFit();
         break;
+    case toggleMixer:
+        mixerVisible = !mixerVisible;
+        resized();
+        commandManager.commandStatusChanged();
+        break;
     default:
         return false;
     }
@@ -344,7 +436,7 @@ bool MainComponent::isInterestedInFileDrag(const juce::StringArray& files)
 
 void MainComponent::filesDropped(const juce::StringArray& files, int, int)
 {
-    openProjectFile(juce::File(files[0]));
+    openFile(juce::File(files[0]));
 }
 
 } // namespace daw::ui::desktop

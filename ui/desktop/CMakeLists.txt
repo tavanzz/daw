@@ -2,9 +2,11 @@
 
 add_library(daw_ui_desktop STATIC
     src/ArrangeView.cpp
+    src/ExportDialog.cpp
     src/LevelMeter.cpp
     src/MainComponent.cpp
     src/MainWindow.cpp
+    src/MixerView.cpp
     src/TimelineRuler.cpp
     src/TrackHeaderList.cpp
     src/TrackLanes.cpp

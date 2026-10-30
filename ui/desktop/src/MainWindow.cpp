@@ -74,6 +74,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::saveProjectAs);
         menu.addSeparator();
         add(MainComponent::importAudio);
+        add(MainComponent::exportMix);
         menu.addSeparator();
         add(MainComponent::audioSettings);
 #if !JUCE_MAC
@@ -82,6 +83,9 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
 #endif
         break;
     case 1:
+        add(MainComponent::undo);
+        add(MainComponent::redo);
+        menu.addSeparator();
         add(MainComponent::deleteSelection);
         break;
     case 2:
@@ -98,6 +102,8 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::zoomIn);
         add(MainComponent::zoomOut);
         add(MainComponent::zoomToFit);
+        menu.addSeparator();
+        add(MainComponent::toggleMixer);
         break;
     default:
         break;

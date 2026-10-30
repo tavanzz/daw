@@ -22,7 +22,13 @@ public:
 
     void shutdown() override { controller.reset(); }
 
-    void systemRequestedQuit() override { quit(); }
+    void systemRequestedQuit() override
+    {
+        if (controller != nullptr)
+            controller->requestQuit();
+        else
+            quit();
+    }
 
     // A second launch (e.g. opening a file from the Finder) hands its arguments here.
     void anotherInstanceStarted(const juce::String& commandLine) override

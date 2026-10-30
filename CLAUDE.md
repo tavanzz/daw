@@ -122,7 +122,12 @@ Modules with one-way dependencies:
   at 60 Hz and handles the commands (menus and shortcuts, JUCE's
   ApplicationCommandManager). `ArrangeView` = `TimelineRuler` + `TrackHeaderList` +
   `TrackLanes` (drawing and clip mouse editing), sharing an `ArrangeState` (session,
-  `TimelineViewport`, selection). Views redraw when `Session::getRevision()` changes.
+  `TimelineViewport`, selection). `MixerView` has a strip per track and the master
+  (faders in dB, −∞ to +6; a drag is one undo gesture). `ExportDialog` runs an
+  `ExportJob` in a `ThreadWithProgressWindow`. New/Open/Quit offer to save unsaved
+  changes first (`MainComponent::askToSaveChanges()`). Views redraw when
+  `Session::getRevision()` changes. Peak meters have one reader each: the output
+  peaks are taken once per tick and fed to both master meters.
 - `app/AppController` owns the engine, the device host, the session and the window;
   drives `Session::update()` at 60 Hz, passes device sample-rate changes to the
   session, keeps the window title, and stores the chosen device in the user settings
@@ -273,7 +278,7 @@ automation, mobile UI.
       clip drags with snap
 - [ ] 9. Benchmark: tracks per audio callback budget (Release)
 - [x] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap
-- [ ] 11. Desktop UI: mixer, export dialog, undo/redo, new project, unsaved changes
+- [x] 11. Desktop UI: mixer, export dialog, undo/redo, new project, unsaved changes
 - [ ] 12. Listening-test files and `docs/LISTENING_TESTS.md` for Phase 2
 
 Phase 2 decisions (agreed before starting):
