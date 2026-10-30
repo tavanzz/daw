@@ -173,7 +173,7 @@ apt.llvm.org.
 
 ## Status
 
-Phase 1 (done, pending listening tests): a desktop app that picks the audio output device, loads a WAV
+Phase 1 (done, released as v0.1.0): a desktop app that picks the audio output device, loads a WAV
 or AIFF file, plays it with play/stop/pause/loop, shows the waveform with a playhead
 and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 
@@ -185,3 +185,6 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 - [x] 5. Level meter and waveform peaks
 - [x] 6. Project model and versioned project files
 - [x] 7. Desktop UI and audio device output
+- [x] Listening tests (`docs/LISTENING_TESTS.md`): all 14 passed on macOS, 2026-10-30
+
+Phase 2: not planned yet; it will be planned in a new session.
