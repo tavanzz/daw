@@ -189,6 +189,9 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
 - No `using namespace` in headers. Use `[[nodiscard]]`, `const` and `noexcept`
   where they carry meaning.
 - Code, comments, commit messages and UI text in English.
+- Commits are authored as `tavanzz` with the GitHub noreply address
+  (`94704314+tavanzz@users.noreply.github.com`, set in the repository's git config):
+  the repository is public, so no personal email in new commits.
 - Comments explain why, not what.
 
 ## Commands
@@ -224,9 +227,9 @@ optimiser-only warnings show up, and the `linux-rtsan` preset with Clang 22 from
 apt.llvm.org.
 
 - Third-party actions are pinned by commit SHA, with the version in a comment.
-- The repository is private and Actions minutes are limited (macOS and Windows
-  runners cost more): push finished steps, not every edit. A newer push to the same
-  branch cancels the run in progress.
+- The repository is public (since Phase 2), so standard runners cost nothing; still
+  push finished steps, not every edit, to keep runs readable. A newer push to the
+  same branch cancels the run in progress.
 - Linux packages needed by JUCE are listed in the workflow and in the README; keep
   the two lists in sync.
 - When fixing a red CI job: at most 3 attempts on the same job. If it is still red
@@ -257,7 +260,7 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 - [x] 7. Desktop UI and audio device output
 - [x] Listening tests (`docs/LISTENING_TESTS.md`): all 14 passed on macOS, 2026-10-30
 
-Phase 2 (in progress, branch `phase-2`): multitrack and mixer. Several audio tracks
+Phase 2 (done, released as v0.2.0): multitrack and mixer. Several audio tracks
 with clips on a timeline (add, move, trim start/end, delete; one load per file), a
 ruler in time and bars (fixed tempo and metre per project), grid with snap, zoom and
 scroll, playhead, loop region; a mixer with volume, pan, mute, solo and meters per
@@ -283,9 +286,7 @@ automation, mobile UI.
 - [x] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap
 - [x] 11. Desktop UI: mixer, export dialog, undo/redo, new project, unsaved changes
 - [x] 12. Listening-test files and `docs/LISTENING_TESTS.md` for Phase 2
-- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 1–31) on macOS
-- [ ] CI green on Windows, macOS and Linux (jobs not started since step 8: GitHub
-      account billing)
+- [x] Listening tests (`docs/LISTENING_TESTS.md`): all 31 passed on macOS, 2026-10-30
 
 Phase 2 decisions (agreed before starting):
 

@@ -18,7 +18,7 @@ Targets: Windows, macOS and Linux now; iOS/iPadOS and Android later.
 Phase 1 (v0.1.0): play a single WAV or AIFF file with transport controls, waveform
 display and level meter.
 
-Phase 2 (in progress): multitrack and mixer. Tracks with clips on a timeline (move,
+Phase 2 (v0.2.0): multitrack and mixer. Tracks with clips on a timeline (move,
 trim, delete; one load per file), a ruler in time and bars with grid and snap, zoom
 and scroll, a loop region; a mixer with volume, pan, mute, solo and meters per track
 and a master bus; WAV export through the same code as playback; undo/redo; project
