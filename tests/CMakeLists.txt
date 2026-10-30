@@ -7,6 +7,7 @@ add_executable(daw_tests
     support/TestAudioFiles.cpp
     engine/AudioDeviceHostTests.cpp
     engine/AudioFileLoaderTests.cpp
+    engine/BounceTests.cpp
     engine/EngineTests.cpp
     engine/MeterTests.cpp
     engine/MixerTests.cpp

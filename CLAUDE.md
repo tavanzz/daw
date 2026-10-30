@@ -71,6 +71,13 @@ Modules with one-way dependencies:
   timeline is cut into blocks (tested). `MixState` holds the ramps of one
   arrangement; `continueFrom()` carries them over by track id. Pan law:
   `dsp::panGains()`, constant power compensated to 0 dB in the centre.
+- Export: `engine::OfflineRenderer` drives the same `Mixer` faster than real time;
+  `engine::io::bounceToWav()` writes a stereo WAV (16/24-bit integer with
+  `quantise()` = round(x·2^(bits−1)) clipped, optional seeded TPDF dither, or 32-bit
+  float) to a temporary file that replaces the target only when complete; progress
+  callback, cancellable, reports the peak. Tested: the export equals real-time
+  playback bit for bit after the transport's fade-in, for any device block size.
+  An export at another sample rate renders an arrangement built at that rate.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -245,7 +252,7 @@ automation, mobile UI.
       volume/pan/mute/solo with smoothing, track and master meters
 - [x] 6. Engine on the timeline: atomic snapshot exchange, crossfade on structural
       changes, transport over the timeline with a loop region
-- [ ] 7. Offline bounce to WAV (16/24-bit, 32-bit float; sample rate; dither)
+- [x] 7. Offline bounce to WAV (16/24-bit, 32-bit float; sample rate; dither)
 - [ ] 8. `controller` module: session, snapshot building, timeline viewport and ruler,
       clip drags with snap
 - [ ] 9. Benchmark: tracks per audio callback budget (Release)

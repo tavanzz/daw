@@ -6,6 +6,7 @@ add_library(daw_engine STATIC
     src/AudioSource.cpp
     src/Engine.cpp
     src/Mixer.cpp
+    src/OfflineRenderer.cpp
     src/Transport.cpp
     src/dsp/GainRamp.cpp
     src/dsp/MeterBallistics.cpp
@@ -15,6 +16,7 @@ add_library(daw_engine STATIC
     src/dsp/WaveformPeaks.cpp
     src/io/AudioDeviceHost.cpp
     src/io/AudioFileLoader.cpp
+    src/io/Bounce.cpp
     src/io/SourcePool.cpp)
 add_library(daw::engine ALIAS daw_engine)
 
