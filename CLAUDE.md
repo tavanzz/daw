@@ -57,6 +57,18 @@ Modules with one-way dependencies:
   `juce::ValueTree` (undo and listeners come for free later). `model::ProjectFile`
   maps it explicitly to JSON (`.dawproject`, LF, UTF-8) with `"formatVersion"`.
 
+- Audio output: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
+  forwards the device callback to `Engine::process()` (stereo; extra outputs cleared).
+- Desktop UI (`ui/desktop`): views only. `MainComponent` polls the engine at 60 Hz,
+  sends transport commands to it, and hands file/project/loop actions to `app/`
+  through `on...` callbacks. Shortcuts and menus use JUCE's ApplicationCommandManager.
+- `app/AppController` is the controller: loads audio on a background thread
+  (`juce::ThreadPool`, results back via `MessageManager::callAsync` and a
+  `WeakReference`), mirrors file and loop choices into the project, saves/opens
+  projects, reloads audio when the device sample rate changes, and stores the chosen
+  device in the user settings (`~/Library/Application Support/DAW/DAW.settings` on macOS).
+  Phase 1 projects hold one track with one clip.
+
 ## Project file format rules
 
 - Any change to what is written to disk bumps `model::currentFormatVersion`
@@ -128,6 +140,10 @@ ctest --preset debug            # run all tests
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
+- Listening tests: `docs/LISTENING_TESTS.md`; reference files from
+  `python3 tools/make_listening_test_files.py` (into `build/listening-tests/`).
+- Screenshots for checking the UI from a session: capture only the app's window
+  (`screencapture -l <window number>`), never the whole screen.
 
 ## CI
 
@@ -157,7 +173,7 @@ apt.llvm.org.
 
 ## Status
 
-Phase 1 (in progress): a desktop app that picks the audio output device, loads a WAV
+Phase 1 (done, pending listening tests): a desktop app that picks the audio output device, loads a WAV
 or AIFF file, plays it with play/stop/pause/loop, shows the waveform with a playhead
 and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 
@@ -168,4 +184,4 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 - [x] 4. Transport: play, pause, stop, loop, seek, de-click fades
 - [x] 5. Level meter and waveform peaks
 - [x] 6. Project model and versioned project files
-- [ ] 7. Desktop UI and audio device output
+- [x] 7. Desktop UI and audio device output

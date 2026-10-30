@@ -7,7 +7,9 @@ juce_add_gui_app(daw_app
     COMPANY_NAME "${DAW_COMPANY_NAME}"
     BUNDLE_ID "${DAW_BUNDLE_ID}")
 
-target_sources(daw_app PRIVATE src/Main.cpp)
+target_sources(daw_app PRIVATE
+    src/AppController.cpp
+    src/Main.cpp)
 
 target_compile_definitions(daw_app PRIVATE
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:daw_app,JUCE_PRODUCT_NAME>"

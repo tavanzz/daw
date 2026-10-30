@@ -15,8 +15,8 @@ Targets: Windows, macOS and Linux now; iOS/iPadOS and Android later.
 
 ## Status
 
-Phase 1, in progress: play a single WAV or AIFF file with transport controls,
-waveform display and level meter. See [CLAUDE.md](CLAUDE.md#status) for the steps.
+Phase 1: play a single WAV or AIFF file with transport controls, waveform display
+and level meter. See [CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 
@@ -51,6 +51,25 @@ preset builds a universal binary for Apple Silicon and Intel Macs.
 
 The macOS app bundle ends up in `build/<preset>/app/daw_app_artefacts/<Config>/DAW.app`.
 
+## Using the app
+
+Load a WAV or AIFF file by dragging it onto the window or with File > Open Audio
+File. The file is converted to the output device's sample rate when needed.
+
+| Action | Shortcut |
+|--------|----------|
+| Play / pause | Space |
+| Stop and return to the start | Return |
+| Loop the whole file | L |
+| Move the playhead | click or drag on the waveform |
+| Open audio file / project | Cmd+O / Shift+Cmd+O (Ctrl on Windows and Linux) |
+| Save project / save as | Cmd+S / Shift+Cmd+S |
+| Choose the audio output | Cmd+, |
+
+Projects (`.dawproject`) are small JSON files that refer to the audio file; keep
+the audio next to the project (or in a subfolder) and the folder can be moved as a
+whole. Manual checks with reference files: [docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md).
+
 ## Repository layout
 
 | Path          | Contents                                                        |
@@ -62,6 +81,8 @@ The macOS app bundle ends up in `build/<preset>/app/daw_app_artefacts/<Config>/D
 | `app/`        | application entry point                                         |
 | `tests/`      | unit tests                                                      |
 | `cmake/`      | build helpers: dependencies, warnings, architecture checks      |
+| `tools/`      | development scripts (listening-test files)                      |
+| `docs/`       | manual test procedures                                          |
 
 Architecture, audio-thread rules and coding conventions are described in
 [CLAUDE.md](CLAUDE.md).

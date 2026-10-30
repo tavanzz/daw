@@ -3,7 +3,9 @@ include(Catch)
 add_executable(daw_tests
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
+    support/TestMain.cpp
     support/TestAudioFiles.cpp
+    engine/AudioDeviceHostTests.cpp
     engine/AudioFileLoaderTests.cpp
     engine/EngineTests.cpp
     engine/MeterTests.cpp
@@ -16,7 +18,7 @@ add_executable(daw_tests
     model/ProjectTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(daw_tests PRIVATE daw::engine daw::model Catch2::Catch2WithMain)
+target_link_libraries(daw_tests PRIVATE daw::engine daw::model Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 
 # PRE_TEST: tests are listed when CTest runs, not at build time, so building

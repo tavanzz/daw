@@ -1,8 +1,11 @@
 # Desktop user interface (mouse and keyboard).
 
 add_library(daw_ui_desktop STATIC
+    src/LevelMeter.cpp
     src/MainComponent.cpp
-    src/MainWindow.cpp)
+    src/MainWindow.cpp
+    src/TransportBar.cpp
+    src/WaveformView.cpp)
 add_library(daw::ui_desktop ALIAS daw_ui_desktop)
 
 target_include_directories(daw_ui_desktop PUBLIC include PRIVATE src)

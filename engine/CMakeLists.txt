@@ -8,6 +8,7 @@ add_library(daw_engine STATIC
     src/dsp/PeakLevelMeter.cpp
     src/dsp/Resampler.cpp
     src/dsp/WaveformPeaks.cpp
+    src/io/AudioDeviceHost.cpp
     src/io/AudioFileLoader.cpp)
 add_library(daw::engine ALIAS daw_engine)
 
