@@ -15,9 +15,26 @@ namespace daw::model
 
         {
           "format": "daw-project",
-          "formatVersion": 1,
-          "project": { "loopEnabled": false, "tracks": [ ... ] }
+          "formatVersion": 2,
+          "project": {
+            "tempo": 120.0,
+            "timeSignature": { "numerator": 4, "denominator": 4 },
+            "loop": { "enabled": false, "start": 0, "end": 0 },
+            "snap": { "enabled": true, "grid": "auto" },
+            "master": { "volume": 1.0 },
+            "tracks": [ { "id": 1, "name": "Track 1", "volume": 1.0, "pan": 0.0,
+                          "mute": false, "solo": false,
+                          "clips": [ { "id": 2, "audioFile": "audio/drums.wav",
+                                       "position": 0, "offset": 0,
+                                       "length": 1411200000 } ] } ]
+          }
         }
+
+    - Times (position, offset, length, loop start and end) are integer ticks at
+      282,240,000 per second (see TimelineTime.h). A clip without "length" plays up
+      to the end of its file. Volumes are linear gains (1.0 = 0 dB), pan is -1 to 1.
+    - Missing fields take their defaults; a field of the wrong type makes the file
+      damaged. Ids that are missing, not positive or repeated are replaced.
 
     - Audio files inside the project's folder are stored relative to it (with "/"
       separators), so the folder can be moved or copied as a whole; other audio

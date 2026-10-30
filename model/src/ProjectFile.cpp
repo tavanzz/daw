@@ -2,8 +2,12 @@
 
 #include "daw/model/FormatVersion.h"
 
+#include "Identifiers.h"
+#include "ObjectIds.h"
+
 #include <array>
 #include <limits>
+#include <set>
 
 namespace daw::model
 {
@@ -11,28 +15,113 @@ namespace daw::model
 namespace
 {
 
-// The migration chain of this build: entry i upgrades format version i + 1 to i + 2.
-// When the format changes, bump currentFormatVersion and append a migration.
-constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{};
-static_assert(migrations.size() + 1 == static_cast<std::size_t>(currentFormatVersion));
-
 // JSON field names: the file format. Never rename one without a migration.
 namespace json
 {
 constexpr const char* format = "format";
 constexpr const char* formatVersion = "formatVersion";
 constexpr const char* project = "project";
-constexpr const char* loopEnabled = "loopEnabled";
+constexpr const char* tempo = "tempo";
+constexpr const char* timeSignature = "timeSignature";
+constexpr const char* numerator = "numerator";
+constexpr const char* denominator = "denominator";
+constexpr const char* loop = "loop";
+constexpr const char* enabled = "enabled";
+constexpr const char* start = "start";
+constexpr const char* end = "end";
+constexpr const char* snap = "snap";
+constexpr const char* grid = "grid";
+constexpr const char* master = "master";
+constexpr const char* volume = "volume";
 constexpr const char* tracks = "tracks";
+constexpr const char* id = "id";
 constexpr const char* name = "name";
+constexpr const char* pan = "pan";
+constexpr const char* mute = "mute";
+constexpr const char* solo = "solo";
 constexpr const char* clips = "clips";
 constexpr const char* audioFile = "audioFile";
+constexpr const char* position = "position";
+constexpr const char* offset = "offset";
+constexpr const char* length = "length";
+
+// Fields of older versions, read only by migrations.
+constexpr const char* loopEnabledVersion1 = "loopEnabled";
 } // namespace json
 
 juce::var makeObject()
 {
     return juce::var(new juce::DynamicObject());
 }
+
+juce::var makeObject(std::initializer_list<std::pair<const char*, juce::var>> properties)
+{
+    auto object = makeObject();
+    for (const auto& [name, value] : properties)
+        object.getDynamicObject()->setProperty(name, value);
+    return object;
+}
+
+// Version 2 (Phase 2, multitrack) adds tempo, metre, a loop region, snap settings,
+// the master bus, track mixer settings, clip placement and ids. Version 1 clips were
+// whole files at the start of the timeline. Anything unexpected is left as it is,
+// for the reader to report.
+juce::var migrateVersion1To2(juce::var root)
+{
+    auto* project = root[json::project].getDynamicObject();
+    if (project == nullptr)
+        return root;
+
+    project->setProperty(json::tempo, TempoMap::defaultTempo);
+    project->setProperty(json::timeSignature,
+                         makeObject({{json::numerator, 4}, {json::denominator, 4}}));
+    project->setProperty(json::loop, makeObject({{json::enabled,
+                                                  project->getProperty(json::loopEnabledVersion1)},
+                                                 {json::start, 0},
+                                                 {json::end, 0}}));
+    project->removeProperty(json::loopEnabledVersion1);
+    project->setProperty(json::snap, makeObject({{json::enabled, true}, {json::grid, "auto"}}));
+    project->setProperty(json::master, makeObject({{json::volume, 1.0}}));
+
+    int nextId = 1;
+    auto* tracks = project->getProperty(json::tracks).getArray();
+    if (tracks == nullptr)
+        return root;
+
+    for (auto& track : *tracks)
+    {
+        auto* trackObject = track.getDynamicObject();
+        if (trackObject == nullptr)
+            continue;
+
+        trackObject->setProperty(json::id, nextId++);
+        trackObject->setProperty(json::volume, 1.0);
+        trackObject->setProperty(json::pan, 0.0);
+        trackObject->setProperty(json::mute, false);
+        trackObject->setProperty(json::solo, false);
+
+        auto* clips = trackObject->getProperty(json::clips).getArray();
+        if (clips == nullptr)
+            continue;
+
+        for (auto& clip : *clips)
+        {
+            if (auto* clipObject = clip.getDynamicObject())
+            {
+                clipObject->setProperty(json::id, nextId++);
+                clipObject->setProperty(json::position, 0);
+                clipObject->setProperty(json::offset, 0);
+            }
+        }
+    }
+
+    return root;
+}
+
+// The migration chain of this build: entry i upgrades format version i + 1 to i + 2.
+// When the format changes, bump currentFormatVersion and append a migration.
+constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{migrateVersion1To2};
+static_assert(migrations.size() + 1 == static_cast<std::size_t>(currentFormatVersion));
 
 juce::String pathForFile(const juce::File& file, const juce::File& projectDirectory)
 {
@@ -94,26 +183,50 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
 
         for (int c = 0; c < track.getNumClips(); ++c)
         {
-            auto clip = makeObject();
-            clip.getDynamicObject()->setProperty(
-                json::audioFile, pathForFile(track.getClip(c).getAudioFile(), projectDirectory));
-            clips.add(clip);
+            const auto clip = track.getClip(c);
+            auto clipObject = makeObject({
+                {json::id, clip.getId()},
+                {json::audioFile, pathForFile(clip.getAudioFile(), projectDirectory)},
+                {json::position, clip.getPosition()},
+                {json::offset, clip.getOffset()},
+            });
+            if (const auto length = clip.getLength())
+                clipObject.getDynamicObject()->setProperty(json::length, *length);
+            clips.add(clipObject);
         }
 
-        auto trackObject = makeObject();
-        trackObject.getDynamicObject()->setProperty(json::name, track.getName());
-        trackObject.getDynamicObject()->setProperty(json::clips, clips);
-        tracks.add(trackObject);
+        tracks.add(makeObject({
+            {json::id, track.getId()},
+            {json::name, track.getName()},
+            {json::volume, track.getVolume()},
+            {json::pan, track.getPan()},
+            {json::mute, track.isMuted()},
+            {json::solo, track.isSoloed()},
+            {json::clips, clips},
+        }));
     }
 
-    auto projectObject = makeObject();
-    projectObject.getDynamicObject()->setProperty(json::loopEnabled, project.isLoopEnabled());
-    projectObject.getDynamicObject()->setProperty(json::tracks, tracks);
+    const auto tempoMap = project.getTempoMap();
+    const auto signature = tempoMap.getTimeSignature();
 
-    auto root = makeObject();
-    root.getDynamicObject()->setProperty(json::format, projectFormatMarker);
-    root.getDynamicObject()->setProperty(json::formatVersion, currentFormatVersion);
-    root.getDynamicObject()->setProperty(json::project, projectObject);
+    const auto projectObject = makeObject({
+        {json::tempo, tempoMap.getTempo()},
+        {json::timeSignature, makeObject({{json::numerator, signature.numerator},
+                                          {json::denominator, signature.denominator}})},
+        {json::loop, makeObject({{json::enabled, project.isLoopEnabled()},
+                                 {json::start, project.getLoopStart()},
+                                 {json::end, project.getLoopEnd()}})},
+        {json::snap, makeObject({{json::enabled, project.isSnapEnabled()},
+                                 {json::grid, toString(project.getGridDivision())}})},
+        {json::master, makeObject({{json::volume, project.getMasterVolume()}})},
+        {json::tracks, tracks},
+    });
+
+    const auto root = makeObject({
+        {json::format, projectFormatMarker},
+        {json::formatVersion, currentFormatVersion},
+        {json::project, projectObject},
+    });
 
     // JUCE lays JSON out with CRLF; project files use LF on every platform so that
     // they are byte-identical everywhere. (Line breaks inside strings are escaped.)
@@ -126,6 +239,75 @@ LoadedProject fromJson(const juce::String& text, const juce::File& projectDirect
 {
     return detail::fromJson(text, projectDirectory, migrations);
 }
+
+namespace
+{
+
+// Typed access to optional fields: a missing field gives the fallback, a field of
+// another type gives nothing (the file is damaged).
+std::optional<bool> readBool(const juce::var& object, const char* name, bool fallback)
+{
+    const auto& value = object[name];
+    if (value.isVoid())
+        return fallback;
+    return value.isBool() ? std::optional<bool>(static_cast<bool>(value)) : std::nullopt;
+}
+
+std::optional<double> readNumber(const juce::var& object, const char* name, double fallback)
+{
+    const auto& value = object[name];
+    if (value.isVoid())
+        return fallback;
+    if (value.isInt() || value.isInt64() || value.isDouble())
+        return static_cast<double>(value);
+    return std::nullopt;
+}
+
+std::optional<juce::int64> readInteger(const juce::var& object, const char* name,
+                                       juce::int64 fallback)
+{
+    const auto& value = object[name];
+    if (value.isVoid())
+        return fallback;
+    if (value.isInt() || value.isInt64())
+        return static_cast<juce::int64>(value);
+    return std::nullopt;
+}
+
+std::optional<juce::var> readObject(const juce::var& object, const char* name)
+{
+    const auto& value = object[name];
+    if (value.isVoid())
+        return juce::var(new juce::DynamicObject());
+    return value.isObject() ? std::optional<juce::var>(value) : std::nullopt;
+}
+
+// Ids from the file are kept when they are valid and unique; the others become 0 and
+// are replaced once everything is loaded.
+ObjectId acceptId(const juce::var& object, std::set<ObjectId>& used)
+{
+    const auto& value = object[json::id];
+    if (!value.isInt() && !value.isInt64())
+        return 0;
+
+    const auto id = static_cast<ObjectId>(value);
+    if (id <= 0 || !used.insert(id).second)
+        return 0;
+
+    return id;
+}
+
+void assignMissingIds(juce::ValueTree tree)
+{
+    if ((tree.hasType(ids::track) || tree.hasType(ids::clip)) &&
+        static_cast<ObjectId>(tree[ids::id]) == 0)
+        tree.setProperty(ids::id, detail::nextObjectId(tree), nullptr);
+
+    for (auto child : tree)
+        assignMissingIds(child);
+}
+
+} // namespace
 
 LoadedProject detail::fromJson(const juce::String& text, const juce::File& projectDirectory,
                                std::span<const FormatMigration> migrationChain)
@@ -163,16 +345,66 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
 
     Project project;
 
-    const auto& loop = projectJson[json::loopEnabled];
-    if (!loop.isVoid() && !loop.isBool())
-        return damaged(*version, "loopEnabled is not true or false");
-    project.setLoopEnabled(static_cast<bool>(loop));
+    // Tempo and metre
+    const auto tempo = readNumber(projectJson, json::tempo, TempoMap::defaultTempo);
+    if (!tempo)
+        return damaged(*version, "the tempo is not a number");
+    project.setTempo(*tempo);
 
+    const auto signatureJson = readObject(projectJson, json::timeSignature);
+    const auto numerator =
+        signatureJson ? readInteger(*signatureJson, json::numerator, 4) : std::nullopt;
+    const auto denominator =
+        signatureJson ? readInteger(*signatureJson, json::denominator, 4) : std::nullopt;
+    const TimeSignature signature{static_cast<int>(numerator.value_or(0)),
+                                  static_cast<int>(denominator.value_or(0))};
+    if (!numerator || !denominator || *numerator > TimeSignature::maximumNumerator ||
+        *denominator > TimeSignature::maximumDenominator || !signature.isValid())
+        return damaged(*version, "the time signature is not valid");
+    project.setTimeSignature(signature);
+
+    // Loop
+    const auto loopJson = readObject(projectJson, json::loop);
+    if (!loopJson)
+        return damaged(*version, "loop is not an object");
+    const auto loopEnabled = readBool(*loopJson, json::enabled, false);
+    if (!loopEnabled)
+        return damaged(*version, "loop enabled is not true or false");
+    const auto loopStart = readInteger(*loopJson, json::start, 0);
+    const auto loopEnd = readInteger(*loopJson, json::end, 0);
+    if (!loopStart || !loopEnd)
+        return damaged(*version, "the loop region is not in whole ticks");
+    project.setLoopEnabled(*loopEnabled);
+    project.setLoopRange(*loopStart, *loopEnd);
+
+    // Snap
+    const auto snapJson = readObject(projectJson, json::snap);
+    if (!snapJson)
+        return damaged(*version, "snap is not an object");
+    const auto snapEnabled = readBool(*snapJson, json::enabled, true);
+    if (!snapEnabled)
+        return damaged(*version, "snap enabled is not true or false");
+    project.setSnapEnabled(*snapEnabled);
+    // An unknown grid is not worth refusing the project for.
+    const auto grid = gridDivisionFromString((*snapJson)[json::grid].toString());
+    project.setGridDivision(grid.value_or(GridDivision::automatic));
+
+    // Master
+    const auto masterJson = readObject(projectJson, json::master);
+    const auto masterVolume =
+        masterJson ? readNumber(*masterJson, json::volume, 1.0) : std::nullopt;
+    if (!masterVolume)
+        return damaged(*version, "the master volume is not a number");
+    project.setMasterVolume(*masterVolume);
+
+    // Tracks and clips
     const auto& tracks = projectJson[json::tracks];
     if (!tracks.isVoid() && !tracks.isArray())
         return damaged(*version, "tracks is not a list");
 
+    std::set<ObjectId> usedIds;
     const auto* trackList = tracks.getArray();
+
     for (const auto& trackJson : trackList != nullptr ? *trackList : juce::Array<juce::var>{})
     {
         if (!trackJson.isObject())
@@ -182,7 +414,22 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         if (!name.isVoid() && !name.isString())
             return damaged(*version, "a track name is not text");
 
+        const auto volume = readNumber(trackJson, json::volume, 1.0);
+        const auto pan = readNumber(trackJson, json::pan, 0.0);
+        const auto mute = readBool(trackJson, json::mute, false);
+        const auto solo = readBool(trackJson, json::solo, false);
+        if (!volume || !pan)
+            return damaged(*version, "a track volume or pan is not a number");
+        if (!mute || !solo)
+            return damaged(*version, "a track mute or solo is not true or false");
+
         auto track = project.addTrack(name.toString());
+        juce::ValueTree(track.getState())
+            .setProperty(ids::id, acceptId(trackJson, usedIds), nullptr);
+        track.setVolume(*volume);
+        track.setPan(*pan);
+        track.setMuted(*mute);
+        track.setSoloed(*solo);
 
         const auto& clips = trackJson[json::clips];
         if (!clips.isVoid() && !clips.isArray())
@@ -198,9 +445,25 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
             if (!clipJson.isObject() || !audioFile.isString())
                 return damaged(*version, "a clip has no audio file");
 
-            track.addClip(fileForPath(audioFile.toString(), projectDirectory));
+            const auto position = readInteger(clipJson, json::position, 0);
+            const auto offset = readInteger(clipJson, json::offset, 0);
+            const auto& lengthJson = clipJson[json::length];
+            const bool lengthValid =
+                lengthJson.isVoid() || lengthJson.isInt() || lengthJson.isInt64();
+            if (!position || !offset || !lengthValid)
+                return damaged(*version, "a clip position, offset or length is not in whole ticks");
+
+            ClipBounds bounds{*position, *offset, std::nullopt};
+            if (!lengthJson.isVoid())
+                bounds.length = static_cast<Ticks>(lengthJson);
+
+            auto clip = track.addClip(fileForPath(audioFile.toString(), projectDirectory), bounds);
+            juce::ValueTree(clip.getState())
+                .setProperty(ids::id, acceptId(clipJson, usedIds), nullptr);
         }
     }
+
+    assignMissingIds(project.getState());
 
     LoadedProject result;
     result.project = std::move(project);

@@ -217,7 +217,7 @@ automation, mobile UI.
 - [x] 1. Timeline time in the model: ticks, tempo and metre, conversions, grid, snap
 - [x] 2. Multitrack model: track mixer settings, clip position/offset/length, ids,
       undoable editing operations
-- [ ] 3. Project format version 2 and the migration from version 1
+- [x] 3. Project format version 2 and the migration from version 1
 - [ ] 4. Audio sources: `AudioSource` interface, `SourcePool` loading each file once
 - [ ] 5. Mix renderer: immutable `Arrangement` snapshot, sample-exact clips,
       volume/pan/mute/solo with smoothing, track and master meters
