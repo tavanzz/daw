@@ -56,6 +56,13 @@ Modules with one-way dependencies:
 - Project model: `model::Project` / `Track` / `Clip` are typed handles onto a
   `juce::ValueTree` (undo and listeners come for free later). `model::ProjectFile`
   maps it explicitly to JSON (`.dawproject`, LF, UTF-8) with `"formatVersion"`.
+- Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
+  integers at 282,240,000 per second, a number every common sample rate divides, so
+  sample positions at any of them are exact and the project has no sample rate of its
+  own. `model::TempoMap` (one tempo in quarter notes per minute and one metre per
+  project) converts to bars and beats, rounding each bar and beat start to a tick
+  once; `model::Grid` gives grid lines (restarting at every bar line) and snapping.
+  The engine never sees ticks: they become samples when the arrangement is built.
 
 - Audio output: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
   forwards the device callback to `Engine::process()` (stereo; extra outputs cleared).
@@ -197,7 +204,7 @@ migration from version 1. Out of scope: recording, MIDI, effects, plugins,
 automation, mobile UI.
 
 - [x] 0. Plan (this list) and draft pull request
-- [ ] 1. Timeline time in the model: ticks, tempo and metre, conversions, grid, snap
+- [x] 1. Timeline time in the model: ticks, tempo and metre, conversions, grid, snap
 - [ ] 2. Multitrack model: track mixer settings, clip position/offset/length, ids,
       undoable editing operations
 - [ ] 3. Project format version 2 and the migration from version 1

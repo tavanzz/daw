@@ -4,8 +4,11 @@
 add_library(daw_model STATIC
     src/Clip.cpp
     src/FormatVersion.cpp
+    src/Grid.cpp
     src/Project.cpp
     src/ProjectFile.cpp
+    src/TempoMap.cpp
+    src/TimelineTime.cpp
     src/Track.cpp)
 add_library(daw::model ALIAS daw_model)
 
