@@ -107,6 +107,9 @@ optimiser-only warnings show up.
   branch cancels the run in progress.
 - Linux packages needed by JUCE are listed in the workflow and in the README; keep
   the two lists in sync.
+- When fixing a red CI job: at most 3 attempts on the same job. If it is still red
+  after the third, stop pushing and explain the problem (what fails, suspected
+  cause, what was tried) instead of trying again.
 
 ## Workflow
 
@@ -123,7 +126,7 @@ or AIFF file, plays it with play/stop/pause/loop, shows the waveform with a play
 and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 
 - [x] 0. Skeleton: CMake, presets, dependencies, empty modules, architecture tests
-- [ ] 1. CI on GitHub Actions (Windows, macOS, Linux)
+- [x] 1. CI on GitHub Actions (Windows, macOS, Linux)
 - [ ] 2. Real-time primitives: lock-free queue, allocation guard for tests
 - [ ] 3. WAV/AIFF loading and sample-rate conversion
 - [ ] 4. Transport: play, pause, stop, loop, seek, de-click fades
