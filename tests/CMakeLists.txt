@@ -8,6 +8,7 @@ add_executable(daw_tests
     engine/EngineTests.cpp
     engine/ResamplerTests.cpp
     engine/SpscQueueTests.cpp
+    engine/TransportTests.cpp
     model/FormatVersionTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

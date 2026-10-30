@@ -3,6 +3,7 @@
 
 add_library(daw_engine STATIC
     src/Engine.cpp
+    src/Transport.cpp
     src/dsp/Resampler.cpp
     src/io/AudioFileLoader.cpp)
 add_library(daw::engine ALIAS daw_engine)

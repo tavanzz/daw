@@ -44,6 +44,11 @@ Modules with one-way dependencies:
   memory and converts it to the device sample rate with `engine::dsp::resample()`
   (offline windowed sinc), off the audio thread. The engine then plays `AudioData`
   at its native rate. Streaming from disk comes with multitrack.
+- Engine threading (Phase 1): UI commands go through an `SpscQueue` and apply at the
+  next block; new `AudioData` arrives through an atomic pointer and is swapped in only
+  after the current audio has faded out; replaced audio goes back on a second queue
+  and `Engine::collectGarbage()` frees it on the message thread. State for the UI is
+  published with relaxed atomics after every block.
 
 ## Audio thread rules (non-negotiable)
 
@@ -143,7 +148,7 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 - [x] 1. CI on GitHub Actions (Windows, macOS, Linux)
 - [x] 2. Real-time primitives: lock-free queue, allocation guard for tests
 - [x] 3. WAV/AIFF loading and sample-rate conversion
-- [ ] 4. Transport: play, pause, stop, loop, seek, de-click fades
+- [x] 4. Transport: play, pause, stop, loop, seek, de-click fades
 - [ ] 5. Level meter and waveform peaks
 - [ ] 6. Project model and versioned project files
 - [ ] 7. Desktop UI and audio device output
