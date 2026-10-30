@@ -94,6 +94,20 @@ ctest --preset debug            # run all tests
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on every
+push to `main`: configure, build and test with the `debug` preset on Linux (GCC),
+macOS (Apple Clang) and Windows (MSVC), plus the `release` preset on Linux, where
+optimiser-only warnings show up.
+
+- Third-party actions are pinned by commit SHA, with the version in a comment.
+- The repository is private and Actions minutes are limited (macOS and Windows
+  runners cost more): push finished steps, not every edit. A newer push to the same
+  branch cancels the run in progress.
+- Linux packages needed by JUCE are listed in the workflow and in the README; keep
+  the two lists in sync.
+
 ## Workflow
 
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
