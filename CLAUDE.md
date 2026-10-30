@@ -166,10 +166,10 @@ apt.llvm.org.
 ## Workflow
 
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
-- Phase work happens on a branch (`phase-1`) with a pull request into `main`; CI
-  must be green on Windows, macOS and Linux.
-- Don't implement later phases (multitrack, MIDI, plugins, mobile) beyond keeping
-  the architecture ready for them.
+- Phase work happens on a branch (`phase-N`) with a draft pull request into `main`;
+  CI must be green on Windows, macOS and Linux.
+- Don't implement later phases (recording, MIDI, effects, plugins, automation,
+  mobile) beyond keeping the architecture ready for them.
 
 ## Status
 
@@ -187,4 +187,53 @@ and a level meter. Plus unit tests and CI on Windows, macOS and Linux.
 - [x] 7. Desktop UI and audio device output
 - [x] Listening tests (`docs/LISTENING_TESTS.md`): all 14 passed on macOS, 2026-10-30
 
-Phase 2: not planned yet; it will be planned in a new session.
+Phase 2 (in progress, branch `phase-2`): multitrack and mixer. Several audio tracks
+with clips on a timeline (add, move, trim start/end, delete; one load per file), a
+ruler in time and bars (fixed tempo and metre per project), grid with snap, zoom and
+scroll, playhead, loop region; a mixer with volume, pan, mute, solo and meters per
+track plus a master bus; WAV export (bounce) through the same code as real-time
+playback; undo/redo for every project change; project format version 2 with a
+migration from version 1. Out of scope: recording, MIDI, effects, plugins,
+automation, mobile UI.
+
+- [x] 0. Plan (this list) and draft pull request
+- [ ] 1. Timeline time in the model: ticks, tempo and metre, conversions, grid, snap
+- [ ] 2. Multitrack model: track mixer settings, clip position/offset/length, ids,
+      undoable editing operations
+- [ ] 3. Project format version 2 and the migration from version 1
+- [ ] 4. Audio sources: `AudioSource` interface, `SourcePool` loading each file once
+- [ ] 5. Mix renderer: immutable `Arrangement` snapshot, sample-exact clips,
+      volume/pan/mute/solo with smoothing, track and master meters
+- [ ] 6. Engine on the timeline: atomic snapshot exchange, crossfade on structural
+      changes, transport over the timeline with a loop region
+- [ ] 7. Offline bounce to WAV (16/24-bit, 32-bit float; sample rate; dither)
+- [ ] 8. `controller` module: session, snapshot building, timeline viewport and ruler,
+      clip drags with snap
+- [ ] 9. Benchmark: tracks per audio callback budget (Release)
+- [ ] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap
+- [ ] 11. Desktop UI: mixer, export dialog, undo/redo, new project, unsaved changes
+- [ ] 12. Listening-test files and `docs/LISTENING_TESTS.md` for Phase 2
+
+Phase 2 decisions (agreed before starting):
+
+- Overlapping clips on a track: the topmost (most recently added or moved) covers
+  the ones below without cutting them; moving it away reveals them again.
+- Pan law: constant power (sin/cos), compensated so the centre is 0 dB on both
+  channels; hard left = +3 dB left, silence right. A neutral track plays exactly
+  like Phase 1.
+- Changing the tempo keeps clips at their time position; only the grid moves.
+- Stop returns to where playback started; Stop while stopped goes to 0. Without
+  loop, playback stops at the end of the last clip and returns to where it started.
+- Clip edges: a 5 ms fade only on cut edges (trimmed, or covered by another clip);
+  an untrimmed file plays exactly as it is.
+- Undo covers clips, tracks, mixer, tempo/metre and the loop region; loop on/off,
+  snap, grid, zoom and the playhead are not undoable (snap and grid are still
+  saved in the project).
+- Export: 44.1/48/88.2/96 kHz (device rate preselected); 16/24-bit integer or 32-bit
+  float (24 preselected); TPDF dither at 16 bit only; range = whole project or the
+  loop region. The export starts at full level on its first sample (no transport
+  fade-in); apart from that fade it equals real-time playback sample for sample.
+- Shortcuts: Cmd+O open project, Cmd+I import audio, Cmd+N new project, Cmd+T new
+  track, X mixer, N snap, Cmd while dragging bypasses snap, Backspace or Delete
+  deletes the selected clips. Several dropped files: one new track each, all at the
+  same position.
