@@ -124,7 +124,7 @@ void AppController::finishLoading(int generation, const juce::File& file, LoadOu
     audioSampleRate = outcome.loaded.audio->sampleRate;
     audioDetails = describe(outcome.loaded, audioSampleRate);
     audioPeaks = outcome.peaks;
-    engine.setAudio(std::move(outcome.loaded.audio));
+    playWholeFile(std::move(*outcome.loaded.audio));
     restoreDisplay();
 
     // Phase 1 projects hold one track with one clip: the file being played.
@@ -136,6 +136,24 @@ void AppController::finishLoading(int generation, const juce::File& file, LoadOu
     track.addClip(file);
 
     updateWindowTitle();
+}
+
+void AppController::playWholeFile(engine::AudioData audio)
+{
+    // Until the multitrack session takes over: one track playing the whole file.
+    auto source = std::make_shared<const engine::MemoryAudioSource>(std::move(audio));
+    auto arrangement = std::make_unique<engine::Arrangement>();
+    arrangement->sampleRate = source->getSampleRate();
+    arrangement->length = source->getLength();
+
+    engine::ArrangementTrack track;
+    track.id = 1;
+    track.segments.push_back({source.get(), 0, source->getLength(), 0, 0, 0});
+    arrangement->tracks.push_back(std::move(track));
+    arrangement->sources.push_back(std::move(source));
+
+    engine.resetTransport();
+    engine.setArrangement(std::move(arrangement));
 }
 
 void AppController::restoreDisplay()
@@ -171,7 +189,10 @@ void AppController::openProject(const juce::File& file)
         ++loadGeneration; // forget any load still running for the previous project
         audioFile = juce::File();
         audioPeaks.reset();
-        engine.setAudio(std::make_unique<engine::AudioData>()); // nothing to play
+        engine.resetTransport();
+        auto empty = std::make_unique<engine::Arrangement>(); // nothing to play
+        empty->sampleRate = engine.getSampleRate();
+        engine.setArrangement(std::move(empty));
         restoreDisplay();
 
         if (hasClip)

@@ -43,6 +43,7 @@ private:
     struct LoadOutcome;
 
     void finishLoading(int generation, const juce::File& file, LoadOutcome& outcome);
+    void playWholeFile(engine::AudioData audio);
     void restoreDisplay();
     void updateWindowTitle();
     void saveDeviceState();

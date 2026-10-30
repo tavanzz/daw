@@ -15,6 +15,47 @@ using daw::engine::TransportState;
 namespace
 {
 
+// Plays a buffer as the timeline: channels 0 and 1 from its first two (a mono buffer
+// on both), silence past its end and on any further output channels.
+class BufferRenderer final : public daw::engine::TimelineRenderer
+{
+public:
+    explicit BufferRenderer(const juce::AudioBuffer<float>& bufferToPlay)
+        : buffer(bufferToPlay)
+    {
+    }
+
+    void renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
+                        int outputStart, int numSamples) noexcept override
+    {
+        for (int channel = 0; channel < output.getNumChannels(); ++channel)
+        {
+            output.clear(channel, outputStart, numSamples);
+            if (channel >= 2)
+                continue;
+
+            const int sourceChannel = std::min(channel, buffer.getNumChannels() - 1);
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const juce::int64 index = timelineStart + i;
+                if (index < buffer.getNumSamples())
+                    output.setSample(channel, outputStart + i,
+                                     buffer.getSample(sourceChannel, static_cast<int>(index)));
+            }
+        }
+    }
+
+private:
+    const juce::AudioBuffer<float>& buffer;
+};
+
+void renderSource(Transport& transport, const juce::AudioBuffer<float>& source,
+                  juce::AudioBuffer<float>& output, int startSample, int numSamples)
+{
+    BufferRenderer renderer(source);
+    transport.render(renderer, output, startSample, numSamples);
+}
+
 constexpr double sampleRate = 48000.0;
 constexpr int fadeLength = 240; // 5 ms at 48 kHz
 
@@ -40,7 +81,7 @@ Transport makeTransport(const juce::AudioBuffer<float>& source)
 {
     Transport transport;
     transport.prepare(sampleRate);
-    transport.setSourceLength(source.getNumSamples());
+    transport.setLength(source.getNumSamples());
     return transport;
 }
 
@@ -54,7 +95,7 @@ std::vector<float> render(Transport& transport, const juce::AudioBuffer<float>& 
     for (int done = 0; done < numSamples; done += blockSize)
     {
         const int length = std::min(blockSize, numSamples - done);
-        transport.render(source, block, 0, length);
+        renderSource(transport, source, block, 0, length);
         rendered.insert(rendered.end(), block.getReadPointer(0), block.getReadPointer(0) + length);
     }
 
@@ -96,7 +137,7 @@ TEST_CASE("The fade lasts 5 ms at the prepared sample rate", "[engine][transport
     CHECK(transport.getFadeLength() == 480);
 }
 
-TEST_CASE("A new source is stopped at the start and renders silence", "[engine][transport]")
+TEST_CASE("A new transport is stopped at the start and renders silence", "[engine][transport]")
 {
     const auto source = makeRamp(2, 1000);
     auto transport = makeTransport(source);
@@ -210,7 +251,7 @@ TEST_CASE("Playback after the loop range plays on to the end", "[engine][transpo
     CHECK(transport.getState() == TransportState::stopped);
 }
 
-TEST_CASE("An invalid loop range means the whole source", "[engine][transport]")
+TEST_CASE("An invalid loop range means the whole timeline", "[engine][transport]")
 {
     const auto source = makeRamp(1, 1000);
     auto transport = makeTransport(source);
@@ -358,7 +399,7 @@ TEST_CASE("Seeking while playing fades out, jumps and fades back in", "[engine][
     CHECK(transport.getPosition() == 5000 + (1000 - fadeLength));
 }
 
-TEST_CASE("Seek positions are clamped to the source", "[engine][transport]")
+TEST_CASE("Seek positions are never negative but may be past the end", "[engine][transport]")
 {
     const auto source = makeRamp(1, 1000);
     auto transport = makeTransport(source);
@@ -366,7 +407,15 @@ TEST_CASE("Seek positions are clamped to the source", "[engine][transport]")
     transport.seek(-50);
     CHECK(transport.getPosition() == 0);
     transport.seek(999999);
-    CHECK(transport.getPosition() == 1000);
+    CHECK(transport.getPosition() == 999999);
+
+    // Playing from there reaches the end at once and goes back there.
+    transport.play();
+    juce::AudioBuffer<float> block(2, 64);
+    renderSource(transport, source, block, 0, 64);
+    CHECK(transport.getState() == TransportState::stopped);
+    CHECK(transport.getPosition() == 999999);
+    CHECK(block.getMagnitude(0, 64) == 0.0f);
 }
 
 TEST_CASE("No transport action makes the output jump by more than one fade step",
@@ -412,7 +461,7 @@ TEST_CASE("Mono sources feed both outputs; extra outputs stay silent", "[engine]
     juce::AudioBuffer<float> output(4, 1000);
     output.clear();
     juce::FloatVectorOperations::fill(output.getWritePointer(2), 9.0f, 1000);
-    transport.render(audio, output, 0, 1000);
+    renderSource(transport, audio, output, 0, 1000);
 
     const float left = output.getSample(0, 500);
     const float right = output.getSample(1, 500);
@@ -424,11 +473,11 @@ TEST_CASE("Mono sources feed both outputs; extra outputs stay silent", "[engine]
     CHECK(output.getMagnitude(3, 0, 1000) == 0.0f);
 }
 
-TEST_CASE("Play without a source does nothing", "[engine][transport]")
+TEST_CASE("Play on an empty timeline does nothing", "[engine][transport]")
 {
     Transport transport;
     transport.prepare(sampleRate);
-    transport.setSourceLength(0);
+    transport.setLength(0);
 
     transport.play();
     CHECK(transport.getState() == TransportState::stopped);
@@ -445,14 +494,130 @@ TEST_CASE("Rendering and every command are real-time safe", "[engine][transport]
         transport.setLooping(true);
         transport.play();
         for (int i = 0; i < 20; ++i)
-            transport.render(source, block, 0, 512);
+            renderSource(transport, source, block, 0, 512);
         transport.seek(100);
-        transport.render(source, block, 0, 512);
+        renderSource(transport, source, block, 0, 512);
         transport.pause();
-        transport.render(source, block, 0, 512);
+        renderSource(transport, source, block, 0, 512);
         transport.stop();
-        transport.render(source, block, 0, 512);
+        renderSource(transport, source, block, 0, 512);
     });
 
     CHECK(heapOperations == 0);
+}
+
+TEST_CASE("Stop returns to where playback started; stop again goes to 0", "[engine][transport]")
+{
+    const auto source = makeRamp(1, 10000);
+    auto transport = makeTransport(source);
+
+    transport.seek(3000);
+    transport.play();
+    (void) render(transport, source, 2000);
+
+    transport.stop();
+    (void) render(transport, source, 1000); // the fade-out, then silence
+    CHECK(transport.getState() == TransportState::stopped);
+    CHECK(transport.getPosition() == 3000);
+
+    transport.stop();
+    CHECK(transport.getPosition() == 0);
+    CHECK(transport.getReturnPosition() == 0);
+}
+
+TEST_CASE("Resuming after a pause keeps the return position", "[engine][transport]")
+{
+    const auto source = makeRamp(1, 10000);
+    auto transport = makeTransport(source);
+
+    transport.seek(1000);
+    transport.play();
+    (void) render(transport, source, 1000);
+    transport.pause();
+    (void) render(transport, source, 1000);
+    transport.play();
+    (void) render(transport, source, 1000);
+
+    CHECK(transport.getReturnPosition() == 1000);
+
+    // Stop while paused goes back at once.
+    transport.pause();
+    (void) render(transport, source, 1000);
+    transport.stop();
+    CHECK(transport.getPosition() == 1000);
+}
+
+TEST_CASE("A seek while playing becomes the return position", "[engine][transport]")
+{
+    const auto source = makeRamp(1, 10000);
+    auto transport = makeTransport(source);
+
+    transport.play();
+    (void) render(transport, source, 1000);
+    transport.seek(6000);
+    (void) render(transport, source, 1000);
+    transport.stop();
+    (void) render(transport, source, 1000);
+
+    CHECK(transport.getPosition() == 6000);
+}
+
+TEST_CASE("The end without looping goes back to where playback started", "[engine][transport]")
+{
+    const auto source = makeRamp(1, 1000);
+    auto transport = makeTransport(source);
+
+    transport.seek(200);
+    transport.play();
+    const auto output = render(transport, source, 1000, 100);
+
+    CHECK(output[799] == 1000.0f);
+    CHECK(allSilent(output, 800, 1000));
+    CHECK(transport.getState() == TransportState::stopped);
+    CHECK(transport.getPosition() == 200);
+}
+
+TEST_CASE("A new length takes effect without interrupting playback", "[engine][transport]")
+{
+    const auto source = makeRamp(1, 10000);
+    Transport transport;
+    transport.prepare(sampleRate);
+    transport.setLength(2000);
+    transport.setLooping(true);
+    transport.play();
+    (void) render(transport, source, 1500);
+
+    // The whole-timeline loop follows the new length.
+    transport.setLength(4000);
+    CHECK(transport.getLoopEnd() == 4000);
+    const auto output = render(transport, source, 3000);
+
+    CHECK(transport.getState() == TransportState::playing);
+    CHECK(output[0] == 1501.0f);
+    CHECK(output[2499] == 4000.0f);
+    CHECK(output[2500] == 1.0f); // wrapped at the new end
+}
+
+TEST_CASE("Reset fades out and goes to 0", "[engine][transport]")
+{
+    const auto source = makeRamp(1, 10000);
+    auto transport = makeTransport(source);
+    transport.seek(500);
+    transport.play();
+    (void) render(transport, source, 1000);
+
+    transport.reset();
+    CHECK(transport.getState() == TransportState::stopped);
+    CHECK(transport.isRunning());
+    const auto output = render(transport, source, 1000);
+
+    CHECK(output[0] > 0.0f); // fading out
+    CHECK(allSilent(output, fadeLength, 1000));
+    CHECK_FALSE(transport.isRunning());
+    CHECK(transport.getPosition() == 0);
+    CHECK(transport.getReturnPosition() == 0);
+
+    transport.seek(700);
+    transport.reset(); // while stopped: at once
+    CHECK(transport.getPosition() == 0);
 }

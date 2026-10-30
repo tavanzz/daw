@@ -47,11 +47,18 @@ Modules with one-way dependencies:
   when the owner calls `collectFinishedLoads()`. Clips read audio only through
   `engine::AudioSource::read()` (real-time safe; `MemoryAudioSource` today), so a
   streaming source can replace the in-memory one later without touching the mixer.
-- Engine threading (Phase 1): UI commands go through an `SpscQueue` and apply at the
-  next block; new `AudioData` arrives through an atomic pointer and is swapped in only
-  after the current audio has faded out; replaced audio goes back on a second queue
-  and `Engine::collectGarbage()` frees it on the message thread. State for the UI is
-  published with relaxed atomics after every block.
+- Engine threading: UI commands go through an `SpscQueue` and apply at the next
+  block. A new `Arrangement` (with its `MixState`) arrives through one atomic pointer
+  exchange (`Engine::setArrangement()`); if it changes what the tracks play
+  (`layoutHash`) while the transport runs, old and new are crossfaded over 5 ms, one
+  change at a time; while stopped it simply applies. Replaced snapshots go back on a
+  second queue and `Engine::collectGarbage()` frees them on the message thread. State
+  for the UI is published with relaxed atomics after every block. Blocks larger than
+  announced are rendered in pieces; mono devices get the left channel.
+- Transport (Phase 2): renders the timeline through `TimelineRenderer` (the engine,
+  i.e. the mixer). Its length is the end of the last clip; stop and the end of the
+  timeline go back to the return position (where playback last started from stopped,
+  or the last seek); stop while stopped goes to 0.
 - Mixing (Phase 2): the message thread builds an immutable `engine::Arrangement`
   (tracks with target gains and their audible `ClipSegment`s, sorted and disjoint;
   master gain; length; loop region; the sources it reads, kept alive by
@@ -236,7 +243,7 @@ automation, mobile UI.
 - [x] 4. Audio sources: `AudioSource` interface, `SourcePool` loading each file once
 - [x] 5. Mix renderer: immutable `Arrangement` snapshot, sample-exact clips,
       volume/pan/mute/solo with smoothing, track and master meters
-- [ ] 6. Engine on the timeline: atomic snapshot exchange, crossfade on structural
+- [x] 6. Engine on the timeline: atomic snapshot exchange, crossfade on structural
       changes, transport over the timeline with a loop region
 - [ ] 7. Offline bounce to WAV (16/24-bit, 32-bit float; sample rate; dither)
 - [ ] 8. `controller` module: session, snapshot building, timeline viewport and ruler,

@@ -4,6 +4,7 @@
 
 #include "support/RealtimeCheck.h"
 #include "support/SignalAnalysis.h"
+#include "support/TestArrangements.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -184,10 +185,9 @@ TEST_CASE("The engine meters what it plays", "[engine][meter]")
     daw::engine::Engine engine;
     engine.prepare(48000.0, 480);
 
-    auto audio = std::make_unique<daw::engine::AudioData>();
-    audio->sampleRate = 48000.0;
-    audio->samples = daw::test::makeSine(2, 48000, 1000.0, 48000.0, 0.5);
-    engine.setAudio(std::move(audio));
+    const auto source =
+        daw::test::makeSource(daw::test::makeSine(2, 48000, 1000.0, 48000.0, 0.5), 48000.0);
+    engine.setArrangement(daw::test::makeWholeFileArrangement(source));
     engine.play();
 
     juce::AudioBuffer<float> block(2, 480);

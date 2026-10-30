@@ -130,7 +130,7 @@ void MainComponent::timerCallback()
     const auto position = engine.getPlayheadPosition();
     const bool looping = engine.isLooping();
 
-    transportBar.update(state, position, engine.getAudioLength(), engine.getSampleRate(), looping,
+    transportBar.update(state, position, engine.getLength(), engine.getSampleRate(), looping,
                         hasAudio);
     waveform.setPlayhead(position);
     meter.update(engine.takeOutputPeak(0), engine.takeOutputPeak(1), elapsed);
