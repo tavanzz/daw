@@ -19,6 +19,7 @@ add_executable(daw_tests
     engine/MetronomeTests.cpp
     engine/MixerTests.cpp
     engine/MonitoringTests.cpp
+    engine/RecordingWriterTests.cpp
     engine/ResamplerTests.cpp
     engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp

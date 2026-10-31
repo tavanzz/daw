@@ -7,28 +7,62 @@ namespace daw::engine::dsp
 
 WaveformPeaks WaveformPeaks::compute(const juce::AudioBuffer<float>& audio, int samplesPerBucket)
 {
-    jassert(samplesPerBucket > 0);
+    Builder builder(audio.getNumChannels(), samplesPerBucket);
+    builder.append(audio.getArrayOfReadPointers(), audio.getNumSamples());
+    return builder.build();
+}
 
-    WaveformPeaks peaks;
-    peaks.numChannels = audio.getNumChannels();
-    peaks.numSamples = audio.getNumSamples();
-    peaks.samplesPerBucket = std::max(1, samplesPerBucket);
-    peaks.numBuckets = (audio.getNumSamples() + peaks.samplesPerBucket - 1) / peaks.samplesPerBucket;
-    peaks.buckets.resize(static_cast<std::size_t>(peaks.numChannels) *
-                         static_cast<std::size_t>(peaks.numBuckets));
+WaveformPeaks::Builder::Builder(int channels, int bucketSize)
+    : numChannels(std::max(0, channels))
+    , samplesPerBucket(std::max(1, bucketSize))
+    , complete(static_cast<std::size_t>(numChannels))
+    , partial(static_cast<std::size_t>(numChannels))
+{
+    jassert(bucketSize > 0);
+}
 
-    for (int channel = 0; channel < peaks.numChannels; ++channel)
+void WaveformPeaks::Builder::append(const float* const* channels, int count)
+{
+    int done = 0;
+    while (done < count)
     {
-        for (int bucket = 0; bucket < peaks.numBuckets; ++bucket)
-        {
-            const int start = bucket * peaks.samplesPerBucket;
-            const int length = std::min(peaks.samplesPerBucket, audio.getNumSamples() - start);
-            const auto range = juce::FloatVectorOperations::findMinAndMax(
-                audio.getReadPointer(channel, start), length);
+        const auto filled = static_cast<int>(numSamples % samplesPerBucket);
+        const int length = std::min(count - done, samplesPerBucket - filled);
 
-            peaks.buckets[static_cast<std::size_t>(channel * peaks.numBuckets + bucket)] = {
-                range.getStart(), range.getEnd()};
+        for (std::size_t channel = 0; channel < partial.size(); ++channel)
+        {
+            const auto range =
+                juce::FloatVectorOperations::findMinAndMax(channels[channel] + done, length);
+            auto& bucket = partial[channel];
+            bucket = filled == 0 ? Range{range.getStart(), range.getEnd()}
+                                 : Range{std::min(bucket.min, range.getStart()),
+                                         std::max(bucket.max, range.getEnd())};
+
+            if (filled + length == samplesPerBucket)
+                complete[channel].push_back(bucket);
         }
+
+        numSamples += length;
+        done += length;
+    }
+}
+
+WaveformPeaks WaveformPeaks::Builder::build() const
+{
+    WaveformPeaks peaks;
+    peaks.numChannels = numChannels;
+    peaks.numSamples = numSamples;
+    peaks.samplesPerBucket = samplesPerBucket;
+    peaks.numBuckets = static_cast<int>((numSamples + samplesPerBucket - 1) / samplesPerBucket);
+    peaks.buckets.reserve(static_cast<std::size_t>(numChannels) *
+                          static_cast<std::size_t>(peaks.numBuckets));
+
+    const bool hasPartial = numSamples % samplesPerBucket != 0;
+    for (std::size_t channel = 0; channel < complete.size(); ++channel)
+    {
+        peaks.buckets.insert(peaks.buckets.end(), complete[channel].begin(), complete[channel].end());
+        if (hasPartial)
+            peaks.buckets.push_back(partial[channel]);
     }
 
     return peaks;

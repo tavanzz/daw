@@ -90,6 +90,15 @@ Modules with one-way dependencies:
   the master meter and never exported. `Engine::playWithCountIn()` clicks for the
   count-in length from stopped (the timeline silent, inputs monitored as when
   recording), then starts the transport on the next sample with its usual fade-in.
+- Recording pipeline (Phase 3): the audio thread only copies samples into a
+  `rt::AudioFifo` per recorded file (lock-free, one producer and one consumer, a
+  whole block or nothing, 10 s of audio); `io::RecordingWriter` empties the FIFOs on
+  its own thread into WAV files at the device rate (16/24-bit rounded and clipped,
+  no dither, or 32-bit float), rewrites their headers every second (readable after
+  a crash), builds their waveforms as they grow (`WaveformPeaks::Builder`) and
+  checks the free disk space. A full FIFO refuses the block (the producer knows
+  which samples were lost); a refused write or less than 10 s of disk left is
+  reported as a `Problem`. Tests replace the disk with a `RecordingSink`.
 - Export: `engine::OfflineRenderer` drives the same `Mixer` faster than real time;
   `engine::io::bounceToWav()` writes a stereo WAV (16/24-bit integer with
   `quantise()` = round(x·2^(bits−1)) clipped, optional seeded TPDF dither, or 32-bit
@@ -364,7 +373,7 @@ automation, mobile UI.
 - [x] 3. Input monitoring: per-track input/timeline switch with ramps, off/auto/on,
       transport fade on the timeline part only, mixer running while stopped
 - [x] 4. Metronome and count-in, sample-exact on the tempo map's beats
-- [ ] 5. Recording pipeline: lock-free audio FIFO, WAV writer thread, overrun and
+- [x] 5. Recording pipeline: lock-free audio FIFO, WAV writer thread, overrun and
       disk-space reporting
 - [ ] 6. `Recorder` in the engine: latency-compensated capture, several tracks,
       punch in/out

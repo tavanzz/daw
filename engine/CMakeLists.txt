@@ -20,7 +20,9 @@ add_library(daw_engine STATIC
     src/io/AudioDeviceHost.cpp
     src/io/AudioFileLoader.cpp
     src/io/Bounce.cpp
-    src/io/SourcePool.cpp)
+    src/io/RecordingWriter.cpp
+    src/io/SourcePool.cpp
+    src/rt/AudioFifo.cpp)
 add_library(daw::engine ALIAS daw_engine)
 
 target_include_directories(daw_engine PUBLIC include PRIVATE src)
