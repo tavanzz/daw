@@ -4,6 +4,7 @@
 #include "daw/engine/AudioInputs.h"
 #include "daw/engine/Mixer.h"
 #include "daw/engine/Recorder.h"
+#include "daw/engine/RenderClock.h"
 #include "daw/engine/Transport.h"
 #include "daw/engine/dsp/InputMeters.h"
 #include "daw/engine/dsp/Metronome.h"
@@ -153,6 +154,9 @@ public:
     [[nodiscard]] double getSampleRate() const noexcept { return sampleRate; }
     [[nodiscard]] int getMaximumBlockSize() const noexcept { return maximumBlockSize; }
 
+    /** Marks the audio blocks, so that streamed audio is reused safely. */
+    [[nodiscard]] const RenderClock& getRenderClock() const noexcept { return renderClock; }
+
     /** Any thread: state as of the last audio block. */
     [[nodiscard]] TransportState getTransportState() const noexcept;
     [[nodiscard]] juce::int64 getPlayheadPosition() const noexcept;
@@ -177,6 +181,7 @@ private:
                         int outputStart, int numSamples, const TimelineFade& fade) noexcept override;
     void renderStopped(juce::AudioBuffer<float>& output, int outputStart,
                        int numSamples) noexcept override;
+    void processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept;
     void renderBlock(juce::AudioBuffer<float>& output, int numSamples) noexcept;
     void renderCountIn(juce::AudioBuffer<float>& output, int outputStart,
                        int numSamples) noexcept;
@@ -246,6 +251,7 @@ private:
     std::atomic<bool> publishedCountingIn{false};
     dsp::PeakLevelMeter outputMeter;
     dsp::InputMeters inputMeters;
+    RenderClock renderClock;
 };
 
 } // namespace daw::engine

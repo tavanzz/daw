@@ -44,7 +44,8 @@ Modules with one-way dependencies:
   in `engine` or `model`, never in a UI module.
 - Audio files: `engine::io::loadAudioFile()` decodes a whole WAV/AIFF into memory
   and converts it to the device sample rate with `engine::dsp::resample()` (offline
-  windowed sinc), off the audio thread. `engine::io::SourcePool` loads each file
+  windowed sinc, `dsp::Resampling` also converts a block at a time), off the audio
+  thread. `engine::io::SourcePool` loads each file
   once however many clips use it, on worker threads; finished loads are applied
   when the owner calls `collectFinishedLoads()`. Clips read audio only through
   `engine::AudioSource::read()` (real-time safe; `MemoryAudioSource` today), so a
@@ -184,6 +185,18 @@ Modules with one-way dependencies:
   same sample. `controller::LatencyMeasurement` cross-correlates each burst's window
   (FFT, message thread), requires a clear peak and the bursts to agree within a
   sample, and gives the offset = measured round trip - reported latency.
+- Disk streaming (Phase 3): `io::DiskStreamer` opens files as
+  `io::StreamingAudioSource`s whose samples live in blocks of 32,768 samples per
+  channel within a memory budget (512 MB; least recently needed blocks go first).
+  The read-ahead thread loads what the plan (`setPlan()`: the arrangement's segments)
+  plays near the playhead (`followPlayhead()`): 3 s ahead, the loop start, a second
+  from where a stopped transport would start. `read()` copies loaded blocks only; a
+  missing one gives silence, a counted dropout and `false`, never a wait (except in
+  synchronous mode, for offline rendering). Files at another rate are converted
+  while loading with `dsp::Resampling`, the same code `dsp::resample()` uses, so
+  streamed audio equals the in-memory conversion to the bit. A dropped block is
+  reused only once the engine's `RenderClock` shows the audio block that could read
+  it is over.
 - Audio I/O: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
   forwards the device callback to `Engine::process(inputs, output)` (stereo output;
   extra outputs cleared). Inputs reach the engine as `AudioInputs`, indexed by the
@@ -418,7 +431,7 @@ automation, mobile UI.
       errors, disk-space checks
 - [x] 8. Crash recovery: recording journal, WAV repair, recovery on open
 - [x] 9. Latency measurement with a loopback cable
-- [ ] 10. Disk streaming in the engine: block cache, read-ahead thread, sample-rate
+- [x] 10. Disk streaming in the engine: block cache, read-ahead thread, sample-rate
       conversion while streaming, dropout reporting
 - [ ] 11. Streaming everywhere: source pool, transport waiting for data, export
 - [ ] 12. Microphone permission and app wiring (input device, latency offset)

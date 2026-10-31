@@ -22,6 +22,7 @@ add_library(daw_engine STATIC
     src/io/AudioDeviceHost.cpp
     src/io/AudioFileLoader.cpp
     src/io/Bounce.cpp
+    src/io/DiskStreamer.cpp
     src/io/RecordingWriter.cpp
     src/io/SourcePool.cpp
     src/io/WavRepair.cpp

@@ -47,6 +47,13 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
 
 void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept
 {
+    renderClock.begin();
+    processBlock(inputs, output);
+    renderClock.end();
+}
+
+void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept
+{
     inputMeters.process(inputs, output.getNumSamples());
 
     if (maximumBlockSize <= 0)
