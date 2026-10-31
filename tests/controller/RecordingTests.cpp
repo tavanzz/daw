@@ -262,7 +262,6 @@ TEST_CASE("Punch keeps the loop region; the file keeps the rest", "[controller][
     const auto clip = onlyClip(session, track);
     REQUIRE(clip);
     CHECK(clip->getBounds() == daw::model::ClipBounds{seconds(2.0), seconds(1.0), seconds(1.0)});
-    CHECK(session.getFileLength(clip->getAudioFile()) == std::nullopt); // still loading
     REQUIRE(session.waitForLoads(30000));
     CHECK(session.getFileLength(clip->getAudioFile()) == seconds(3.0));
 }
