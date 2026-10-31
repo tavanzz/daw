@@ -21,8 +21,10 @@ class PeakLevelMeter
 public:
     static constexpr int maxChannels = 2;
 
-    /** Audio thread. Channels beyond maxChannels are ignored. */
-    void process(const juce::AudioBuffer<float>& buffer, int startSample, int numSamples) noexcept;
+    /** Audio thread. Measures the buffer's first numChannels channels (at most
+        maxChannels). */
+    void process(const juce::AudioBuffer<float>& buffer, int startSample, int numSamples,
+                 int numChannels = maxChannels) noexcept;
 
     /** Reader thread (only one). Highest absolute sample on the channel since the
         previous call, as a linear gain; 0 for channels that are not measured. */

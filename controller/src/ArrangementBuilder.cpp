@@ -1,5 +1,6 @@
 #include "daw/controller/ArrangementBuilder.h"
 
+#include "daw/controller/TempoBeatGrid.h"
 #include "daw/engine/dsp/PanLaw.h"
 
 #include <algorithm>
@@ -39,6 +40,9 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
     auto arrangement = std::make_unique<engine::Arrangement>();
     arrangement->sampleRate = sampleRate;
     arrangement->masterGain = static_cast<float>(project.getMasterVolume());
+    arrangement->beats = std::make_shared<TempoBeatGrid>(project.getTempoMap(), sampleRate);
+    arrangement->metronomeEnabled = project.isMetronomeEnabled();
+    arrangement->metronomeGain = static_cast<float>(project.getMetronomeVolume());
 
     const auto toSamples = [sampleRate](model::Ticks ticks) {
         return model::ticksToSamples(ticks, sampleRate);

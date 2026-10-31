@@ -4,6 +4,7 @@
 add_library(daw_engine STATIC
     src/Arrangement.cpp
     src/AudioSource.cpp
+    src/BeatGrid.cpp
     src/Engine.cpp
     src/Mixer.cpp
     src/OfflineRenderer.cpp
@@ -11,6 +12,7 @@ add_library(daw_engine STATIC
     src/dsp/GainRamp.cpp
     src/dsp/InputMeters.cpp
     src/dsp/MeterBallistics.cpp
+    src/dsp/Metronome.cpp
     src/dsp/PanLaw.cpp
     src/dsp/PeakLevelMeter.cpp
     src/dsp/Resampler.cpp

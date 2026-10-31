@@ -7,6 +7,7 @@ add_library(daw_controller STATIC
     src/ClipEditing.cpp
     src/ExportJob.cpp
     src/Session.cpp
+    src/TempoBeatGrid.cpp
     src/TimelineViewport.cpp)
 add_library(daw::controller ALIAS daw_controller)
 

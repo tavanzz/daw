@@ -7,6 +7,7 @@ add_executable(daw_tests
     support/TestMain.cpp
     support/TestAudioFiles.cpp
     controller/ArrangementBuilderTests.cpp
+    controller/MetronomeTests.cpp
     controller/SessionTests.cpp
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
@@ -15,6 +16,7 @@ add_executable(daw_tests
     engine/BounceTests.cpp
     engine/EngineTests.cpp
     engine/MeterTests.cpp
+    engine/MetronomeTests.cpp
     engine/MixerTests.cpp
     engine/MonitoringTests.cpp
     engine/ResamplerTests.cpp

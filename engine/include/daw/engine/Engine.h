@@ -5,6 +5,7 @@
 #include "daw/engine/Mixer.h"
 #include "daw/engine/Transport.h"
 #include "daw/engine/dsp/InputMeters.h"
+#include "daw/engine/dsp/Metronome.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
 #include "daw/engine/rt/SpscQueue.h"
 
@@ -31,11 +32,13 @@ struct EngineCommand
         stop,
         seek,
         setLooping,
-        resetTransport
+        resetTransport,
+        countIn
     };
 
     Type type = Type::play;
     juce::int64 value = 0;
+    juce::int64 length = 0;
 };
 
 /** An arrangement with the mixer state that goes with it: what the message thread
@@ -67,6 +70,10 @@ struct EngineSnapshot
 
     Tracks that monitor their input are heard whatever the transport does: the
     mixer runs while stopped too, and the transport's fades only touch the clips.
+
+    The metronome clicks on the arrangement's beats while playing (if it is on) and
+    during a count-in: bars of clicks before playback starts, the timeline silent.
+    Clicks are added after the master meter: they are not part of the mix.
 */
 class Engine final : private TimelineRenderer
 {
@@ -108,6 +115,12 @@ public:
     /** Stops and goes to 0 (for a new project). */
     void resetTransport();
 
+    /** Message thread. From stopped: clicks for countInLength samples, as if the
+        timeline ran from position - countInLength, then plays from position (the
+        return position, as play()). While playing, plays from position without a
+        count-in. Stop, pause, seek and reset cancel it. */
+    void playWithCountIn(juce::int64 position, juce::int64 countInLength);
+
     /** Message thread. Frees arrangements the audio thread no longer uses.
         setArrangement() calls it too; call it regularly (a UI timer is fine). */
     void collectGarbage();
@@ -120,6 +133,7 @@ public:
     [[nodiscard]] juce::int64 getPlayheadPosition() const noexcept;
     [[nodiscard]] juce::int64 getLength() const noexcept;
     [[nodiscard]] bool isLooping() const noexcept;
+    [[nodiscard]] bool isCountingIn() const noexcept;
 
     /** One reader thread (the UI): highest absolute output sample on the channel
         (0 = left, 1 = right) since the previous call, as a linear gain. This is the
@@ -138,8 +152,13 @@ private:
                         int outputStart, int numSamples, const TimelineFade& fade) noexcept override;
     void renderStopped(juce::AudioBuffer<float>& output, int outputStart,
                        int numSamples) noexcept override;
+    void renderBlock(juce::AudioBuffer<float>& output, int numSamples) noexcept;
+    void renderCountIn(juce::AudioBuffer<float>& output, int outputStart,
+                       int numSamples) noexcept;
     void renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
                      int outputStart, int numSamples, const MixContext& context) noexcept;
+    void finishPiece(juce::AudioBuffer<float>& output, int outputStart, int numSamples,
+                     juce::int64 timelineStart, bool newClicks) noexcept;
     [[nodiscard]] MixContext makeContext(int outputStart) const noexcept;
 
     void send(Command command);
@@ -157,6 +176,10 @@ private:
     // Audio thread only.
     Transport transport;
     Mixer mixer;
+    dsp::Metronome metronome;
+    juce::int64 countInRemaining = 0; // samples of count-in still to click
+    juce::int64 countInPosition = 0;  // the timeline position the count-in stands for
+    int meteredChannels = 2;          // the device's outputs, as far as the meter goes
     Snapshot* current = nullptr;
     Snapshot* fadingOut = nullptr; // the previous snapshot, during a crossfade
     int crossfadeDone = 0;
@@ -181,6 +204,7 @@ private:
     std::atomic<juce::int64> publishedPosition{0};
     std::atomic<juce::int64> publishedLength{0};
     std::atomic<bool> publishedLooping{false};
+    std::atomic<bool> publishedCountingIn{false};
     dsp::PeakLevelMeter outputMeter;
     dsp::InputMeters inputMeters;
 };

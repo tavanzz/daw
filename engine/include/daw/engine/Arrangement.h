@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/engine/AudioSource.h"
+#include "daw/engine/BeatGrid.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
 
 #include <juce_core/juce_core.h>
@@ -70,6 +71,11 @@ struct Arrangement
     juce::int64 loopEnd = 0;
 
     std::vector<std::shared_ptr<const AudioSource>> sources;
+
+    /** Where the beats are, for the metronome and the count-in; may be null. */
+    std::shared_ptr<const BeatGrid> beats;
+    bool metronomeEnabled = false; ///< clicks while playing (the count-in always clicks)
+    float metronomeGain = 0.5f;
 
     /** Summary of the segments of every track. Two arrangements with different
         hashes sound different even at equal gains: swapping them while playing

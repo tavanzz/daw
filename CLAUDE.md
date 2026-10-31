@@ -82,6 +82,14 @@ Modules with one-way dependencies:
   fade to the renderer as a `TimelineFade`, applied to each track's clips only, and
   calls `renderStopped()` while stopped, so monitored inputs are never faded by
   play/stop and are heard while stopped.
+- Metronome and count-in (Phase 3): the controller gives each arrangement an
+  `engine::BeatGrid` (`controller::TempoBeatGrid`: the tempo map's beat starts
+  converted to samples, so the engine never repeats the model's rounding).
+  `dsp::Metronome` starts a synthesised click (accented on downbeats) on the exact
+  sample of each beat while playing with the metronome on; clicks are added after
+  the master meter and never exported. `Engine::playWithCountIn()` clicks for the
+  count-in length from stopped (the timeline silent, inputs monitored as when
+  recording), then starts the transport on the next sample with its usual fade-in.
 - Export: `engine::OfflineRenderer` drives the same `Mixer` faster than real time;
   `engine::io::bounceToWav()` writes a stereo WAV (16/24-bit integer with
   `quantise()` = round(x·2^(bits−1)) clipped, optional seeded TPDF dither, or 32-bit
@@ -355,7 +363,7 @@ automation, mobile UI.
       count-in, punch and recording format; migration from version 2
 - [x] 3. Input monitoring: per-track input/timeline switch with ramps, off/auto/on,
       transport fade on the timeline part only, mixer running while stopped
-- [ ] 4. Metronome and count-in, sample-exact on the tempo map's beats
+- [x] 4. Metronome and count-in, sample-exact on the tempo map's beats
 - [ ] 5. Recording pipeline: lock-free audio FIFO, WAV writer thread, overrun and
       disk-space reporting
 - [ ] 6. `Recorder` in the engine: latency-compensated capture, several tracks,

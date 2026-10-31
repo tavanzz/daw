@@ -24,6 +24,8 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     maximumBlockSize = newMaximumBlockSize;
     transport.prepare(newSampleRate);
     mixer.prepare(newSampleRate, newMaximumBlockSize);
+    metronome.prepare(newSampleRate);
+    countInRemaining = 0;
     crossfadeBuffer.setSize(2, newMaximumBlockSize);
     stereoBuffer.setSize(2, newMaximumBlockSize);
     crossfadeLength =
@@ -58,11 +60,12 @@ void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output
         apply(*command);
 
     blockInputs = &inputs;
+    meteredChannels = std::min(output.getNumChannels(), 2);
 
     if (output.getNumChannels() >= 2)
     {
         renderOffset = 0;
-        transport.render(*this, output, 0, output.getNumSamples());
+        renderBlock(output, output.getNumSamples());
     }
     else
     {
@@ -71,15 +74,68 @@ void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output
         {
             const int chunk = std::min(maximumBlockSize, output.getNumSamples() - done);
             renderOffset = done;
-            transport.render(*this, stereoBuffer, 0, chunk);
+            renderBlock(stereoBuffer, chunk);
             if (output.getNumChannels() == 1)
                 output.copyFrom(0, done, stereoBuffer, 0, 0, chunk);
         }
     }
 
     blockInputs = nullptr;
-    outputMeter.process(output, 0, output.getNumSamples());
     publish();
+}
+
+void Engine::renderBlock(juce::AudioBuffer<float>& output, int numSamples) noexcept
+{
+    int done = 0;
+
+    if (countInRemaining > 0)
+    {
+        done = static_cast<int>(std::min<juce::int64>(numSamples, countInRemaining));
+        renderCountIn(output, 0, done);
+        countInRemaining -= done;
+        countInPosition += done;
+
+        // Playback starts on the sample after the count-in, with the usual fade-in.
+        if (countInRemaining == 0)
+            transport.play();
+    }
+
+    if (done < numSamples)
+        transport.render(*this, output, done, numSamples - done);
+}
+
+void Engine::renderCountIn(juce::AudioBuffer<float>& output, int outputStart,
+                           int numSamples) noexcept
+{
+    const BeatGrid* beats = canPlay(current) ? current->arrangement->beats.get() : nullptr;
+
+    for (int done = 0; done < numSamples; done += maximumBlockSize)
+    {
+        const int piece = std::min(maximumBlockSize, numSamples - done);
+        auto context = makeContext(outputStart + done);
+        context.timelineRunning = false;
+        context.autoMonitorsInput = true;
+        renderPiece(countInPosition + done, output, outputStart + done, piece, context);
+        finishPiece(output, outputStart + done, piece, countInPosition + done, beats != nullptr);
+    }
+}
+
+void Engine::finishPiece(juce::AudioBuffer<float>& output, int outputStart, int numSamples,
+                         juce::int64 timelineStart, bool newClicks) noexcept
+{
+    // The meter shows the mix: it measures before the clicks are added.
+    outputMeter.process(output, outputStart, numSamples, meteredChannels);
+
+    if (output.getNumChannels() < 2)
+        return;
+
+    const bool playable = canPlay(current);
+    const BeatGrid* beats =
+        newClicks && playable ? current->arrangement->beats.get() : nullptr;
+    const float gain = playable ? current->arrangement->metronomeGain : 0.0f;
+
+    metronome.render(beats, timelineStart, gain, output.getWritePointer(0, outputStart),
+                     output.getWritePointer(1, outputStart), numSamples);
 }
 
 MixContext Engine::makeContext(int outputStart) const noexcept
@@ -94,13 +150,17 @@ MixContext Engine::makeContext(int outputStart) const noexcept
 void Engine::renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
                             int outputStart, int numSamples, const TimelineFade& fade) noexcept
 {
+    const bool clicks = canPlay(current) && current->arrangement->metronomeEnabled &&
+                        transport.getState() == TransportState::playing;
+
     // Devices may deliver more than they announced: render in pieces the mixer fits.
     for (int done = 0; done < numSamples; done += maximumBlockSize)
     {
+        const int piece = std::min(maximumBlockSize, numSamples - done);
         auto context = makeContext(outputStart + done);
         context.fade = fade.from(done);
-        renderPiece(timelineStart + done, output, outputStart + done,
-                    std::min(maximumBlockSize, numSamples - done), context);
+        renderPiece(timelineStart + done, output, outputStart + done, piece, context);
+        finishPiece(output, outputStart + done, piece, timelineStart + done, clicks);
     }
 }
 
@@ -109,10 +169,11 @@ void Engine::renderStopped(juce::AudioBuffer<float>& output, int outputStart,
 {
     for (int done = 0; done < numSamples; done += maximumBlockSize)
     {
+        const int piece = std::min(maximumBlockSize, numSamples - done);
         auto context = makeContext(outputStart + done);
         context.timelineRunning = false;
-        renderPiece(transport.getPosition(), output, outputStart + done,
-                    std::min(maximumBlockSize, numSamples - done), context);
+        renderPiece(transport.getPosition(), output, outputStart + done, piece, context);
+        finishPiece(output, outputStart + done, piece, transport.getPosition(), false);
     }
 }
 
@@ -204,6 +265,11 @@ void Engine::resetTransport()
     send({Command::Type::resetTransport, 0});
 }
 
+void Engine::playWithCountIn(juce::int64 position, juce::int64 countInLength)
+{
+    send({Command::Type::countIn, position, countInLength});
+}
+
 void Engine::collectGarbage()
 {
     while (const auto snapshot = retired.pop())
@@ -230,6 +296,11 @@ bool Engine::isLooping() const noexcept
     return publishedLooping.load(std::memory_order_relaxed);
 }
 
+bool Engine::isCountingIn() const noexcept
+{
+    return publishedCountingIn.load(std::memory_order_relaxed);
+}
+
 float Engine::takeOutputPeak(int channel) noexcept
 {
     return outputMeter.takePeak(channel);
@@ -251,10 +322,19 @@ void Engine::send(Command command)
 
 void Engine::apply(const Command& command) noexcept
 {
+    // Anything that moves or stops the transport ends a count-in.
+    const bool endsCountIn = command.type == Command::Type::pause ||
+                             command.type == Command::Type::stop ||
+                             command.type == Command::Type::seek ||
+                             command.type == Command::Type::resetTransport;
+    if (endsCountIn)
+        countInRemaining = 0;
+
     switch (command.type)
     {
     case Command::Type::play:
-        transport.play();
+        if (countInRemaining == 0)
+            transport.play();
         break;
     case Command::Type::pause:
         transport.pause();
@@ -270,6 +350,18 @@ void Engine::apply(const Command& command) noexcept
         break;
     case Command::Type::resetTransport:
         transport.reset();
+        break;
+    case Command::Type::countIn:
+        transport.seek(command.value);
+        if (transport.isRunning() || command.length <= 0)
+        {
+            transport.play();
+        }
+        else
+        {
+            countInRemaining = command.length;
+            countInPosition = command.value - command.length;
+        }
         break;
     }
 }
@@ -340,6 +432,7 @@ void Engine::publish() noexcept
     publishedPosition.store(transport.getPosition(), std::memory_order_relaxed);
     publishedLength.store(transport.getLength(), std::memory_order_relaxed);
     publishedLooping.store(transport.isLooping(), std::memory_order_relaxed);
+    publishedCountingIn.store(countInRemaining > 0, std::memory_order_relaxed);
 }
 
 } // namespace daw::engine
