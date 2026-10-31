@@ -290,7 +290,9 @@ TEST_CASE("Track input meters show the levels of their input channels", "[contro
 {
     daw::engine::Engine engine;
     daw::test::SimulatedDevice device(engine, sampleRate, 4, {blockSize});
-    device.inputSignal = [](int channel, juce::int64) { return -0.1f * (channel + 1); };
+    device.inputSignal = [](int channel, juce::int64) {
+        return -0.1f * static_cast<float>(channel + 1);
+    };
     device.start();
 
     daw::controller::Session session(engine);

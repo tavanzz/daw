@@ -214,7 +214,9 @@ TEST_CASE("Stereo inputs keep their sides and mono inputs are heard on both",
           "[engine][monitoring]")
 {
     Rig rig({128}, 4);
-    rig.device.inputSignal = [](int channel, juce::int64) { return 0.1f * (channel + 1); };
+    rig.device.inputSignal = [](int channel, juce::int64) {
+        return 0.1f * static_cast<float>(channel + 1);
+    };
     rig.device.start();
 
     rig.engine.setArrangement(track(InputMonitoring::on, false, 2, 2));
