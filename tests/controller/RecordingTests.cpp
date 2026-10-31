@@ -639,3 +639,32 @@ TEST_CASE("Measuring without a cable fails with an explanation", "[controller][l
     CHECK_FALSE(result->succeeded);
     CHECK_THAT(result->message.toStdString(), ContainsSubstring("cable"));
 }
+
+TEST_CASE("Without microphone access tracks cannot be armed and recording explains why",
+          "[controller][recording]")
+{
+    Studio studio;
+    auto& session = studio.session;
+    const auto track = session.addTrack("Mic");
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+    CHECK_FALSE(session.needsInputs());
+
+    // Not asked yet: arming is what makes the app ask.
+    CHECK(session.getInputAccess() == Session::InputAccess::unknown);
+    CHECK(session.setTrackArmed(track, true));
+    CHECK(session.needsInputs());
+
+    session.setInputAccess(Session::InputAccess::denied);
+    CHECK_THAT(session.record().getErrorMessage().toStdString(),
+               ContainsSubstring("Microphone access is off"));
+    CHECK_FALSE(session.measureLatency(0, 0).wasOk());
+    CHECK(session.setTrackArmed(track, false));
+    CHECK_FALSE(session.setTrackArmed(track, true));
+    CHECK_FALSE(session.getProject().getTrack(0).isArmed());
+
+    // Monitoring always needs the inputs too; automatic only once armed.
+    session.setTrackMonitoring(track, daw::model::MonitoringMode::on);
+    CHECK(session.needsInputs());
+    session.setTrackInput(track, daw::model::TrackInput::none());
+    CHECK_FALSE(session.needsInputs());
+}

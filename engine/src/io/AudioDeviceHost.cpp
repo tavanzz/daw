@@ -20,6 +20,15 @@ AudioDeviceHost::~AudioDeviceHost()
 
 juce::String AudioDeviceHost::initialise(const juce::XmlElement* savedState, bool withInputs)
 {
+    std::unique_ptr<juce::XmlElement> outputsOnly;
+    if (savedState != nullptr && !withInputs)
+    {
+        outputsOnly = std::make_unique<juce::XmlElement>(*savedState);
+        outputsOnly->removeAttribute("audioInputDeviceName");
+        outputsOnly->removeAttribute("audioDeviceInChans");
+        savedState = outputsOnly.get();
+    }
+
     const auto error = deviceManager.initialise(withInputs ? AudioInputs::maxChannels : 0,
                                                 engineChannels, savedState, true);
 
@@ -30,6 +39,34 @@ juce::String AudioDeviceHost::initialise(const juce::XmlElement* savedState, boo
     }
 
     return error;
+}
+
+juce::String AudioDeviceHost::openInputs()
+{
+    if (hasInputs())
+        return {};
+
+    auto setup = deviceManager.getAudioDeviceSetup();
+    if (setup.inputDeviceName.isEmpty())
+        if (auto* type = deviceManager.getCurrentDeviceTypeObject())
+        {
+            const auto names = type->getDeviceNames(true);
+            const auto index = type->getDefaultDeviceIndex(true);
+            if (names.isEmpty())
+                return "This audio device has no inputs.";
+            setup.inputDeviceName = names[std::max(0, index)];
+        }
+
+    setup.useDefaultInputChannels = false;
+    setup.inputChannels.clear();
+    setup.inputChannels.setRange(0, AudioInputs::maxChannels, true);
+    return deviceManager.setAudioDeviceSetup(setup, true);
+}
+
+bool AudioDeviceHost::hasInputs() const
+{
+    const auto* device = deviceManager.getCurrentAudioDevice();
+    return device != nullptr && !device->getActiveInputChannels().isZero();
 }
 
 void AudioDeviceHost::audioDeviceIOCallbackWithContext(

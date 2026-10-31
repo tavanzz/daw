@@ -39,9 +39,17 @@ public:
     /** Opens a stereo output, and with withInputs also the inputs (all channels of
         the input device, up to AudioInputs::maxChannels): the devices described by
         savedState (from getDeviceManager().createStateXml()) if they are available,
-        otherwise the default ones. Returns an error message, or an empty string on
-        success. */
+        otherwise the default ones. Without withInputs no input device is opened,
+        even one savedState names (on macOS that would ask for the microphone
+        permission). Returns an error message, or an empty string on success. */
     juce::String initialise(const juce::XmlElement* savedState, bool withInputs = false);
+
+    /** Opens the inputs too, if none is open: the default input device, all its
+        channels. Returns an error message, or an empty string on success. */
+    juce::String openInputs();
+
+    /** Whether the device delivers any input channel. */
+    [[nodiscard]] bool hasInputs() const;
 
     /** For device selection in the UI, and for saving the chosen device. */
     [[nodiscard]] juce::AudioDeviceManager& getDeviceManager() noexcept { return deviceManager; }

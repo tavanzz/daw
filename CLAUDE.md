@@ -225,9 +225,20 @@ Modules with one-way dependencies:
   `Session::getRevision()` changes. Peak meters have one reader each: the output
   peaks are taken once per tick and fed to both master meters.
 - `app/AppController` owns the engine, the device host, the session and the window;
-  drives `Session::update()` at 60 Hz, passes device sample-rate changes to the
-  session, keeps the window title, and stores the chosen device in the user settings
-  (`~/Library/Application Support/DAW/DAW.settings` on macOS).
+  drives `Session::update()` at 60 Hz, passes device sample-rate and latency changes
+  to the session, keeps the window title, and stores the chosen device and the
+  latency offsets in the user settings (`~/Library/Application
+  Support/DAW/DAW.settings` on macOS).
+- Microphone permission (Phase 3): `engine::io::MicrophoneAccess` (AVFoundation on
+  macOS and iOS, always granted elsewhere). The app opens the device's inputs only
+  once it is granted; without it `AudioDeviceHost::initialise()` drops the input
+  device from the saved state, so launching never prompts. `AppController` asks the
+  first time `Session::needsInputs()` (a track armed, or monitoring always), then
+  `AudioDeviceHost::openInputs()`. Denied: `Session::InputAccess::denied`, arming
+  and recording refuse with `microphoneDeniedMessage`. The Info.plist carries
+  `NSMicrophoneUsageDescription` (JUCE's `MICROPHONE_PERMISSION_*`). The app also
+  passes the device's reported latencies to the session and keeps the manual offset
+  in the user settings per input/output device pair and sample rate.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -445,7 +456,7 @@ automation, mobile UI.
 - [x] 10. Disk streaming in the engine: block cache, read-ahead thread, sample-rate
       conversion while streaming, dropout reporting
 - [x] 11. Streaming everywhere: source pool, transport waiting for data, export
-- [ ] 12. Microphone permission and app wiring (input device, latency offset)
+- [x] 12. Microphone permission and app wiring (input device, latency offset)
 - [ ] 13. Desktop UI: arm, monitoring, inputs, input meters, record/metronome/
       count-in/punch controls, live recording clips
 - [ ] 14. Desktop UI: audio and recording settings, latency measurement, recovery,

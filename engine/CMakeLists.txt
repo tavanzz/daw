@@ -29,6 +29,14 @@ add_library(daw_engine STATIC
     src/rt/AudioFifo.cpp)
 add_library(daw::engine ALIAS daw_engine)
 
+# Microphone permission: asked through AVFoundation on Apple systems.
+if(APPLE)
+    target_sources(daw_engine PRIVATE src/io/MicrophoneAccess_apple.mm)
+    target_link_libraries(daw_engine PRIVATE "-framework AVFoundation")
+else()
+    target_sources(daw_engine PRIVATE src/io/MicrophoneAccess.cpp)
+endif()
+
 target_include_directories(daw_engine PUBLIC include PRIVATE src)
 target_compile_features(daw_engine PUBLIC cxx_std_20)
 target_link_libraries(daw_engine PUBLIC daw::juce)

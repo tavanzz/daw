@@ -20,6 +20,11 @@
 namespace daw::controller
 {
 
+/** What the user is told when the inputs may not be used. */
+inline constexpr const char* microphoneDeniedMessage =
+    "Microphone access is off for this app, so it cannot record or hear any input. "
+    "Allow it in System Settings > Privacy & Security > Microphone, then try again.";
+
 /** How a Session plays its files. */
 struct SessionOptions
 {
@@ -152,7 +157,8 @@ public:
     void setLoopEnabled(bool shouldLoop);
     void setSnapEnabled(bool shouldSnap);
     void setGridDivision(model::GridDivision division);
-    void setTrackArmed(model::ObjectId trackId, bool armed);
+    /** Arming fails (returns false) while input access is denied. */
+    bool setTrackArmed(model::ObjectId trackId, bool armed);
     void setMetronomeEnabled(bool shouldClick);
     void setMetronomeVolume(double gain);
     void setCountInEnabled(bool shouldCountIn);
@@ -188,6 +194,19 @@ public:
     /** Why the last recording ended early, for the user (empty if it did not);
         reading it clears it. */
     [[nodiscard]] juce::String takeRecordingProblem();
+
+    /** Whether the app may use the device's inputs (the microphone permission). */
+    enum class InputAccess
+    {
+        unknown, ///< not asked yet: the first need for an input asks
+        granted,
+        denied
+    };
+    void setInputAccess(InputAccess access) noexcept { inputAccess = access; }
+    [[nodiscard]] InputAccess getInputAccess() const noexcept { return inputAccess; }
+
+    /** Whether any track needs the inputs now: armed, or monitoring always. */
+    [[nodiscard]] bool needsInputs() const;
 
     /** Recordings found when the project was opened that its file does not have:
         interrupted by a crash, or never saved before one. The UI offers to recover
@@ -277,6 +296,7 @@ private:
     std::vector<JournalEntry> recoverable; // found on opening it
     LatencyMeasurement latencyMeasurement{engine};
     std::optional<LatencyMeasurement::Result> latencyResult;
+    InputAccess inputAccess = InputAccess::unknown;
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;
     int latencyOffset = 0;

@@ -565,10 +565,29 @@ void Session::setGridDivision(model::GridDivision division)
     project.setGridDivision(division);
 }
 
-void Session::setTrackArmed(model::ObjectId trackId, bool armed)
+bool Session::setTrackArmed(model::ObjectId trackId, bool armed)
 {
+    if (armed && inputAccess == InputAccess::denied)
+        return false;
+
     if (auto track = findTrack(trackId))
+    {
         track->setArmed(armed);
+        return true;
+    }
+    return false;
+}
+
+bool Session::needsInputs() const
+{
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        const auto track = project.getTrack(t);
+        if (!track.getInput().isNone() &&
+            (track.isArmed() || track.getMonitoring() == model::MonitoringMode::on))
+            return true;
+    }
+    return false;
 }
 
 void Session::setMetronomeEnabled(bool shouldClick)
@@ -654,6 +673,8 @@ juce::Result Session::record()
         return juce::Result::fail("A recording is already running.");
     if (latencyMeasurement.isRunning())
         return juce::Result::fail("Wait for the latency measurement to finish.");
+    if (inputAccess == InputAccess::denied)
+        return juce::Result::fail(microphoneDeniedMessage);
     if (projectFile == juce::File())
         return juce::Result::fail("Save the project first: recordings go into its folder.");
 
@@ -745,6 +766,8 @@ juce::Result Session::measureLatency(int outputChannel, int inputChannel)
 {
     if (recording.isActive())
         return juce::Result::fail("Stop recording before measuring the latency.");
+    if (inputAccess == InputAccess::denied)
+        return juce::Result::fail(microphoneDeniedMessage);
 
     latencyResult.reset();
     return latencyMeasurement.start(outputChannel, inputChannel,
