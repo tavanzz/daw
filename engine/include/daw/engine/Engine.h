@@ -35,12 +35,14 @@ struct EngineCommand
         seek,
         setLooping,
         resetTransport,
-        countIn
+        countIn,
+        record
     };
 
     Type type = Type::play;
     juce::int64 value = 0;
     juce::int64 length = 0;
+    const RecordingSetup* recording = nullptr; ///< for record
 };
 
 /** An arrangement with the mixer state that goes with it: what the message thread
@@ -134,8 +136,10 @@ public:
     void playWithCountIn(juce::int64 position, juce::int64 countInLength);
 
     /** Message thread. Records setup's targets (see RecordingSetup), starting as
-        soon as the transport is stopped, until stop() or pause(). setup must stay
-        alive, unchanged, until getRecordingStatus() is complete. Not while another
+        soon as the transport is stopped and the audio at the start is loaded, until
+        stop() or pause(); stop(), pause() or resetTransport() before it starts
+        cancel it (it completes with nothing captured). setup must stay alive,
+        unchanged, until getRecordingStatus() is complete. Not while another
         recording is in progress. */
     void startRecording(const RecordingSetup& setup);
 
@@ -234,6 +238,7 @@ private:
     bool waitingForData = false;      // play was asked for; the audio is loading
     juce::int64 waitingSince = 0;     // stream index of the play request
     juce::int64 recordingWaitSince = 0; // since when a recording could start
+    const RecordingSetup* pendingRecording = nullptr; // asked for, not started yet
     juce::int64 readyAheadLength = 1;
     juce::int64 maximumWait = 1;
     LatencyTest* latencyTest = nullptr;
@@ -253,7 +258,7 @@ private:
     // Message thread -> audio thread.
     rt::SpscQueue<Command, 256> commands;
     std::atomic<Snapshot*> pendingSnapshot{nullptr};
-    std::atomic<const RecordingSetup*> pendingRecording{nullptr};
+
     std::atomic<LatencyTest*> pendingLatencyTest{nullptr};
     std::atomic<bool> latencyTestDone{false};
     std::atomic<float> latencyTestProgress{0.0f};

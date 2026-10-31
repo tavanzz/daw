@@ -36,6 +36,18 @@ void Recorder::end(juce::int64 streamStop) noexcept
     state.store(RecordingState::finishing, std::memory_order_release);
 }
 
+void Recorder::cancel(const RecordingSetup& setupNeverStarted) noexcept
+{
+    const auto first =
+        setupNeverStarted.startPosition - std::max(juce::int64{0}, setupNeverStarted.countInLength);
+    firstPosition.store(first, std::memory_order_relaxed);
+    captured.store(0, std::memory_order_relaxed);
+    stopPosition.store(first, std::memory_order_relaxed);
+    overrun.store(false, std::memory_order_relaxed);
+    interrupted.store(false, std::memory_order_relaxed);
+    state.store(RecordingState::complete, std::memory_order_release);
+}
+
 void Recorder::capture(const AudioInputs& inputs, juce::int64 blockStart, int numSamples) noexcept
 {
     if (setup == nullptr)

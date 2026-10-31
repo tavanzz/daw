@@ -76,10 +76,10 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
     if (fadingOut == nullptr)
         adoptPendingSnapshot();
 
-    startPendingRecording();
-
     while (const auto command = commands.pop())
         apply(*command);
+
+    startPendingRecording();
 
     if (runLatencyTest(inputs, output))
     {
@@ -130,22 +130,18 @@ void Engine::startPendingRecording() noexcept
 {
     // A recording starts from a silent transport, so that its first sample is where
     // the timeline really starts...
-    const auto* waiting = pendingRecording.load(std::memory_order_acquire);
-    if (transport.isRunning() || countInRemaining > 0 || waiting == nullptr)
+    if (transport.isRunning() || countInRemaining > 0 || pendingRecording == nullptr)
     {
         recordingWaitSince = streamPosition;
         return;
     }
 
     // ...and once what it plays at the start is loaded (or it has waited enough).
-    if (waiting->countInLength <= 0 && !isReadyAt(waiting->startPosition) &&
+    if (pendingRecording->countInLength <= 0 && !isReadyAt(pendingRecording->startPosition) &&
         streamPosition - recordingWaitSince < maximumWait)
         return;
 
-    const auto* setup = pendingRecording.exchange(nullptr, std::memory_order_acquire);
-    if (setup == nullptr)
-        return;
-
+    const auto* setup = std::exchange(pendingRecording, nullptr);
     waitingForData = false;
 
     recorder.begin(*setup, streamPosition);
@@ -455,9 +451,9 @@ void Engine::playWithCountIn(juce::int64 position, juce::int64 countInLength)
 
 void Engine::startRecording(const RecordingSetup& setup)
 {
-    jassert(pendingRecording.load() == nullptr);
+    // Through the command queue, so that it keeps its place among stop and play.
     recorder.markStarting();
-    pendingRecording.store(&setup, std::memory_order_release);
+    send({Command::Type::record, 0, 0, &setup});
 }
 
 RecordingStatus Engine::getRecordingStatus() const noexcept
@@ -559,6 +555,7 @@ void Engine::apply(const Command& command) noexcept
         case Command::Type::play:
         case Command::Type::seek:
         case Command::Type::countIn:
+        case Command::Type::record: // one recording at a time (the session sees to it)
             return;
         case Command::Type::pause:
         case Command::Type::stop:
@@ -587,10 +584,16 @@ void Engine::apply(const Command& command) noexcept
     if (endsCountIn)
         countInRemaining = 0;
 
-    // Stopping or pausing gives up waiting for streamed audio; a seek waits on.
+    // Stopping or pausing gives up waiting for streamed audio, and a recording that
+    // has not started yet (it waits for the transport, or for its audio): it never
+    // will. A seek waits on.
     if (command.type == Command::Type::pause || command.type == Command::Type::stop ||
         command.type == Command::Type::resetTransport)
+    {
         waitingForData = false;
+        if (const auto* pending = std::exchange(pendingRecording, nullptr))
+            recorder.cancel(*pending);
+    }
 
     // Playback that would start, or jump, onto audio still loading waits for it.
     if (command.type == Command::Type::play && countInRemaining == 0 && !transport.isRunning() &&
@@ -646,6 +649,10 @@ void Engine::apply(const Command& command) noexcept
             countInRemaining = command.length;
             countInPosition = command.value - command.length;
         }
+        break;
+    case Command::Type::record:
+        pendingRecording = command.recording;
+        recordingWaitSince = streamPosition;
         break;
     }
 }

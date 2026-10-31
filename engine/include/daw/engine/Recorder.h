@@ -108,6 +108,10 @@ class Recorder
 public:
     void begin(const RecordingSetup& setup, juce::int64 streamStart) noexcept;
     void end(juce::int64 streamStop) noexcept;
+
+    /** Audio thread: a recording stopped before it started. It completes having
+        captured nothing. */
+    void cancel(const RecordingSetup& setup) noexcept;
     void capture(const AudioInputs& inputs, juce::int64 blockStart, int numSamples) noexcept;
     void interrupt() noexcept;
 

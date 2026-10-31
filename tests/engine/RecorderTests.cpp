@@ -383,3 +383,50 @@ TEST_CASE("A recording waits for the transport to stop, and a device restart end
     CHECK(status.interrupted);
     CHECK(status.stopPosition == status.firstPosition + status.samplesCaptured);
 }
+
+TEST_CASE("A recording stopped before it starts never starts", "[engine][recorder]")
+{
+    // A source that is never loaded: the recording waits for its audio.
+    struct Loading final : daw::engine::AudioSource
+    {
+        int getNumChannels() const noexcept override { return 1; }
+        juce::int64 getLength() const noexcept override { return 480000; }
+        double getSampleRate() const noexcept override { return sampleRate; }
+        bool read(int, juce::int64, float* destination, int numSamples) const noexcept override
+        {
+            juce::FloatVectorOperations::clear(destination, numSamples);
+            return false;
+        }
+        bool isReady(juce::int64, juce::int64) const noexcept override { return false; }
+    };
+
+    const auto loading = std::make_shared<const Loading>();
+    auto arrangement = std::make_unique<Arrangement>();
+    arrangement->sampleRate = sampleRate;
+    arrangement->length = 480000;
+    daw::engine::ArrangementTrack track;
+    track.id = 1;
+    track.segments.push_back({loading.get(), 0, 480000, 0, 0, 0});
+    arrangement->tracks.push_back(track);
+    arrangement->sources.push_back(loading);
+
+    Engine engine;
+    SimulatedDevice device(engine, sampleRate, 1, {512});
+    device.start();
+    engine.setArrangement(std::move(arrangement));
+
+    AudioFifo fifo(1, 100000);
+    RecordingSetup setup;
+    setup.targets.push_back({1, 0, 1, &fifo});
+    engine.startRecording(setup);
+    device.run(4096);
+    CHECK(engine.getRecordingStatus().state == RecordingState::starting);
+
+    engine.stop();
+    CHECK(device.run(48000 * 3) == 0); // longer than the longest wait for audio
+    const auto status = engine.getRecordingStatus();
+    CHECK(status.state == RecordingState::complete);
+    CHECK(status.samplesCaptured == 0);
+    CHECK(fifo.getNumReady() == 0);
+    CHECK(engine.getTransportState() == TransportState::stopped);
+}

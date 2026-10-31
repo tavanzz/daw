@@ -103,7 +103,9 @@ Modules with one-way dependencies:
   reported as a `Problem`. Tests replace the disk with a `RecordingSink`.
 - Recording in the engine (Phase 3): `Engine::startRecording(RecordingSetup)` (the
   targets' input channels and FIFOs, start position, count-in, latency, punch
-  range) starts as soon as the transport is silent. `engine::Recorder` works in
+  range) goes through the command queue, so it keeps its order with stop and play;
+  it starts as soon as the transport is silent and the audio at its start is loaded,
+  and a stop before that cancels it. `engine::Recorder` works in
   stream indices (samples since the engine started): the recording runs from s0
   (count-in or playback start, timeline `firstPosition`) to s1 (stop); what was
   played at s comes back at s + latency, so it captures inputs [s0 + latency,
