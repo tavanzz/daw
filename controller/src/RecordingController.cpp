@@ -251,11 +251,10 @@ std::vector<RecordingController::LiveTake> RecordingController::getLiveTakes() c
     if (!isActive())
         return takes;
 
-    const auto status = engine.getRecordingStatus();
     for (int index = 0; index < writer->getNumFiles(); ++index)
         takes.push_back({setup->targets[static_cast<std::size_t>(index)].trackId,
-                         status.firstPosition, writer->getSamplesWritten(index),
-                         writer->getPeaks(index)});
+                         writer->getFile(index), setup->startPosition - setup->countInLength,
+                         writer->getSamplesWritten(index), writer->getPeaks(index)});
     return takes;
 }
 

@@ -26,6 +26,7 @@ add_executable(daw_tests
     engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp
     engine/TransportTests.cpp
+    engine/WavRepairTests.cpp
     engine/WaveformPeaksTests.cpp
     model/FormatVersionTests.cpp
     model/ProjectFileTests.cpp

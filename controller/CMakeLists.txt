@@ -7,6 +7,7 @@ add_library(daw_controller STATIC
     src/ClipEditing.cpp
     src/ExportJob.cpp
     src/RecordingController.cpp
+    src/RecordingJournal.cpp
     src/Session.cpp
     src/TempoBeatGrid.cpp
     src/TimelineViewport.cpp)

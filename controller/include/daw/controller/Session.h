@@ -2,6 +2,7 @@
 
 #include "daw/controller/ClipEditing.h"
 #include "daw/controller/RecordingController.h"
+#include "daw/controller/RecordingJournal.h"
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/SourcePool.h"
 #include "daw/model/Project.h"
@@ -169,6 +170,22 @@ public:
         reading it clears it. */
     [[nodiscard]] juce::String takeRecordingProblem();
 
+    /** Recordings found when the project was opened that its file does not have:
+        interrupted by a crash, or never saved before one. The UI offers to recover
+        or discard them. */
+    [[nodiscard]] const std::vector<JournalEntry>& getRecoverableRecordings() const noexcept
+    {
+        return recoverable;
+    }
+
+    /** Repairs the recoverable recordings' files and adds them as clips (on their
+        tracks, or on new ones if those are gone), in one undo step. Returns a message
+        naming any file that could not be repaired. */
+    juce::Result recoverRecordings();
+
+    /** Deletes the recoverable recordings' files. */
+    void discardRecoverableRecordings();
+
     /** Latency compensation: what the device reports for its input and output, plus
         a manual offset (the result of measuring with a cable); all in samples. */
     void setDeviceLatency(int inputSamples, int outputSamples);
@@ -192,6 +209,8 @@ private:
     void replaceProject(model::Project newProject);
     void addRecording(const RecordingOutcome& outcome);
     void copyRecordingsTo(const juce::File& newProjectDirectory);
+    void writeJournal();
+    void leaveProject();
     void requestAllSources();
     void sourceChanged(const juce::File& file);
     void resolveLengths(const juce::File& file);
@@ -215,6 +234,8 @@ private:
 
     RecordingController recording{engine};
     juce::String recordingProblem;
+    std::vector<JournalEntry> journal;     // this project's recordings not saved yet
+    std::vector<JournalEntry> recoverable; // found on opening it
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;
     int latencyOffset = 0;

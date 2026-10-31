@@ -169,6 +169,14 @@ Modules with one-way dependencies:
   stop or punch out); the files keep the rest as handles. Undo keeps the files;
   `discardRecording()` deletes them. Save As to another folder copies the project's
   recordings into the new `Audio/` folder.
+- Crash recovery (Phase 3): the session keeps a `RecordingJournal`
+  (`Audio/.recording-journal.json`) of the recordings its saved file does not have
+  yet: written when a recording starts (end unknown) and when it ends, removed on
+  save and when the project is left on purpose. Opening a project with a journal
+  offers its recordings whose files exist and no clip uses
+  (`getRecoverableRecordings()`); `recoverRecordings()` repairs them with
+  `engine::io::repairWav()` (header lengths from the file size, whole frames,
+  RIFF to RF64 when needed) and adds them as clips in one undo step.
 - Audio I/O: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
   forwards the device callback to `Engine::process(inputs, output)` (stereo output;
   extra outputs cleared). Inputs reach the engine as `AudioInputs`, indexed by the
@@ -401,7 +409,7 @@ automation, mobile UI.
       punch in/out
 - [x] 7. Recording in the controller: files, clips in one undo step, discard,
       errors, disk-space checks
-- [ ] 8. Crash recovery: recording journal, WAV repair, recovery on open
+- [x] 8. Crash recovery: recording journal, WAV repair, recovery on open
 - [ ] 9. Latency measurement with a loopback cable
 - [ ] 10. Disk streaming in the engine: block cache, read-ahead thread, sample-rate
       conversion while streaming, dropout reporting

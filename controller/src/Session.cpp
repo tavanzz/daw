@@ -3,6 +3,7 @@
 #include "daw/controller/ArrangementBuilder.h"
 #include "daw/controller/TempoBeatGrid.h"
 #include "daw/controller/TimelineViewport.h"
+#include "daw/engine/io/WavRepair.h"
 #include "daw/model/ProjectFile.h"
 
 #include <algorithm>
@@ -61,6 +62,7 @@ void Session::setSampleRate(double sampleRate)
 
 void Session::newProject()
 {
+    leaveProject();
     replaceProject(model::Project());
     projectFile = juce::File();
 }
@@ -71,9 +73,91 @@ juce::Result Session::openProject(const juce::File& file)
     if (!loaded.succeeded())
         return juce::Result::fail(loaded.error);
 
+    leaveProject();
     replaceProject(std::move(*loaded.project));
     projectFile = file;
+
+    // Recordings in the journal whose files exist and that no clip uses.
+    std::set<juce::String> used;
+    for (int t = 0; t < project.getNumTracks(); ++t)
+        for (int c = 0; c < project.getTrack(t).getNumClips(); ++c)
+            used.insert(project.getTrack(t).getClip(c).getAudioFile().getFullPathName());
+
+    for (const auto& entry : RecordingJournal::read(file.getParentDirectory()))
+        if (entry.file.existsAsFile() && !used.contains(entry.file.getFullPathName()))
+            recoverable.push_back(entry);
+
+    journal = recoverable;
+    writeJournal();
     return juce::Result::ok();
+}
+
+void Session::leaveProject()
+{
+    // Leaving on purpose (the UI asked about unsaved changes first): its unsaved
+    // recordings are not to be offered again.
+    if (projectFile != juce::File())
+        RecordingJournal::write(projectFile.getParentDirectory(), {});
+
+    journal.clear();
+    recoverable.clear();
+}
+
+void Session::writeJournal()
+{
+    if (projectFile != juce::File())
+        RecordingJournal::write(projectFile.getParentDirectory(), journal);
+}
+
+juce::Result Session::recoverRecordings()
+{
+    juce::StringArray failed;
+    bool started = false;
+
+    for (const auto& entry : std::exchange(recoverable, {}))
+    {
+        const auto repaired = engine::io::repairWav(entry.file);
+        if (repaired.result.failed() || repaired.numFrames <= 0)
+        {
+            failed.add(entry.file.getFileName());
+            continue;
+        }
+
+        const auto fileEnd =
+            entry.firstPosition + model::samplesToTicks(repaired.numFrames, repaired.sampleRate);
+        const auto start = std::max({entry.keepStart, entry.firstPosition, model::Ticks{0}});
+        const auto end = std::min(entry.keepEnd.value_or(fileEnd), fileEnd);
+        if (end <= start)
+            continue;
+
+        if (!started)
+            startEdit("Recover Recordings");
+        started = true;
+
+        auto track = findTrack(entry.trackId);
+        if (!track)
+            track = project.addTrack(entry.file.getFileNameWithoutExtension(), &undoManager);
+
+        sources.reload(entry.file);
+        track->addClip(entry.file, {start, start - entry.firstPosition, end - start}, &undoManager);
+    }
+
+    if (failed.isEmpty())
+        return juce::Result::ok();
+
+    return juce::Result::fail("These recordings could not be recovered: " +
+                              failed.joinIntoString(", ") + ".");
+}
+
+void Session::discardRecoverableRecordings()
+{
+    for (const auto& entry : std::exchange(recoverable, {}))
+    {
+        entry.file.deleteFile();
+        std::erase(journal, entry);
+    }
+
+    writeJournal();
 }
 
 juce::Result Session::saveProject(const juce::File& file)
@@ -89,6 +173,11 @@ juce::Result Session::saveProject(const juce::File& file)
 
     if (result.wasOk())
     {
+        // Everything recorded is in the saved file now (or was undone on purpose).
+        if (projectFile != juce::File())
+            RecordingJournal::write(projectFile.getParentDirectory(), {});
+        journal.clear();
+        recoverable.clear();
         projectFile = target;
         unsavedChanges = false;
     }
@@ -554,7 +643,22 @@ juce::Result Session::record()
         engine.stop();
 
     recordingProblem.clear();
-    return recording.start(request);
+    if (const auto started = recording.start(request); started.failed())
+        return started;
+
+    // Written down before the first sample, so that a crash leaves it recoverable.
+    const auto keepStart = model::samplesToTicks(
+        request.punchOut > request.punchIn ? request.punchIn : request.startPosition, rate);
+    for (const auto& take : recording.getLiveTakes())
+    {
+        JournalEntry entry{take.file, take.trackId, model::samplesToTicks(take.firstPosition, rate),
+                           keepStart, std::nullopt};
+        if (request.punchOut > request.punchIn)
+            entry.keepEnd = model::samplesToTicks(request.punchOut, rate);
+        journal.push_back(entry);
+    }
+    writeJournal();
+    return juce::Result::ok();
 }
 
 void Session::discardRecording()
@@ -615,7 +719,18 @@ void Session::addRecording(const RecordingOutcome& outcome)
         const auto length = model::samplesToTicks(end, rate) - position;
         sources.request(take.file);
         track->addClip(take.file, {position, offset, length}, &undoManager);
+
+        for (auto& entry : journal)
+            if (entry.file == take.file)
+            {
+                entry.keepStart = position;
+                entry.keepEnd = position + length;
+            }
     }
+
+    // Takes that were discarded or kept nothing are gone from the disk.
+    std::erase_if(journal, [](const JournalEntry& entry) { return !entry.file.existsAsFile(); });
+    writeJournal();
 }
 
 void Session::seek(model::Ticks position)

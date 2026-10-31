@@ -401,3 +401,171 @@ TEST_CASE("The recording latency is the device's plus the offset, never negative
     session.setLatencyOffset(-1000);
     CHECK(session.getRecordingLatency() == 0);
 }
+
+TEST_CASE("The journal lists unsaved recordings until the project is saved",
+          "[controller][recording][recovery]")
+{
+    using daw::controller::RecordingJournal;
+
+    Studio studio;
+    auto& session = studio.session;
+    const auto track = session.addTrack("Journal");
+    session.setTrackArmed(track, true);
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+
+    session.seek(seconds(1.0));
+    studio.run(blockSize);
+    REQUIRE(session.record().wasOk());
+
+    // Written before the first sample: the end is not known yet.
+    auto entries = RecordingJournal::read(studio.directory.file(""));
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].file == studio.directory.file("Audio").getChildFile("Journal 1.wav"));
+    CHECK(entries[0].trackId == track);
+    CHECK(entries[0].firstPosition == seconds(1.0));
+    CHECK(entries[0].keepStart == seconds(1.0));
+    CHECK_FALSE(entries[0].keepEnd);
+
+    studio.run(48000);
+    session.stop();
+    REQUIRE(studio.finishRecording());
+    entries = RecordingJournal::read(studio.directory.file(""));
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].keepEnd == seconds(2.0));
+
+    // A discarded recording leaves nothing in it.
+    REQUIRE(session.record().wasOk());
+    CHECK(RecordingJournal::read(studio.directory.file("")).size() == 2);
+    session.discardRecording();
+    REQUIRE(studio.finishRecording());
+    CHECK(RecordingJournal::read(studio.directory.file("")).size() == 1);
+
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+    CHECK_FALSE(RecordingJournal::fileFor(studio.directory.file("")).exists());
+}
+
+TEST_CASE("A recording interrupted by a crash is recovered when the project is opened",
+          "[controller][recording][recovery]")
+{
+    Studio studio;
+    auto& session = studio.session;
+    const auto track = session.addTrack("Vocals");
+    session.setTrackArmed(track, true);
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+
+    session.seek(seconds(1.0));
+    studio.run(blockSize);
+    const auto recordingStart = studio.device.getStreamPosition();
+    REQUIRE(session.record().wasOk());
+    studio.run(48000);
+    juce::Thread::sleep(100); // the writer catches up
+
+    // The crash: the project folder as it is on disk right now. The header of the file
+    // being written says nothing yet, and its last frame is cut short.
+    TemporaryDirectory crashed;
+    REQUIRE(studio.directory.file("").copyDirectoryTo(crashed.file("")));
+    const auto take = crashed.file("Audio").getChildFile("Vocals 1.wav");
+    REQUIRE(take.getSize() > 3 * 10000);
+    {
+        juce::FileOutputStream stream(take);
+        REQUIRE(stream.setPosition(take.getSize() - 1));
+        REQUIRE(stream.truncate().wasOk());
+    }
+
+    session.discardRecording();
+    REQUIRE(studio.finishRecording());
+
+    daw::engine::Engine engine;
+    engine.prepare(sampleRate, blockSize);
+    Session reopened(engine);
+    REQUIRE(reopened.openProject(crashed.file("song.dawproject")).wasOk());
+    REQUIRE(reopened.getRecoverableRecordings().size() == 1);
+    CHECK(reopened.getProject().getTrack(0).getNumClips() == 0);
+
+    REQUIRE(reopened.recoverRecordings().wasOk());
+    CHECK(reopened.getRecoverableRecordings().empty());
+    CHECK(reopened.getUndoDescription() == "Recover Recordings");
+    CHECK(reopened.hasUnsavedChanges());
+
+    const auto clip = onlyClip(reopened, track);
+    REQUIRE(clip);
+    CHECK(clip->getAudioFile() == take);
+    CHECK(clip->getPosition() == seconds(1.0));
+    CHECK(clip->getOffset() == 0);
+    // Every whole frame that reached the disk, exactly as it came in.
+    const auto frames = daw::model::ticksToSamples(*clip->getLength(), sampleRate);
+    CHECK(frames > 40000);
+    CHECK(fileHolds(take, 1, frames, [&](int, juce::int64 k) {
+        return testInputSample(0, recordingStart + k);
+    }));
+}
+
+TEST_CASE("A recording made but not saved before a crash comes back as it was",
+          "[controller][recording][recovery]")
+{
+    Studio studio;
+    auto& session = studio.session;
+    session.setLoopRange(seconds(0.5), seconds(1.5));
+    session.setPunchEnabled(true);
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+    const auto track = session.addTrack("New track"); // not in the saved project
+    session.setTrackArmed(track, true);
+
+    REQUIRE(session.record().wasOk());
+    studio.run(2 * 48000);
+    session.stop();
+    REQUIRE(studio.finishRecording());
+    const auto original = onlyClip(session, track);
+    REQUIRE(original);
+
+    TemporaryDirectory crashed;
+    REQUIRE(studio.directory.file("").copyDirectoryTo(crashed.file("")));
+
+    daw::engine::Engine engine;
+    engine.prepare(sampleRate, blockSize);
+    Session reopened(engine);
+    REQUIRE(reopened.openProject(crashed.file("song.dawproject")).wasOk());
+    REQUIRE(reopened.getRecoverableRecordings().size() == 1);
+    REQUIRE(reopened.recoverRecordings().wasOk());
+
+    // Its track was never saved: the clip goes on a new one, with the same bounds.
+    REQUIRE(reopened.getProject().getNumTracks() == 1);
+    const auto recovered = reopened.getProject().getTrack(0);
+    CHECK(recovered.getName() == "New track 1");
+    REQUIRE(recovered.getNumClips() == 1);
+    CHECK(recovered.getClip(0).getBounds() == original->getBounds());
+    CHECK(recovered.getClip(0).getBounds() ==
+          daw::model::ClipBounds{seconds(0.5), seconds(0.5), seconds(1.0)});
+}
+
+TEST_CASE("Recoverable recordings can be discarded", "[controller][recording][recovery]")
+{
+    Studio studio;
+    auto& session = studio.session;
+    const auto track = session.addTrack("Gone");
+    session.setTrackArmed(track, true);
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+    REQUIRE(session.record().wasOk());
+    studio.run(20000);
+    session.stop();
+    REQUIRE(studio.finishRecording());
+
+    TemporaryDirectory crashed;
+    REQUIRE(studio.directory.file("").copyDirectoryTo(crashed.file("")));
+
+    daw::engine::Engine engine;
+    engine.prepare(sampleRate, blockSize);
+    Session reopened(engine);
+    REQUIRE(reopened.openProject(crashed.file("song.dawproject")).wasOk());
+    REQUIRE(reopened.getRecoverableRecordings().size() == 1);
+    reopened.discardRecoverableRecordings();
+
+    CHECK_FALSE(crashed.file("Audio").getChildFile("Gone 1.wav").exists());
+    CHECK_FALSE(daw::controller::RecordingJournal::fileFor(crashed.file("")).exists());
+    CHECK(reopened.getProject().getTrack(0).getNumClips() == 0);
+
+    // Opening the project again offers nothing.
+    Session again(engine);
+    REQUIRE(again.openProject(crashed.file("song.dawproject")).wasOk());
+    CHECK(again.getRecoverableRecordings().empty());
+}
