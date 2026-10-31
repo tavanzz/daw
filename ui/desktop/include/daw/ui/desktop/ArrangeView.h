@@ -25,6 +25,9 @@ public:
     /** Call from the UI's refresh timer: redraws what changed, moves the playhead. */
     void refresh();
 
+    /** The tracks' input meters (after Session::takeInputPeaks()). */
+    void updateMeters(double elapsedSeconds);
+
     void zoomIn();
     void zoomOut();
     void zoomToFit();

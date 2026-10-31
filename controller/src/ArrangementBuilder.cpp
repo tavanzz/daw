@@ -1,5 +1,6 @@
 #include "daw/controller/ArrangementBuilder.h"
 
+#include "daw/controller/TempoBeatGrid.h"
 #include "daw/engine/dsp/PanLaw.h"
 
 #include <algorithm>
@@ -8,6 +9,26 @@
 
 namespace daw::controller
 {
+
+namespace
+{
+
+engine::InputMonitoring toEngine(model::MonitoringMode mode)
+{
+    switch (mode)
+    {
+    case model::MonitoringMode::off:
+        return engine::InputMonitoring::off;
+    case model::MonitoringMode::automatic:
+        return engine::InputMonitoring::automatic;
+    case model::MonitoringMode::on:
+        return engine::InputMonitoring::on;
+    }
+
+    return engine::InputMonitoring::off;
+}
+
+} // namespace
 
 std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& project,
                                                       double sampleRate,
@@ -19,6 +40,9 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
     auto arrangement = std::make_unique<engine::Arrangement>();
     arrangement->sampleRate = sampleRate;
     arrangement->masterGain = static_cast<float>(project.getMasterVolume());
+    arrangement->beats = std::make_shared<TempoBeatGrid>(project.getTempoMap(), sampleRate);
+    arrangement->metronomeEnabled = project.isMetronomeEnabled();
+    arrangement->metronomeGain = static_cast<float>(project.getMetronomeVolume());
 
     const auto toSamples = [sampleRate](model::Ticks ticks) {
         return model::ticksToSamples(ticks, sampleRate);
@@ -36,6 +60,12 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
         arrangementTrack.id = track.getId();
         if (meters)
             arrangementTrack.meter = meters(track.getId());
+
+        const auto input = track.getInput();
+        arrangementTrack.inputChannel = input.channel;
+        arrangementTrack.numInputChannels = input.getNumChannels();
+        arrangementTrack.monitoring = toEngine(track.getMonitoring());
+        arrangementTrack.armed = track.isArmed();
 
         if (project.isTrackAudible(trackIndex))
         {

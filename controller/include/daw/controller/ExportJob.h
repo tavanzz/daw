@@ -5,7 +5,6 @@
 #include <juce_data_structures/juce_data_structures.h>
 
 #include <functional>
-#include <map>
 #include <memory>
 
 namespace daw::controller
@@ -36,10 +35,10 @@ inline constexpr int exportBitDepths[] = {16, 24, 32};
 /**
     Exports a project to a WAV file away from the message thread.
 
-    The constructor (message thread) takes a copy of the project and the audio that
-    is already loaded at the export's sample rate; run() (any one thread) loads
-    whatever else it needs at that rate, from the original files, builds the
-    arrangement and writes it with the same mixer as playback.
+    The constructor (message thread) takes a copy of the project; run() (any one
+    thread) opens its files at the export's sample rate, streaming them as it goes
+    (it reads from disk as needed, from the original files), builds the arrangement
+    and writes it with the same mixer as playback.
 */
 class ExportJob
 {
@@ -54,7 +53,6 @@ public:
 private:
     juce::ValueTree projectState; // a copy: only run()'s thread touches it
     ExportSettings settings;
-    std::map<juce::String, std::shared_ptr<const engine::AudioSource>> loadedSources;
 };
 
 } // namespace daw::controller

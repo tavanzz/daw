@@ -70,6 +70,7 @@ private:
     void drawClip(juce::Graphics& g, int trackIndex, const model::Clip& clip) const;
     void drawWaveform(juce::Graphics& g, juce::Rectangle<float> area, const model::Clip& clip,
                       const engine::io::PooledSource& source) const;
+    void drawRecordings(juce::Graphics& g) const;
 
     ArrangeState& state;
     model::Ticks playhead = 0;

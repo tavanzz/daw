@@ -5,7 +5,10 @@ juce_add_gui_app(daw_app
     PRODUCT_NAME "${DAW_PRODUCT_NAME}"
     VERSION "${PROJECT_VERSION}"
     COMPANY_NAME "${DAW_COMPANY_NAME}"
-    BUNDLE_ID "${DAW_BUNDLE_ID}")
+    BUNDLE_ID "${DAW_BUNDLE_ID}"
+    # macOS and iOS ask the user before an app records; this is the reason shown.
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "${DAW_PRODUCT_NAME} records from your microphone and audio interface inputs.")
 
 target_sources(daw_app PRIVATE
     src/AppController.cpp

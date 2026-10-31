@@ -42,13 +42,15 @@ Modules with one-way dependencies:
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
 - Anything both UIs will need (waveform peaks, meter values, transport state) lives
   in `engine` or `model`, never in a UI module.
-- Audio files: `engine::io::loadAudioFile()` decodes a whole WAV/AIFF into memory
-  and converts it to the device sample rate with `engine::dsp::resample()` (offline
-  windowed sinc), off the audio thread. `engine::io::SourcePool` loads each file
-  once however many clips use it, on worker threads; finished loads are applied
-  when the owner calls `collectFinishedLoads()`. Clips read audio only through
-  `engine::AudioSource::read()` (real-time safe; `MemoryAudioSource` today), so a
-  streaming source can replace the in-memory one later without touching the mixer.
+- Audio files: `engine::io::SourcePool` opens each file once however many clips use
+  it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
+  through once for its waveform; finished loads are applied when the owner calls
+  `collectFinishedLoads()`. Clips read audio only through `engine::AudioSource::read()`
+  (real-time safe; `StreamingAudioSource` in the app, `MemoryAudioSource` in tests)
+  and `isReady()`. No file is held whole in memory, so there is no length limit.
+  `engine::io::loadAudioFile()` still decodes a whole file (tests compare against it),
+  converting with `engine::dsp::resample()` (offline windowed sinc; `dsp::Resampling`
+  also converts a block at a time, identically).
 - Engine threading: UI commands go through an `SpscQueue` and apply at the next
   block. A new `Arrangement` (with its `MixState`) arrives through one atomic pointer
   exchange (`Engine::setArrangement()`); if it changes what the tracks play
@@ -73,6 +75,45 @@ Modules with one-way dependencies:
   timeline is cut into blocks (tested). `MixState` holds the ramps of one
   arrangement; `continueFrom()` carries them over by track id. Pan law:
   `dsp::panGains()`, constant power compensated to 0 dB in the centre.
+- Monitoring (Phase 3): a track plays either its clips or its input
+  (`MixState::TrackGains::timeline` / `input`, crossfaded over 5 ms when it
+  switches); the input then goes through the track's gains and meter like the clips.
+  `MixContext` tells the mixer about the block: the device inputs (null offline, so
+  exports never hear an input), whether the timeline runs, the transport's fade and
+  whether automatic monitoring hears inputs now. The transport hands its de-click
+  fade to the renderer as a `TimelineFade`, applied to each track's clips only, and
+  calls `renderStopped()` while stopped, so monitored inputs are never faded by
+  play/stop and are heard while stopped.
+- Metronome and count-in (Phase 3): the controller gives each arrangement an
+  `engine::BeatGrid` (`controller::TempoBeatGrid`: the tempo map's beat starts
+  converted to samples, so the engine never repeats the model's rounding).
+  `dsp::Metronome` starts a synthesised click (accented on downbeats) on the exact
+  sample of each beat while playing with the metronome on; clicks are added after
+  the master meter and never exported. `Engine::playWithCountIn()` clicks for the
+  count-in length from stopped (the timeline silent, inputs monitored as when
+  recording), then starts the transport on the next sample with its usual fade-in.
+- Recording pipeline (Phase 3): the audio thread only copies samples into a
+  `rt::AudioFifo` per recorded file (lock-free, one producer and one consumer, a
+  whole block or nothing, 10 s of audio); `io::RecordingWriter` empties the FIFOs on
+  its own thread into WAV files at the device rate (16/24-bit rounded and clipped,
+  no dither, or 32-bit float), rewrites their headers every second (readable after
+  a crash), builds their waveforms as they grow (`WaveformPeaks::Builder`) and
+  checks the free disk space. A full FIFO refuses the block (the producer knows
+  which samples were lost); a refused write or less than 10 s of disk left is
+  reported as a `Problem`. Tests replace the disk with a `RecordingSink`.
+- Recording in the engine (Phase 3): `Engine::startRecording(RecordingSetup)` (the
+  targets' input channels and FIFOs, start position, count-in, latency, punch
+  range) goes through the command queue, so it keeps its order with stop and play;
+  it starts as soon as the transport is silent and the audio at its start is loaded,
+  and a stop before that cancels it. `engine::Recorder` works in
+  stream indices (samples since the engine started): the recording runs from s0
+  (count-in or playback start, timeline `firstPosition`) to s1 (stop); what was
+  played at s comes back at s + latency, so it captures inputs [s0 + latency,
+  s1 + latency) and sample k belongs at `firstPosition + k`, exactly. While
+  recording the transport is linear (no loop, no end, seeks ignored, pause stops);
+  automatic monitoring follows the punch range to the sample. A FIFO without room
+  ends the capture for all targets (overrun); a device restart interrupts it.
+  `RecordingStatus` reports it all.
 - Export: `engine::OfflineRenderer` drives the same `Mixer` faster than real time;
   `engine::io::bounceToWav()` writes a stereo WAV (16/24-bit integer with
   `quantise()` = round(x·2^(bits−1)) clipped, optional seeded TPDF dither, or 32-bit
@@ -95,8 +136,14 @@ Modules with one-way dependencies:
   - Tracks and clips have ids, unique across both, computed as the largest id in
     the project + 1 (no hidden counter; see `model/src/ObjectIds.h`).
   - Undo: setters that take a `juce::UndoManager*` are undoable; the others (loop
-    on/off, snap, grid, length resolution) deliberately are not. The caller groups
-    changes into transactions.
+    on/off, snap, grid, length resolution, arming, metronome, count-in, punch,
+    recording format) deliberately are not. The caller groups changes into
+    transactions.
+  - Recording (format version 3): each track has an input (`TrackInput`: none, or a
+    device channel, mono or a stereo pair 1+2, 3+4, ...; stored counting from 1),
+    a `MonitoringMode` (off / auto / on) and an arm state; the project has the
+    metronome (on/off, volume), count-in (on/off, 1 or 2 bars), punch on/off and
+    the recording bit depth (16, 24 or 32 float).
 - Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
   integers at 282,240,000 per second, a number every common sample rate divides, so
   sample positions at any of them are exact and the project has no sample rate of its
@@ -115,8 +162,59 @@ Modules with one-way dependencies:
   the rulers; `ClipEditing.h` the move/trim rules with `Snapper`. `ExportJob` copies
   the project on the message thread and exports on another, loading files at the
   export rate when it differs from the device's.
-- Audio output: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
-  forwards the device callback to `Engine::process()` (stereo; extra outputs cleared).
+- Recording in the controller (Phase 3): `Session::record()` records every armed
+  track with an input from the playhead (count-in, punch range, latency = device
+  input + output latency + manual offset) through `controller::RecordingController`,
+  which names the files (`Audio/<track> <n>.wav` next to the saved project, never
+  overwriting), runs the writer, stops on problems (overrun, nearly full disk, a
+  refused write, the device stopping) and reports a `RecordingOutcome`. At the
+  `Session::update()` after the files are complete, the takes become clips in one
+  undo step ("Record"), trimmed to what is kept (from the start or punch in to the
+  stop or punch out); the files keep the rest as handles. Undo keeps the files;
+  `discardRecording()` deletes them. Save As to another folder copies the project's
+  recordings into the new `Audio/` folder.
+- Crash recovery (Phase 3): the session keeps a `RecordingJournal`
+  (`Audio/.recording-journal.json`) of the recordings its saved file does not have
+  yet: written when a recording starts (end unknown) and when it ends, removed on
+  save and when the project is left on purpose. Opening a project with a journal
+  offers its recordings whose files exist and no clip uses
+  (`getRecoverableRecordings()`); `recoverRecordings()` repairs them with
+  `engine::io::repairWav()` (header lengths from the file size, whole frames,
+  RIFF to RF64 when needed) and adds them as clips in one undo step.
+- Latency measurement (Phase 3): `Session::measureLatency(output, input)` hands the
+  engine a `LatencyTest` (the output carries only `dsp::LatencyProbe`'s signal:
+  five pseudo-random noise bursts, each followed by 0.5 s of silence; no playback,
+  no monitoring, so a cable cannot feed back) and the input is captured from the
+  same sample. `controller::LatencyMeasurement` cross-correlates each burst's window
+  (FFT, message thread), requires a clear peak and the bursts to agree within a
+  sample, and gives the offset = measured round trip - reported latency.
+- Disk streaming (Phase 3): `io::DiskStreamer` opens files as
+  `io::StreamingAudioSource`s whose samples live in blocks of 32,768 samples per
+  channel within a memory budget (512 MB; least recently needed blocks go first).
+  The read-ahead thread loads what the plan (`setPlan()`: the arrangement's segments)
+  plays near the playhead (`followPlayhead()`): 3 s ahead, the loop start, a second
+  from where a stopped transport would start. `read()` copies loaded blocks only; a
+  missing one gives silence, a counted dropout and `false`, never a wait (except in
+  synchronous mode, for offline rendering). Files at another rate are converted
+  while loading with `dsp::Resampling`, the same code `dsp::resample()` uses, so
+  streamed audio equals the in-memory conversion to the bit. A dropped block is
+  reused only once the engine's `RenderClock` shows the audio block that could read
+  it is over.
+- Streaming everywhere (Phase 3): the session's pool streams with a read-ahead
+  thread that follows the engine's playhead (and the last seek target, loaded
+  first); its plan is the arrangement playing. Playback that would start, or jump,
+  onto audio not loaded yet waits for it (up to 2 s, then plays with dropouts):
+  `Engine::isWaitingForData()`, reported as playing. A new arrangement while playing
+  goes to the engine once its audio at the playhead is loaded (up to 0.5 s); the
+  plan covers both meanwhile. Exports stream their own files synchronously (the
+  export thread may wait for the disk). `Session::takeDropouts()` counts missing
+  audio for the UI. Tests use `SessionOptions{DiskStreamer::Mode::manual}`: the
+  read-ahead runs in `update()`, between audio blocks, deterministically.
+- Audio I/O: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
+  forwards the device callback to `Engine::process(inputs, output)` (stereo output;
+  extra outputs cleared). Inputs reach the engine as `AudioInputs`, indexed by the
+  device's channel number (JUCE packs the active ones; the host unpacks them), up to
+  64; `dsp::InputMeters` measures every input channel before any processing.
 - Desktop UI (`ui/desktop`): views over a `controller::Session`; every edit goes
   through it. `MainComponent` (transport bar, `ArrangeView`, master meter) refreshes
   at 60 Hz and handles the commands (menus and shortcuts, JUCE's
@@ -128,10 +226,34 @@ Modules with one-way dependencies:
   changes first (`MainComponent::askToSaveChanges()`). Views redraw when
   `Session::getRevision()` changes. Peak meters have one reader each: the output
   peaks are taken once per tick and fed to both master meters.
+- Desktop recording UI (Phase 3): `TrackInputControls` (arm, monitoring cycling
+  off/auto/on, the input menu of the device's channels, mono and stereo pairs) sits
+  in each track header, with an input meter, and in each mixer strip. The transport
+  bar has Rec (R), Click (K, right-click for its volume), Count (Shift+K, right-click
+  for 1 or 2 bars), Punch (P) and a status line (count-in, disk time left, warnings
+  such as dropouts). Recording a project never saved first asks where to save it;
+  Cmd+. discards the recording in progress after a confirmation, and Escape never
+  does. While recording, commands that could change or replace the project are off.
+  Recordings are drawn as they grow, from the writer's waveform. File > Audio
+  Settings (Cmd+,) has JUCE's device selector with inputs and a Recording section
+  (file format, the latency the device reports, the manual offset, "Measure with a
+  Cable..." opening `LatencyMeasurementDialog`); opening either asks for the inputs.
+  Opening a project with recoverable recordings offers Recover / Delete / Not Now.
 - `app/AppController` owns the engine, the device host, the session and the window;
-  drives `Session::update()` at 60 Hz, passes device sample-rate changes to the
-  session, keeps the window title, and stores the chosen device in the user settings
-  (`~/Library/Application Support/DAW/DAW.settings` on macOS).
+  drives `Session::update()` at 60 Hz, passes device sample-rate and latency changes
+  to the session, keeps the window title, and stores the chosen device and the
+  latency offsets in the user settings (`~/Library/Application
+  Support/DAW/DAW.settings` on macOS).
+- Microphone permission (Phase 3): `engine::io::MicrophoneAccess` (AVFoundation on
+  macOS and iOS, always granted elsewhere). The app opens the device's inputs only
+  once it is granted; without it `AudioDeviceHost::initialise()` drops the input
+  device from the saved state, so launching never prompts. `AppController` asks the
+  first time `Session::needsInputs()` (a track armed, or monitoring always), then
+  `AudioDeviceHost::openInputs()`. Denied: `Session::InputAccess::denied`, arming
+  and recording refuse with `microphoneDeniedMessage`. The Info.plist carries
+  `NSMicrophoneUsageDescription` (JUCE's `MICROPHONE_PERMISSION_*`). The app also
+  passes the device's reported latencies to the session and keeps the manual offset
+  in the user settings per input/output device pair and sample rate.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -168,6 +290,10 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
   requires 0. It counts operator new/delete everywhere; in the `linux-rtsan` CI job
   RealtimeSanitizer also aborts on malloc, locks, blocking system calls and I/O.
   Keep Catch2 assertions outside the checked lambda (Catch2 allocates).
+- `daw::test::SimulatedDevice` (`tests/support/SimulatedDevice.h`) plays the sound
+  card: it drives `AudioDeviceHost`'s callback with known input, variable block
+  sizes, switched-off channels, a loopback cable with a known latency and a stream
+  counter that can start near 2^32.
 
 ## Verification
 
@@ -212,11 +338,13 @@ ctest --preset debug            # run all tests
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
-- Listening tests: `docs/LISTENING_TESTS.md`; reference files and the Phase 2 demo
-  project from `python3 tools/make_listening_test_files.py` (into
-  `build/listening-tests/`).
-- Mixing benchmark (Release only, not in CTest): `build/release/tests/daw_bench`;
-  results in `docs/PERFORMANCE.md`.
+- Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
+  project and the Phase 3 recording project from
+  `python3 tools/make_listening_test_files.py` (into `build/listening-tests/`; add
+  `--long` for the hour-long streaming file).
+- Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing)
+  and `build/release/tests/daw_stream_bench` (streaming and recording); results in
+  `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen.
 
@@ -243,8 +371,8 @@ apt.llvm.org.
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
 - Phase work happens on a branch (`phase-N`) with a draft pull request into `main`;
   CI must be green on Windows, macOS and Linux.
-- Don't implement later phases (recording, MIDI, effects, plugins, automation,
-  mobile) beyond keeping the architecture ready for them.
+- Don't implement later phases (multiple takes and comping, MIDI, effects, plugins,
+  automation, mobile) beyond keeping the architecture ready for them.
 
 ## Status
 
@@ -284,7 +412,7 @@ automation, mobile UI.
 - [x] 7. Offline bounce to WAV (16/24-bit, 32-bit float; sample rate; dither)
 - [x] 8. `controller` module: session, snapshot building, timeline viewport and ruler,
       clip drags with snap
-- [ ] 9. Benchmark: tracks per audio callback budget (Release)
+- [x] 9. Benchmark: tracks per audio callback budget (Release)
 - [x] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap
 - [x] 11. Desktop UI: mixer, export dialog, undo/redo, new project, unsaved changes
 - [x] 12. Listening-test files and `docs/LISTENING_TESTS.md` for Phase 2
@@ -313,3 +441,82 @@ Phase 2 decisions (agreed before starting):
   track, X mixer, N snap, Cmd while dragging bypasses snap, Backspace or Delete
   deletes the selected clips. Several dropped files: one new track each, all at the
   same position.
+
+Phase 3 (in progress, branch `phase-3`): audio recording. Input device and channels;
+each track records mono or stereo from chosen inputs; arming and recording on several
+tracks at once; input monitoring per track (off / auto / on) and input meters;
+latency compensation (driver-reported plus a manual offset, and a loopback
+measurement tool) so recordings line up to the sample with what was heard; metronome
+and count-in; punch in/out on the loop region; every recording becomes clips in one
+undo step, files in the project's `Audio/` folder with relative paths; recordings
+can be discarded; recovery of interrupted recordings after a crash; disk-space
+checks; macOS microphone permission (ready for iOS); playback and recording stream
+from disk. Out of scope: multiple takes and comping, MIDI, effects, plugins,
+automation, mobile UI.
+
+- [x] 0. Plan (this list) and draft pull request
+- [x] 1. Audio input in the engine: input channels from the device, channel mapping,
+      input meters; simulated device for tests
+- [x] 2. Project format version 3: track input, monitoring and arm; metronome,
+      count-in, punch and recording format; migration from version 2
+- [x] 3. Input monitoring: per-track input/timeline switch with ramps, off/auto/on,
+      transport fade on the timeline part only, mixer running while stopped
+- [x] 4. Metronome and count-in, sample-exact on the tempo map's beats
+- [x] 5. Recording pipeline: lock-free audio FIFO, WAV writer thread, overrun and
+      disk-space reporting
+- [x] 6. `Recorder` in the engine: latency-compensated capture, several tracks,
+      punch in/out
+- [x] 7. Recording in the controller: files, clips in one undo step, discard,
+      errors, disk-space checks
+- [x] 8. Crash recovery: recording journal, WAV repair, recovery on open
+- [x] 9. Latency measurement with a loopback cable
+- [x] 10. Disk streaming in the engine: block cache, read-ahead thread, sample-rate
+      conversion while streaming, dropout reporting
+- [x] 11. Streaming everywhere: source pool, transport waiting for data, export
+- [x] 12. Microphone permission and app wiring (input device, latency offset)
+- [x] 13. Desktop UI: arm, monitoring, inputs, input meters, record/metronome/
+      count-in/punch controls, live recording clips
+- [x] 14. Desktop UI: audio and recording settings, latency measurement, recovery,
+      warnings
+- [x] 15. Benchmark: tracks streamed and recorded at once (Release)
+- [x] 16. Listening tests and files for Phase 3 (`docs/LISTENING_TESTS.md`)
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 32 to 49): to do on macOS
+
+Phase 3 decisions (agreed before starting):
+
+- Monitoring: a track plays either its timeline or its input, never both; the switch
+  is a 5 ms ramp, and the input goes through the track's volume, pan, mute, solo and
+  meter. Auto: the input is heard while the track is armed and the transport is
+  stopped, during the count-in, and while recording inside the recorded range (with
+  punch: between punch in and punch out only); otherwise the timeline. On: always the
+  input. Off: never.
+- New tracks take input 1 (mono). Stereo inputs are channel pairs 1+2, 3+4, ...
+- Recording in a project that was never saved first asks to save it.
+- Recording is linear: loop playback is suspended while recording, seeks are ignored,
+  the end of the project does not stop the transport.
+- Punch: when on, the loop region is the recorded range. The file keeps everything
+  captured (count-in, pre-roll and post-roll) as handles; the clip is trimmed to the
+  punch range, so its edges get the usual 5 ms fades.
+- If the disk cannot keep up (FIFO overrun), recording stops; the audio up to the
+  overrun is kept and an error says where it happened. Disk space: at least 1 minute
+  of recording time to start, a warning below 10 minutes, a clean stop at 10 seconds.
+- Files: `Audio/<track name> <n>.wav` next to the project, never overwritten; WAV at
+  the device rate, 24-bit by default (16-bit and 32-bit float available). Save As to
+  another folder copies the project's recordings into the new `Audio/` folder.
+- Undo removes recorded clips and keeps their files (redo needs them). Discarding a
+  recording in progress (Cmd+., after the confirmation "Discard the recording and
+  delete its files?") deletes its files and adds no clip. Escape never discards a
+  recording; at most it closes dialogs.
+- Arm state is saved in the project and is not undoable (like loop on/off); track
+  input and monitoring mode are undoable.
+- Metronome: when on, it clicks during playback and recording, after the master
+  fader, never in exports or on the master meter. Count-in: 1 bar (or 2) of clicks
+  only before recording starts, the timeline silent.
+- Latency offset: user settings, per input/output device pair and sample rate.
+- Microphone permission is asked for the first time an input is needed (arming,
+  monitoring, the input settings, a project with armed tracks), not at launch.
+- Disk streaming: a fixed 512 MB block cache.
+- Shortcuts: R record, K metronome, Shift+K count-in, P punch, Cmd+. discard the
+  recording in progress (with confirmation).
+- The one-hour recording test records 48 kHz mono 24-bit to disk and reads it back
+  (8 kHz if it takes more than about a minute in the Debug jobs).

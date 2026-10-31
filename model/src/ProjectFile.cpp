@@ -5,6 +5,7 @@
 #include "Identifiers.h"
 #include "ObjectIds.h"
 
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <set>
@@ -44,6 +45,17 @@ constexpr const char* audioFile = "audioFile";
 constexpr const char* position = "position";
 constexpr const char* offset = "offset";
 constexpr const char* length = "length";
+constexpr const char* input = "input";
+constexpr const char* channel = "channel";
+constexpr const char* stereo = "stereo";
+constexpr const char* monitoring = "monitoring";
+constexpr const char* armed = "armed";
+constexpr const char* metronome = "metronome";
+constexpr const char* countIn = "countIn";
+constexpr const char* bars = "bars";
+constexpr const char* punch = "punch";
+constexpr const char* recording = "recording";
+constexpr const char* bitsPerSample = "bitsPerSample";
 
 // Fields of older versions, read only by migrations.
 constexpr const char* loopEnabledVersion1 = "loopEnabled";
@@ -118,9 +130,51 @@ juce::var migrateVersion1To2(juce::var root)
     return root;
 }
 
+// Track inputs as stored: {"channel": input number counting from 1, or 0 for none;
+// "stereo": the pair starting there}.
+juce::var inputToJson(TrackInput input)
+{
+    return makeObject({{json::channel, input.channel + 1}, {json::stereo, input.stereo}});
+}
+
+// Version 3 (Phase 3, recording) adds each track's input, monitoring mode and arm
+// state, and the project's metronome, count-in, punch and recording format. The
+// values given here are those of a new track and a new project.
+juce::var migrateVersion2To3(juce::var root)
+{
+    auto* project = root[json::project].getDynamicObject();
+    if (project == nullptr)
+        return root;
+
+    project->setProperty(json::metronome, makeObject({{json::enabled, false},
+                                                      {json::volume,
+                                                       Project::defaultMetronomeVolume}}));
+    project->setProperty(json::countIn, makeObject({{json::enabled, false}, {json::bars, 1}}));
+    project->setProperty(json::punch, makeObject({{json::enabled, false}}));
+    project->setProperty(json::recording,
+                         makeObject({{json::bitsPerSample,
+                                      Project::defaultRecordingBitsPerSample}}));
+
+    if (auto* tracks = project->getProperty(json::tracks).getArray())
+    {
+        for (auto& track : *tracks)
+        {
+            if (auto* trackObject = track.getDynamicObject())
+            {
+                trackObject->setProperty(json::input, inputToJson(TrackInput{}));
+                trackObject->setProperty(json::monitoring, toString(MonitoringMode::automatic));
+                trackObject->setProperty(json::armed, false);
+            }
+        }
+    }
+
+    return root;
+}
+
 // The migration chain of this build: entry i upgrades format version i + 1 to i + 2.
 // When the format changes, bump currentFormatVersion and append a migration.
-constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{migrateVersion1To2};
+constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{migrateVersion1To2,
+                                                                           migrateVersion2To3};
 static_assert(migrations.size() + 1 == static_cast<std::size_t>(currentFormatVersion));
 
 juce::String pathForFile(const juce::File& file, const juce::File& projectDirectory)
@@ -202,6 +256,9 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
             {json::pan, track.getPan()},
             {json::mute, track.isMuted()},
             {json::solo, track.isSoloed()},
+            {json::input, inputToJson(track.getInput())},
+            {json::monitoring, toString(track.getMonitoring())},
+            {json::armed, track.isArmed()},
             {json::clips, clips},
         }));
     }
@@ -219,6 +276,12 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
         {json::snap, makeObject({{json::enabled, project.isSnapEnabled()},
                                  {json::grid, toString(project.getGridDivision())}})},
         {json::master, makeObject({{json::volume, project.getMasterVolume()}})},
+        {json::metronome, makeObject({{json::enabled, project.isMetronomeEnabled()},
+                                      {json::volume, project.getMetronomeVolume()}})},
+        {json::countIn, makeObject({{json::enabled, project.isCountInEnabled()},
+                                    {json::bars, project.getCountInBars()}})},
+        {json::punch, makeObject({{json::enabled, project.isPunchEnabled()}})},
+        {json::recording, makeObject({{json::bitsPerSample, project.getRecordingBitsPerSample()}})},
         {json::tracks, tracks},
     });
 
@@ -397,6 +460,46 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         return damaged(*version, "the master volume is not a number");
     project.setMasterVolume(*masterVolume);
 
+    // Recording
+    const auto metronomeJson = readObject(projectJson, json::metronome);
+    const auto metronomeEnabled =
+        metronomeJson ? readBool(*metronomeJson, json::enabled, false) : std::nullopt;
+    const auto metronomeVolume =
+        metronomeJson ? readNumber(*metronomeJson, json::volume, Project::defaultMetronomeVolume)
+                      : std::nullopt;
+    if (!metronomeEnabled || !metronomeVolume)
+        return damaged(*version, "the metronome settings are not valid");
+    project.setMetronomeEnabled(*metronomeEnabled);
+    project.setMetronomeVolume(*metronomeVolume);
+
+    const auto countInJson = readObject(projectJson, json::countIn);
+    const auto countInEnabled =
+        countInJson ? readBool(*countInJson, json::enabled, false) : std::nullopt;
+    const auto countInBars = countInJson ? readInteger(*countInJson, json::bars, 1) : std::nullopt;
+    if (!countInEnabled || !countInBars)
+        return damaged(*version, "the count-in settings are not valid");
+    project.setCountInEnabled(*countInEnabled);
+    project.setCountInBars(static_cast<int>(
+        std::clamp<juce::int64>(*countInBars, 1, Project::maximumCountInBars)));
+
+    const auto punchJson = readObject(projectJson, json::punch);
+    const auto punchEnabled = punchJson ? readBool(*punchJson, json::enabled, false) : std::nullopt;
+    if (!punchEnabled)
+        return damaged(*version, "punch enabled is not true or false");
+    project.setPunchEnabled(*punchEnabled);
+
+    // An unsupported format is not worth refusing the project for: it records in the
+    // default one.
+    const auto recordingJson = readObject(projectJson, json::recording);
+    const auto bitsPerSample =
+        recordingJson ? readInteger(*recordingJson, json::bitsPerSample,
+                                    Project::defaultRecordingBitsPerSample)
+                      : std::nullopt;
+    if (!bitsPerSample)
+        return damaged(*version, "the recording format is not valid");
+    project.setRecordingBitsPerSample(
+        static_cast<int>(std::clamp<juce::int64>(*bitsPerSample, 0, 64)));
+
     // Tracks and clips
     const auto& tracks = projectJson[json::tracks];
     if (!tracks.isVoid() && !tracks.isArray())
@@ -423,6 +526,22 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         if (!mute || !solo)
             return damaged(*version, "a track mute or solo is not true or false");
 
+        const auto inputJson = readObject(trackJson, json::input);
+        const auto inputChannel =
+            inputJson ? readInteger(*inputJson, json::channel, 1) : std::nullopt;
+        const auto inputStereo =
+            inputJson ? readBool(*inputJson, json::stereo, false) : std::nullopt;
+        if (!inputChannel || !inputStereo || *inputChannel < 0 ||
+            *inputChannel > TrackInput::maximumChannels)
+            return damaged(*version, "a track input is not valid");
+
+        const auto armed = readBool(trackJson, json::armed, false);
+        if (!armed)
+            return damaged(*version, "a track arm state is not true or false");
+        // An unknown monitoring mode is not worth refusing the project for.
+        const auto monitoring = monitoringModeFromString(trackJson[json::monitoring].toString())
+                                    .value_or(MonitoringMode::automatic);
+
         auto track = project.addTrack(name.toString());
         juce::ValueTree(track.getState())
             .setProperty(ids::id, acceptId(trackJson, usedIds), nullptr);
@@ -430,6 +549,9 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         track.setPan(*pan);
         track.setMuted(*mute);
         track.setSoloed(*solo);
+        track.setInput({static_cast<int>(*inputChannel) - 1, *inputStereo});
+        track.setMonitoring(monitoring);
+        track.setArmed(*armed);
 
         const auto& clips = trackJson[json::clips];
         if (!clips.isVoid() && !clips.isArray())

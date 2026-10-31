@@ -17,7 +17,7 @@ namespace daw::ui::desktop
 struct ArrangeState
 {
     static constexpr int laneHeight = 72;
-    static constexpr int headerWidth = 200;
+    static constexpr int headerWidth = 270;
 
     explicit ArrangeState(controller::Session& sessionToEdit)
         : session(sessionToEdit)

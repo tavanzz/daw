@@ -22,7 +22,7 @@ MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& ses
     setUsingNativeTitleBar(true);
     setContentOwned(content.release(), true);
     setResizable(true, true);
-    setResizeLimits(800, 480, 10000, 10000);
+    setResizeLimits(1100, 560, 10000, 10000);
 
 #if JUCE_MAC
     juce::MenuBarModel::setMacMainMenu(this);
@@ -94,9 +94,15 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
     case 3:
         add(MainComponent::playPause);
         add(MainComponent::stop);
+        add(MainComponent::record);
+        add(MainComponent::discardRecording);
         menu.addSeparator();
         add(MainComponent::toggleLoop);
         add(MainComponent::toggleSnap);
+        menu.addSeparator();
+        add(MainComponent::toggleMetronome);
+        add(MainComponent::toggleCountIn);
+        add(MainComponent::togglePunch);
         break;
     case 4:
         add(MainComponent::zoomIn);

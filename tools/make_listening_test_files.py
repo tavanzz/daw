@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Writes the reference files used by docs/LISTENING_TESTS.md.
 
-Usage: python3 tools/make_listening_test_files.py [output folder]
-(default: build/listening-tests). Needs only the Python standard library.
+Usage: python3 tools/make_listening_test_files.py [output folder] [--long]
+(default: build/listening-tests). --long also writes an hour-long stereo file (about
+700 MB) for the streaming checks. Needs only the Python standard library.
 """
 
+import argparse
 import json
 import math
 import random
 import struct
-import sys
 import wave
 from pathlib import Path
 
@@ -152,6 +153,83 @@ def write_phase2_files(out):
     (out / "phase1-project.dawproject").write_text(json.dumps(phase1, indent=2) + "\n")
 
 
+def clicks(rate, seconds, bpm, beats_per_bar):
+    """A sharp click on every beat, louder on the first of each bar. Each click starts
+    at full height on the beat's exact sample, so recordings of it can be lined up
+    with it to the sample."""
+    out = [0.0] * int(rate * seconds)
+    samples_per_beat = rate * 60 / bpm
+    length = int(rate * 0.004)
+    beat = 0
+    while True:
+        start = int(round(beat * samples_per_beat))
+        if start >= len(out):
+            break
+        amplitude = 0.8 if beat % beats_per_bar == 0 else 0.4
+        for n in range(min(length, len(out) - start)):
+            out[start + n] = amplitude * math.exp(-n / (rate * 0.0008)) * (1 if (n // 6) % 2 == 0 else -1)
+        beat += 1
+    return out
+
+
+def write_phase3_files(out, long_file):
+    """Phase 3: a project to record into, a click track to record back through a
+    cable, and optionally an hour-long file for streaming."""
+    folder = out / "phase3"
+    folder.mkdir(parents=True, exist_ok=True)
+    rate = 48000
+
+    # 32 bars at 120 BPM in 4/4: 64 s of clicks.
+    write_wav(folder / "click-120bpm.wav", rate, [clicks(rate, 64, 120, 4)])
+
+    def input_track(track_id, name, channel, stereo, monitoring):
+        result = track(track_id, name, [])
+        result.update({"input": {"channel": channel, "stereo": stereo},
+                       "monitoring": monitoring, "armed": False})
+        return result
+
+    guide = track(1, "Guide", [clip(10, "click-120bpm.wav", 0.0)])
+    guide.update({"input": {"channel": 0, "stereo": False}, "monitoring": "off", "armed": False})
+    project = {
+        "format": "daw-project",
+        "formatVersion": 3,
+        "project": {
+            "tempo": 120.0,
+            "timeSignature": {"numerator": 4, "denominator": 4},
+            # Bars 3 and 4 (from 4 s to 8 s): the punch range.
+            "loop": {"enabled": False, "start": ticks(4.0), "end": ticks(8.0)},
+            "snap": {"enabled": True, "grid": "auto"},
+            "master": {"volume": 1.0},
+            "metronome": {"enabled": False, "volume": 0.5},
+            "countIn": {"enabled": False, "bars": 1},
+            "punch": {"enabled": False},
+            "recording": {"bitsPerSample": 24},
+            "tracks": [
+                guide,
+                input_track(2, "Mic", 1, False, "auto"),
+                input_track(3, "Loopback", 2, False, "off"),
+                input_track(4, "Stereo", 1, True, "auto"),
+            ],
+        },
+    }
+    (folder / "phase3-recording.dawproject").write_text(json.dumps(project, indent=2) + "\n")
+
+    if long_file:
+        # An hour of stereo 16-bit: a different steady tone every minute (200 Hz, then
+        # 220 Hz, ...), so that where playback is can be heard.
+        with wave.open(str(folder / "long-60min.wav"), "wb") as file:
+            file.setnchannels(2)
+            file.setsampwidth(2)
+            file.setframerate(rate)
+            for minute in range(60):
+                frequency = 200 + 20 * minute
+                second = bytearray()
+                for n in range(rate):
+                    value = to_int16(0.3 * math.sin(2 * math.pi * frequency * n / rate))
+                    second += struct.pack("<hh", value, value)
+                file.writeframes(bytes(second) * 60)
+
+
 def extended80(value):
     """IEEE 754 80-bit extended float, as AIFF stores its sample rate."""
     exponent = 16383 + int(math.floor(math.log2(value)))
@@ -172,7 +250,11 @@ def write_aiff(path, rate, channels):
 
 
 def main():
-    out = Path(sys.argv[1] if len(sys.argv) > 1 else "build/listening-tests")
+    parser = argparse.ArgumentParser(description="Writes the listening test files.")
+    parser.add_argument("folder", nargs="?", default="build/listening-tests")
+    parser.add_argument("--long", action="store_true", help="also write an hour-long file")
+    arguments = parser.parse_args()
+    out = Path(arguments.folder)
     out.mkdir(parents=True, exist_ok=True)
     minus6 = 10 ** (-6 / 20)
 
@@ -201,6 +283,7 @@ def main():
     write_aiff(out / "06-sine-1k-minus6dB.aiff", 44100, [aiff_tone, aiff_tone])
 
     write_phase2_files(out)
+    write_phase3_files(out, arguments.long)
 
     print(f"Listening test files written to {out.resolve()}")
 

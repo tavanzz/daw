@@ -1,6 +1,8 @@
 #include "daw/ui/desktop/TrackHeaderList.h"
 
 #include "daw/ui/desktop/ArrangeState.h"
+#include "daw/ui/desktop/LevelMeter.h"
+#include "daw/ui/desktop/TrackInputControls.h"
 
 namespace daw::ui::desktop
 {
@@ -9,9 +11,13 @@ class TrackHeaderList::Header final : public juce::Component
 {
 public:
     Header(controller::Session& sessionToEdit, model::ObjectId id)
-        : session(sessionToEdit)
-        , trackId(id)
+        : session(sessionToEdit), trackId(id), recording(sessionToEdit, id)
     {
+        recording.addTo(*this);
+        inputMeter.setScaleVisible(false);
+        inputMeter.setTooltip("Input level, before the fader (click to clear the clip indicators)");
+        addAndMakeVisible(inputMeter);
+
         name.setEditable(false, true, false);
         name.setFont(juce::FontOptions(15.0f, juce::Font::bold));
         name.setTooltip("Double-click to rename");
@@ -41,18 +47,37 @@ public:
             name.setText(track.getName(), juce::dontSendNotification);
         mute.setToggleState(track.isMuted(), juce::dontSendNotification);
         solo.setToggleState(track.isSoloed(), juce::dontSendNotification);
+        recording.show(track);
         name.setColour(juce::Label::textColourId,
                        audible ? juce::Colours::white : juce::Colours::grey);
+    }
+
+    void updateMeter(double elapsedSeconds)
+    {
+        const auto peaks = session.getTrackInputPeaks(trackId);
+        inputMeter.update(peaks[0], peaks[1], elapsedSeconds);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced(8, 6);
+        inputMeter.setBounds(area.removeFromRight(10));
+        area.removeFromRight(6);
         name.setBounds(area.removeFromTop(24));
         area.removeFromTop(6);
-        mute.setBounds(area.removeFromLeft(32).withHeight(24));
-        area.removeFromLeft(6);
-        solo.setBounds(area.removeFromLeft(32).withHeight(24));
+
+        auto row = area.removeFromTop(24);
+        const auto place = [&row](juce::Component& component, int width)
+        {
+            component.setBounds(row.removeFromLeft(width));
+            row.removeFromLeft(4);
+        };
+        place(mute, 28);
+        place(solo, 28);
+        row.removeFromLeft(4);
+        place(recording.arm, 28);
+        place(recording.monitoring, 42);
+        recording.input.setBounds(row);
     }
 
     void paint(juce::Graphics& g) override
@@ -88,6 +113,8 @@ private:
     juce::Label name;
     juce::TextButton mute{"M"};
     juce::TextButton solo{"S"};
+    TrackInputControls recording;
+    LevelMeter inputMeter;
 };
 
 TrackHeaderList::TrackHeaderList(controller::Session& sessionToEdit)
@@ -122,6 +149,12 @@ void TrackHeaderList::refresh()
 
     for (int i = 0; i < project.getNumTracks(); ++i)
         headers[static_cast<std::size_t>(i)]->show(project.getTrack(i), project.isTrackAudible(i));
+}
+
+void TrackHeaderList::updateMeters(double elapsedSeconds)
+{
+    for (auto& header : headers)
+        header->updateMeter(elapsedSeconds);
 }
 
 void TrackHeaderList::resized()

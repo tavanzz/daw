@@ -4,6 +4,7 @@
 
 #include "support/RealtimeCheck.h"
 #include "support/SignalAnalysis.h"
+#include "support/SimulatedDevice.h"
 #include "support/TestAudioFiles.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -11,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <array>
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
@@ -51,7 +53,8 @@ struct Fixture
         engine.prepare(sampleRate, blockSize);
     }
 
-    // Runs the audio "device" for numBlocks and returns the left channel.
+    // Runs the audio "device" for numBlocks and returns the left channel. Between
+    // blocks the session's update() runs the read-ahead, as its thread would.
     std::vector<float> play(int numBlocks)
     {
         std::vector<float> left;
@@ -60,12 +63,13 @@ struct Fixture
         {
             heapOperations += daw::test::heapOperationsDuring([&] { engine.process(block); });
             left.insert(left.end(), block.getReadPointer(0), block.getReadPointer(0) + blockSize);
+            session.update();
         }
         return left;
     }
 
     Engine engine;
-    Session session{engine};
+    Session session{engine, {daw::engine::io::DiskStreamer::Mode::manual}};
     std::size_t heapOperations = 0;
 };
 
@@ -216,6 +220,10 @@ TEST_CASE("Undo and redo through the session restore the project exactly",
     record();
     session.setMasterVolume(0.7);
     record();
+    session.setTrackInput(bass, {2, true});
+    record();
+    session.setTrackMonitoring(bass, daw::model::MonitoringMode::on);
+    record();
     session.renameTrack(bass, "Bass 2");
     record();
     session.deleteClips({clips[0]});
@@ -234,6 +242,80 @@ TEST_CASE("Undo and redo through the session restore the project exactly",
         REQUIRE(session.redo());
         REQUIRE(daw::model::toJson(session.getProject(), {}) == states[index]);
     }
+}
+
+TEST_CASE("Arming and recording settings are saved but not undoable", "[controller][session][undo]")
+{
+    Fixture fixture;
+    auto& session = fixture.session;
+    const auto track = session.addTrack();
+    REQUIRE(session.undo());
+    REQUIRE(session.redo());
+    const auto undoDescription = session.getUndoDescription();
+    const auto revision = session.getRevision();
+
+    session.setTrackArmed(track, true);
+    session.setMetronomeEnabled(true);
+    session.setMetronomeVolume(0.3);
+    session.setCountInEnabled(true);
+    session.setCountInBars(2);
+    session.setPunchEnabled(true);
+    session.setRecordingBitsPerSample(16);
+
+    const auto& project = session.getProject();
+    CHECK(project.getTrack(0).isArmed());
+    CHECK(project.isMetronomeEnabled());
+    CHECK(project.getMetronomeVolume() == 0.3);
+    CHECK(project.isCountInEnabled());
+    CHECK(project.getCountInBars() == 2);
+    CHECK(project.isPunchEnabled());
+    CHECK(project.getRecordingBitsPerSample() == 16);
+    CHECK(session.hasUnsavedChanges());
+    CHECK(session.getRevision() > revision);
+
+    // Undo still goes back to the last edit, the new track, and leaves them alone.
+    CHECK(session.getUndoDescription() == undoDescription);
+    REQUIRE(session.undo());
+    CHECK(project.getNumTracks() == 0);
+    CHECK(project.isPunchEnabled());
+
+    // Setting a track's input or monitoring to what it is adds no undo step.
+    REQUIRE(session.redo());
+    session.setTrackInput(track, {0, false});
+    session.setTrackMonitoring(track, daw::model::MonitoringMode::automatic);
+    CHECK(session.getUndoDescription() == undoDescription);
+    session.setTrackMonitoring(track, daw::model::MonitoringMode::off);
+    CHECK(session.getUndoDescription() == "Input Monitoring");
+}
+
+TEST_CASE("Track input meters show the levels of their input channels", "[controller][session]")
+{
+    daw::engine::Engine engine;
+    daw::test::SimulatedDevice device(engine, sampleRate, 4, {blockSize});
+    device.inputSignal = [](int channel, juce::int64) {
+        return -0.1f * static_cast<float>(channel + 1);
+    };
+    device.start();
+
+    daw::controller::Session session(engine);
+    const auto mono = session.addTrack();
+    const auto stereo = session.addTrack();
+    const auto none = session.addTrack();
+    session.setTrackInput(mono, {1, false});
+    session.setTrackInput(stereo, {2, true});
+    session.setTrackInput(none, daw::model::TrackInput::none());
+
+    REQUIRE(device.run(2048) == 0);
+    session.takeInputPeaks();
+
+    CHECK(session.getInputPeak(0) == 0.1f);
+    CHECK(session.getTrackInputPeaks(mono) == std::array<float, 2>{0.2f, 0.2f});
+    CHECK(session.getTrackInputPeaks(stereo) == std::array<float, 2>{0.3f, 0.4f});
+    CHECK(session.getTrackInputPeaks(none) == std::array<float, 2>{0.0f, 0.0f});
+
+    // One reader: the peaks are taken once per refresh.
+    session.takeInputPeaks();
+    CHECK(session.getInputPeak(0) == 0.0f);
 }
 
 TEST_CASE("Changes are tracked until the project is saved", "[controller][session]")

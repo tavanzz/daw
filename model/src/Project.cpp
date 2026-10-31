@@ -21,6 +21,12 @@ Project::Project()
     state.setProperty(ids::snapEnabled, true, nullptr);
     state.setProperty(ids::gridDivision, toString(GridDivision::automatic), nullptr);
     state.setProperty(ids::masterVolume, 1.0, nullptr);
+    state.setProperty(ids::metronomeEnabled, false, nullptr);
+    state.setProperty(ids::metronomeVolume, defaultMetronomeVolume, nullptr);
+    state.setProperty(ids::countInEnabled, false, nullptr);
+    state.setProperty(ids::countInBars, 1, nullptr);
+    state.setProperty(ids::punchEnabled, false, nullptr);
+    state.setProperty(ids::recordingBitsPerSample, defaultRecordingBitsPerSample, nullptr);
 }
 
 Project::Project(juce::ValueTree projectState)
@@ -60,6 +66,9 @@ Track Project::addTrack(const juce::String& name, juce::UndoManager* undoManager
     track.setPan(0.0);
     track.setMuted(false);
     track.setSoloed(false);
+    track.setInput(TrackInput{});
+    track.setMonitoring(MonitoringMode::automatic);
+    track.setArmed(false);
     state.appendChild(trackState, undoManager);
     return track;
 }
@@ -218,6 +227,71 @@ void Project::setMasterVolume(double gain, juce::UndoManager* undoManager)
     state.setProperty(ids::masterVolume,
                       std::isfinite(gain) ? std::clamp(gain, 0.0, Track::maximumVolume) : 1.0,
                       undoManager);
+}
+
+bool Project::isMetronomeEnabled() const
+{
+    return static_cast<bool>(state[ids::metronomeEnabled]);
+}
+
+void Project::setMetronomeEnabled(bool shouldClick)
+{
+    state.setProperty(ids::metronomeEnabled, shouldClick, nullptr);
+}
+
+double Project::getMetronomeVolume() const
+{
+    return static_cast<double>(state.getProperty(ids::metronomeVolume, defaultMetronomeVolume));
+}
+
+void Project::setMetronomeVolume(double gain)
+{
+    state.setProperty(ids::metronomeVolume,
+                      std::isfinite(gain) ? std::clamp(gain, 0.0, 1.0) : defaultMetronomeVolume,
+                      nullptr);
+}
+
+bool Project::isCountInEnabled() const
+{
+    return static_cast<bool>(state[ids::countInEnabled]);
+}
+
+void Project::setCountInEnabled(bool shouldCountIn)
+{
+    state.setProperty(ids::countInEnabled, shouldCountIn, nullptr);
+}
+
+int Project::getCountInBars() const
+{
+    return std::clamp(static_cast<int>(state.getProperty(ids::countInBars, 1)), 1,
+                      maximumCountInBars);
+}
+
+void Project::setCountInBars(int bars)
+{
+    state.setProperty(ids::countInBars, std::clamp(bars, 1, maximumCountInBars), nullptr);
+}
+
+bool Project::isPunchEnabled() const
+{
+    return static_cast<bool>(state[ids::punchEnabled]);
+}
+
+void Project::setPunchEnabled(bool shouldPunch)
+{
+    state.setProperty(ids::punchEnabled, shouldPunch, nullptr);
+}
+
+int Project::getRecordingBitsPerSample() const
+{
+    return static_cast<int>(
+        state.getProperty(ids::recordingBitsPerSample, defaultRecordingBitsPerSample));
+}
+
+void Project::setRecordingBitsPerSample(int bitsPerSample)
+{
+    if (bitsPerSample == 16 || bitsPerSample == 24 || bitsPerSample == 32)
+        state.setProperty(ids::recordingBitsPerSample, bitsPerSample, nullptr);
 }
 
 bool Project::isEquivalentTo(const Project& other) const
