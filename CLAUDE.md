@@ -336,9 +336,10 @@ ctest --preset debug            # run all tests
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
-- Listening tests: `docs/LISTENING_TESTS.md`; reference files and the Phase 2 demo
-  project from `python3 tools/make_listening_test_files.py` (into
-  `build/listening-tests/`).
+- Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
+  project and the Phase 3 recording project from
+  `python3 tools/make_listening_test_files.py` (into `build/listening-tests/`; add
+  `--long` for the hour-long streaming file).
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing)
   and `build/release/tests/daw_stream_bench` (streaming and recording); results in
   `docs/PERFORMANCE.md`.
@@ -476,7 +477,8 @@ automation, mobile UI.
 - [x] 14. Desktop UI: audio and recording settings, latency measurement, recovery,
       warnings
 - [x] 15. Benchmark: tracks streamed and recorded at once (Release)
-- [ ] 16. Listening tests and files for Phase 3 (`docs/LISTENING_TESTS.md`)
+- [x] 16. Listening tests and files for Phase 3 (`docs/LISTENING_TESTS.md`)
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 32 to 49): to do on macOS
 
 Phase 3 decisions (agreed before starting):
 

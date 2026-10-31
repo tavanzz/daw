@@ -220,8 +220,11 @@ void TransportBar::showRecordingStatus()
         if (seconds < 0.0)
             return juce::String();
         const auto minutes = static_cast<int>(seconds / 60.0);
-        return minutes >= 120 ? juce::String(minutes / 60) + " h of disk left"
-                              : juce::String(minutes) + " min of disk left";
+        if (minutes >= 120)
+            return juce::String(minutes / 60) + " h of disk left";
+        if (minutes >= 2)
+            return juce::String(minutes) + " min of disk left";
+        return juce::String(static_cast<int>(seconds)) + " s of disk left";
     };
 
     switch (recording.getState())

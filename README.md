@@ -22,7 +22,14 @@ Phase 2 (v0.2.0): multitrack and mixer. Tracks with clips on a timeline (move,
 trim, delete; one load per file), a ruler in time and bars with grid and snap, zoom
 and scroll, a loop region; a mixer with volume, pan, mute, solo and meters per track
 and a master bus; WAV export through the same code as playback; undo/redo; project
-format version 2. See [CLAUDE.md](CLAUDE.md#status) for the steps.
+format version 2.
+
+Phase 3 (v0.3.0, in testing): audio recording. Inputs per track (mono or stereo),
+arming and recording several tracks at once, input monitoring (off / auto / on) and
+input meters, latency compensation with a loopback measurement, metronome and
+count-in, punch in/out on the loop region, recovery of recordings interrupted by a
+crash, and playback and recording streamed from disk. Project format version 3. See
+[CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 
@@ -72,6 +79,29 @@ that track. Files are converted to the output device's sample rate when needed.
   name to rename it; right-click a track header to delete the track.
 - In the mixer, double-click a fader or a pan knob to reset it.
 
+Recording:
+
+- Give a track an input with the button showing "In 1" (mono channels and stereo
+  pairs of your interface), arm it with R, and press R (or the Rec button) to record
+  every armed track from the playhead; press R, Space or Return to stop. Each take
+  becomes a clip (one undo step) and a WAV file in the `Audio` folder next to the
+  project, which is why a new project is saved first.
+- The first time a track needs an input, macOS asks whether DAW may use the
+  microphone. If you refuse, allow it later in System Settings > Privacy & Security
+  > Microphone.
+- Input monitoring per track: Auto plays the input while the track is armed and
+  stopped and while it records; On always; Off never. Use headphones.
+- Click (K) is the metronome, Count (Shift+K) counts in before recording (right-click
+  for 2 bars), Punch (P) records only inside the loop region.
+- File > Audio Settings chooses the input and output devices, the recording format
+  (16-bit, 24-bit or 32-bit float WAV at the device's rate) and the latency offset.
+  "Measure with a Cable..." measures your interface's round trip with a cable from
+  an output to an input, so that recordings line up exactly with what you heard.
+- Cmd+. discards the recording in progress (after asking). If the app quits during a
+  recording, opening the project again offers to recover it.
+- Files play from disk; projects of any length need no more than about 600 MB of
+  memory for their audio.
+
 | Action | Shortcut |
 |--------|----------|
 | Play / pause | Space |
@@ -83,15 +113,18 @@ that track. Files are converted to the output device's sample rate when needed.
 | Import audio / Export mix | Cmd+I / Cmd+E |
 | New / Open / Save / Save As project | Cmd+N / Cmd+O / Cmd+S / Shift+Cmd+S |
 | Zoom in / out / to fit | Cmd+= / Cmd+- / Cmd+0 (or Cmd + wheel, or pinch) |
-| Choose the audio output | Cmd+, |
+| Record / stop recording | R |
+| Discard the recording in progress | Cmd+. |
+| Metronome / count-in / punch | K / Shift+K / P |
+| Audio settings | Cmd+, |
 
 (Ctrl instead of Cmd on Windows and Linux.)
 
 Projects (`.dawproject`) are small JSON files that refer to the audio files; keep the
 audio next to the project (or in a subfolder) and the folder can be moved as a whole.
-Projects saved by Phase 1 open too. Manual checks with reference files:
+Projects saved by Phases 1 and 2 open too. Manual checks with reference files:
 [docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md). How many tracks fit in an audio
-callback: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+callback, stream from disk and record: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Repository layout
 
