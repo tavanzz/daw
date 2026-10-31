@@ -232,7 +232,11 @@ Modules with one-way dependencies:
   such as dropouts). Recording a project never saved first asks where to save it;
   Cmd+. discards the recording in progress after a confirmation, and Escape never
   does. While recording, commands that could change or replace the project are off.
-  Recordings are drawn as they grow, from the writer's waveform.
+  Recordings are drawn as they grow, from the writer's waveform. File > Audio
+  Settings (Cmd+,) has JUCE's device selector with inputs and a Recording section
+  (file format, the latency the device reports, the manual offset, "Measure with a
+  Cable..." opening `LatencyMeasurementDialog`); opening either asks for the inputs.
+  Opening a project with recoverable recordings offers Recover / Delete / Not Now.
 - `app/AppController` owns the engine, the device host, the session and the window;
   drives `Session::update()` at 60 Hz, passes device sample-rate and latency changes
   to the session, keeps the window title, and stores the chosen device and the
@@ -468,7 +472,7 @@ automation, mobile UI.
 - [x] 12. Microphone permission and app wiring (input device, latency offset)
 - [x] 13. Desktop UI: arm, monitoring, inputs, input meters, record/metronome/
       count-in/punch controls, live recording clips
-- [ ] 14. Desktop UI: audio and recording settings, latency measurement, recovery,
+- [x] 14. Desktop UI: audio and recording settings, latency measurement, recovery,
       warnings
 - [ ] 15. Benchmark: tracks streamed and recorded at once (Release)
 - [ ] 16. Listening tests and files for Phase 3 (`docs/LISTENING_TESTS.md`)

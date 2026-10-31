@@ -149,7 +149,7 @@ public:
         if (trackId)
         {
             auto inputRow = area.removeFromTop(22);
-            recording->monitoring.setBounds(inputRow.removeFromRight(34).reduced(1, 0));
+            recording->monitoring.setBounds(inputRow.removeFromRight(42).reduced(1, 0));
             recording->input.setBounds(inputRow.reduced(1, 0));
             area.removeFromTop(4);
             pan.setBounds(area.removeFromTop(60));

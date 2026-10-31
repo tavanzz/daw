@@ -87,6 +87,7 @@ private:
     void timerCallback() override;
     void togglePlayPause();
     void openProjectFile(const juce::File& file);
+    void offerRecovery();
     void chooseAudioToImport();
     void chooseProjectToOpen();
     void chooseProjectToSave(std::function<void()> afterSaving = {},

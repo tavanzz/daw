@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/MainComponent.h"
 
 #include "daw/model/ProjectFile.h"
+#include "daw/ui/desktop/AudioSettingsDialog.h"
 #include "daw/ui/desktop/ExportDialog.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -185,9 +186,46 @@ void MainComponent::openProjectFile(const juce::File& file)
 {
     const auto result = session.openProject(file);
     if (result.failed())
+    {
         showError("Could not open the project", result.getErrorMessage());
-    else
-        arrangeView.zoomToFit();
+        return;
+    }
+
+    arrangeView.zoomToFit();
+    offerRecovery();
+}
+
+void MainComponent::offerRecovery()
+{
+    const auto count = static_cast<int>(session.getRecoverableRecordings().size());
+    if (count == 0)
+        return;
+
+    const auto options =
+        juce::MessageBoxOptions()
+            .withIconType(juce::MessageBoxIconType::QuestionIcon)
+            .withTitle("Recover recordings?")
+            .withMessage(juce::String(count) +
+                         (count == 1 ? " recording was" : " recordings were") +
+                         " made in this project but not saved in it: the app may have quit "
+                         "unexpectedly while recording. Recover them as clips, or delete "
+                         "their files?")
+            .withButton("Recover")
+            .withButton("Delete")
+            .withButton("Not Now")
+            .withAssociatedComponent(this);
+
+    juce::NativeMessageBox::showAsync(options, [this](int button) {
+        if (button == 0)
+        {
+            if (const auto recovered = session.recoverRecordings(); recovered.failed())
+                showError("Some recordings could not be recovered", recovered.getErrorMessage());
+        }
+        else if (button == 1)
+        {
+            session.discardRecoverableRecordings();
+        }
+    });
 }
 
 void MainComponent::chooseAudioToImport()
@@ -282,20 +320,7 @@ void MainComponent::chooseProjectToSave(std::function<void()> afterSaving,
 
 void MainComponent::showAudioSettings()
 {
-    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
-        deviceManager, 0, 0, 1, 2, false, false, true, false);
-    selector->setSize(520, 360);
-
-    juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned(selector.release());
-    options.dialogTitle = "Audio Output";
-    options.dialogBackgroundColour =
-        getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-    options.componentToCentreAround = this;
-    options.launchAsync();
+    AudioSettingsDialog::show(session, deviceManager, this);
 }
 
 juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
@@ -351,7 +376,8 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setActive(hasClips);
         break;
     case audioSettings:
-        result.setInfo("Audio Output...", "Chooses the audio output device", "File", 0);
+        result.setInfo("Audio Settings...",
+                       "Chooses the audio devices and sets up recording and latency", "File", 0);
         result.addDefaultKeypress(',', command);
         break;
     case undo:

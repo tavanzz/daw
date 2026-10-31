@@ -2,6 +2,7 @@
 
 add_library(daw_ui_desktop STATIC
     src/ArrangeView.cpp
+    src/AudioSettingsDialog.cpp
     src/ExportDialog.cpp
     src/LevelMeter.cpp
     src/MainComponent.cpp

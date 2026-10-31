@@ -42,7 +42,7 @@ AppController::AppController(const juce::String& name)
     if (deviceError.isNotEmpty())
         view().showError("No audio output", "The audio output could not be opened: " +
                                                 deviceError +
-                                                "\n\nChoose another one in File > Audio Output.");
+                                                "\n\nChoose another one in File > Audio Settings.");
 
     updateWindowTitle();
     startTimerHz(updateRateHz);

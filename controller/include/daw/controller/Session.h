@@ -239,6 +239,8 @@ public:
     void setDeviceLatency(int inputSamples, int outputSamples);
     void setLatencyOffset(int samples);
     [[nodiscard]] int getLatencyOffset() const noexcept { return latencyOffset; }
+    [[nodiscard]] int getDeviceInputLatency() const noexcept { return deviceInputLatency; }
+    [[nodiscard]] int getDeviceOutputLatency() const noexcept { return deviceOutputLatency; }
     [[nodiscard]] juce::int64 getRecordingLatency() const noexcept;
 
     /** Measures the round trip with a cable from output outputChannel (0 or 1) to
