@@ -11,6 +11,7 @@
 #include <juce_data_structures/juce_data_structures.h>
 
 #include <array>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <optional>
@@ -18,6 +19,15 @@
 
 namespace daw::controller
 {
+
+/** How a Session plays its files. */
+struct SessionOptions
+{
+    /** readAhead for the app; manual for tests, where update() runs the read-ahead
+        between audio blocks so that streaming is deterministic. */
+    engine::io::DiskStreamer::Mode streaming = engine::io::DiskStreamer::Mode::readAhead;
+    std::size_t streamingMemory = std::size_t{512} << 20;
+};
 
 /**
     One open project and everything around it: its undo history, the audio its clips
@@ -30,6 +40,8 @@ namespace daw::controller
       between beginGesture() and endGesture() into one step.
     - After any change (an edit, undo, redo, a file finishing loading) the engine
       gets a new arrangement at the next update(), so many changes in a row cost one.
+      While playing, a new arrangement waits (up to maximumArrangementWait) until the
+      streamed audio it plays at the playhead is loaded, so edits cause no dropouts.
 
     Message thread only. update() must be called regularly (a UI timer).
 */
@@ -39,7 +51,9 @@ public:
     /** Used while no audio device runs; files are reloaded at the device's rate. */
     static constexpr double fallbackSampleRate = 48000.0;
 
-    explicit Session(engine::Engine& engineToDrive);
+    static constexpr double maximumArrangementWait = 0.5; // seconds
+
+    explicit Session(engine::Engine& engineToDrive, SessionOptions options = {});
     ~Session() override;
 
     Session(const Session&) = delete;
@@ -80,6 +94,10 @@ public:
 
     /** Length of a loaded file in ticks; nothing while it loads or if it failed. */
     [[nodiscard]] std::optional<model::Ticks> getFileLength(const juce::File& file) const;
+
+    /** Times streamed audio was missing when the engine needed it, since the last
+        call: the disk is too slow (or the project too large for it). */
+    [[nodiscard]] std::uint64_t takeDropouts();
 
     /** The meter of a track, measured after its fader. */
     [[nodiscard]] std::shared_ptr<engine::dsp::PeakLevelMeter>
@@ -228,6 +246,8 @@ private:
     void sourceChanged(const juce::File& file);
     void resolveLengths(const juce::File& file);
     void rebuildArrangement();
+    void handOver(std::unique_ptr<engine::Arrangement> arrangement);
+    void streamingTick();
     [[nodiscard]] double engineRate() const noexcept;
     [[nodiscard]] std::optional<model::Track> findTrack(model::ObjectId trackId) const;
 
@@ -238,7 +258,13 @@ private:
     void valueTreeChildOrderChanged(juce::ValueTree&, int, int) override;
 
     engine::Engine& engine;
-    engine::io::SourcePool sources{fallbackSampleRate};
+    SessionOptions options;
+    engine::io::SourcePool sources;
+    std::unique_ptr<engine::Arrangement> pendingArrangement; // waits for its audio
+    std::unique_ptr<engine::Arrangement> playingArrangement; // a copy of the engine's, for the plan
+    juce::uint32 pendingSince = 0;
+    std::uint64_t dropoutsSeen = 0;
+    std::atomic<juce::int64> seekCue{-1}; // the last seek, for the read-ahead
     juce::UndoManager undoManager{10'000'000, 200};
     model::Project project;
     juce::File projectFile;

@@ -108,6 +108,30 @@ void Arrangement::updateLayoutHash() noexcept
     layoutHash = hash;
 }
 
+bool isArrangementReady(const Arrangement& arrangement, juce::int64 position,
+                        juce::int64 length) noexcept
+{
+    const juce::int64 end = position + length;
+
+    for (const auto& track : arrangement.tracks)
+    {
+        const auto first = std::partition_point(
+            track.segments.begin(), track.segments.end(),
+            [position](const ClipSegment& segment) { return segment.end <= position; });
+
+        for (auto segment = first; segment != track.segments.end() && segment->start < end; ++segment)
+        {
+            const auto from = std::max(segment->start, position);
+            const auto to = std::min(segment->end, end);
+            if (segment->source != nullptr &&
+                !segment->source->isReady(segment->sourceStart + (from - segment->start), to - from))
+                return false;
+        }
+    }
+
+    return true;
+}
+
 std::vector<ClipSegment> flattenClips(std::span<const ClipPlacement> clips, int fadeLength)
 {
     std::vector<ClipSegment> segments;

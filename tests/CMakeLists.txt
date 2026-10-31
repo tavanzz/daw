@@ -10,6 +10,7 @@ add_executable(daw_tests
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp
+    controller/StreamingTests.cpp
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
     engine/AudioInputTests.cpp

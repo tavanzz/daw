@@ -85,6 +85,12 @@ struct Arrangement
     void updateLayoutHash() noexcept;
 };
 
+/** Audio thread (or any). Whether every source the arrangement plays in
+    [position, position + length) can deliver it now (streamed files may still be
+    loading). */
+[[nodiscard]] bool isArrangementReady(const Arrangement& arrangement, juce::int64 position,
+                                      juce::int64 length) noexcept;
+
 /** A clip placed on a track, in samples, before overlaps are resolved. */
 struct ClipPlacement
 {

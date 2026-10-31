@@ -87,6 +87,11 @@ class Engine final : private TimelineRenderer
 public:
     static constexpr double crossfadeSeconds = 0.005;
 
+    /** Playback that would start on streamed audio not loaded yet waits for it (how
+        much must be there, and for how long at most). */
+    static constexpr double readyAheadSeconds = 0.2;
+    static constexpr double maximumWaitSeconds = 2.0;
+
     Engine() = default;
 
     /** Message thread, with the audio device stopped: frees everything. */
@@ -162,7 +167,12 @@ public:
     [[nodiscard]] juce::int64 getPlayheadPosition() const noexcept;
     [[nodiscard]] juce::int64 getLength() const noexcept;
     [[nodiscard]] bool isLooping() const noexcept;
+    [[nodiscard]] juce::int64 getLoopStart() const noexcept;
+    [[nodiscard]] juce::int64 getLoopEnd() const noexcept;
     [[nodiscard]] bool isCountingIn() const noexcept;
+
+    /** True while playback waits for streamed audio to load (it reports playing). */
+    [[nodiscard]] bool isWaitingForData() const noexcept;
 
     /** One reader thread (the UI): highest absolute output sample on the channel
         (0 = left, 1 = right) since the previous call, as a linear gain. This is the
@@ -194,6 +204,8 @@ private:
     bool runLatencyTest(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept;
     void endRecording() noexcept;
     [[nodiscard]] bool autoMonitorsAt(juce::int64 timelinePosition) const noexcept;
+    [[nodiscard]] bool isReadyAt(juce::int64 position) const noexcept;
+    void startWhenReady() noexcept;
     [[nodiscard]] int pieceLength(juce::int64 timelinePosition, int available) const noexcept;
 
     void send(Command command);
@@ -218,6 +230,11 @@ private:
     Recorder recorder;
     juce::int64 streamPosition = 0;   // samples processed since the engine started
     bool recordingTransport = false;  // the transport runs linear for a recording
+    bool waitingForData = false;      // play was asked for; the audio is loading
+    juce::int64 waitingSince = 0;     // stream index of the play request
+    juce::int64 recordingWaitSince = 0; // since when a recording could start
+    juce::int64 readyAheadLength = 1;
+    juce::int64 maximumWait = 1;
     LatencyTest* latencyTest = nullptr;
     std::size_t latencyTestPosition = 0;
     Snapshot* current = nullptr;
@@ -249,6 +266,9 @@ private:
     std::atomic<juce::int64> publishedLength{0};
     std::atomic<bool> publishedLooping{false};
     std::atomic<bool> publishedCountingIn{false};
+    std::atomic<bool> publishedWaiting{false};
+    std::atomic<juce::int64> publishedLoopStart{0};
+    std::atomic<juce::int64> publishedLoopEnd{0};
     dsp::PeakLevelMeter outputMeter;
     dsp::InputMeters inputMeters;
     RenderClock renderClock;

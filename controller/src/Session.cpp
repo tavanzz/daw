@@ -13,11 +13,27 @@
 namespace daw::controller
 {
 
-Session::Session(engine::Engine& engineToDrive)
+Session::Session(engine::Engine& engineToDrive, SessionOptions sessionOptions)
     : engine(engineToDrive)
+    , options(sessionOptions)
+    , sources(fallbackSampleRate, 2,
+              engine::io::StreamingOptions{options.streaming, &engine.getRenderClock(),
+                                           options.streamingMemory, true})
 {
     if (engine.getSampleRate() > 0.0)
         sources.setSampleRate(engine.getSampleRate());
+
+    // The read-ahead follows the engine's playhead (atomics: safe from its thread).
+    sources.followPlayhead([&playing = engine, &cue = seekCue] {
+        engine::io::DiskStreamer::Playhead playhead;
+        playhead.cue = cue.load();
+        playhead.position = playing.getPlayheadPosition();
+        playhead.playing = playing.getTransportState() == engine::TransportState::playing;
+        playhead.looping = playing.isLooping();
+        playhead.loopStart = playing.getLoopStart();
+        playhead.loopEnd = playing.getLoopEnd();
+        return playhead;
+    });
 
     sources.onSourceChanged = [this](const juce::File& file) { sourceChanged(file); };
     project.getState().addListener(this);
@@ -42,7 +58,29 @@ void Session::update()
     if (arrangementOutOfDate)
         rebuildArrangement();
 
+    streamingTick();
     engine.collectGarbage();
+}
+
+void Session::streamingTick()
+{
+    auto& streamer = sources.getStreamer();
+    if (options.streaming == engine::io::DiskStreamer::Mode::manual)
+        streamer.service();
+
+    // A new arrangement waiting for its audio goes to the engine once that is loaded,
+    // once playback stops, or when it has waited long enough.
+    if (pendingArrangement != nullptr)
+    {
+        const bool playing = engine.getTransportState() == engine::TransportState::playing;
+        const auto waited = juce::Time::getMillisecondCounter() - pendingSince;
+        if (!playing ||
+            engine::isArrangementReady(*pendingArrangement, engine.getPlayheadPosition(),
+                                       static_cast<juce::int64>(engine::Engine::readyAheadSeconds *
+                                                                pendingArrangement->sampleRate)) ||
+            waited >= static_cast<juce::uint32>(maximumArrangementWait * 1000.0))
+            handOver(std::move(pendingArrangement));
+    }
 }
 
 bool Session::waitForLoads(int timeoutMilliseconds)
@@ -52,12 +90,22 @@ bool Session::waitForLoads(int timeoutMilliseconds)
     return idle;
 }
 
+std::uint64_t Session::takeDropouts()
+{
+    const auto total = sources.getStreamer().getDropouts();
+    const auto newOnes = total >= dropoutsSeen ? total - dropoutsSeen : total;
+    dropoutsSeen = total;
+    return newOnes;
+}
+
 void Session::setSampleRate(double sampleRate)
 {
     if (!(sampleRate > 0.0) || juce::exactlyEqual(sampleRate, sources.getSampleRate()))
         return;
 
     sources.setSampleRate(sampleRate);
+    dropoutsSeen = 0;
+    pendingArrangement.reset();
     arrangementOutOfDate = true;
 }
 
@@ -755,7 +803,9 @@ void Session::addRecording(const RecordingOutcome& outcome)
 
 void Session::seek(model::Ticks position)
 {
-    engine.seek(model::ticksToSamples(std::max(model::Ticks{0}, position), engineRate()));
+    const auto target = model::ticksToSamples(std::max(model::Ticks{0}, position), engineRate());
+    seekCue.store(target); // the read-ahead starts loading there at once
+    engine.seek(target);
 }
 
 model::Ticks Session::getPlayhead() const
@@ -818,7 +868,32 @@ void Session::rebuildArrangement()
     };
     const auto meterFor = [this](model::ObjectId trackId) { return getTrackMeter(trackId); };
 
-    engine.setArrangement(buildArrangement(project, sources.getSampleRate(), lookup, meterFor));
+    auto arrangement = buildArrangement(project, sources.getSampleRate(), lookup, meterFor);
+
+    // While playing, what the new arrangement plays at the playhead must be loaded
+    // before it takes over; meanwhile the read-ahead serves both.
+    const bool playing = engine.getTransportState() == engine::TransportState::playing;
+    if (playing && playingArrangement != nullptr &&
+        !engine::isArrangementReady(*arrangement, engine.getPlayheadPosition(),
+                                    static_cast<juce::int64>(engine::Engine::readyAheadSeconds *
+                                                             arrangement->sampleRate)))
+    {
+        if (pendingArrangement == nullptr)
+            pendingSince = juce::Time::getMillisecondCounter();
+        pendingArrangement = std::move(arrangement);
+        sources.getStreamer().setPlan({playingArrangement.get(), pendingArrangement.get()});
+        return;
+    }
+
+    pendingArrangement.reset();
+    handOver(std::move(arrangement));
+}
+
+void Session::handOver(std::unique_ptr<engine::Arrangement> arrangement)
+{
+    sources.getStreamer().setPlan(*arrangement);
+    playingArrangement = std::make_unique<engine::Arrangement>(*arrangement);
+    engine.setArrangement(std::move(arrangement));
 }
 
 double Session::engineRate() const noexcept

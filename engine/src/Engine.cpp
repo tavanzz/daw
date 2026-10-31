@@ -40,6 +40,9 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     stereoBuffer.setSize(2, newMaximumBlockSize);
     crossfadeLength =
         std::max(1, static_cast<int>(std::lround(crossfadeSeconds * newSampleRate)));
+    readyAheadLength = std::max(juce::int64{1}, std::llround(readyAheadSeconds * newSampleRate));
+    maximumWait = std::llround(maximumWaitSeconds * newSampleRate);
+    waitingForData = false;
 
     // The device was stopped: whatever was crossfading is over.
     finishCrossfade();
@@ -85,6 +88,8 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
         return;
     }
 
+    startWhenReady();
+
     // A recording's transport stays linear until its stop has faded out.
     if (recordingTransport && !recorder.isRecording() && !transport.isRunning() &&
         countInRemaining == 0)
@@ -124,14 +129,24 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
 void Engine::startPendingRecording() noexcept
 {
     // A recording starts from a silent transport, so that its first sample is where
-    // the timeline really starts.
-    if (transport.isRunning() || countInRemaining > 0 ||
-        pendingRecording.load(std::memory_order_relaxed) == nullptr)
+    // the timeline really starts...
+    const auto* waiting = pendingRecording.load(std::memory_order_acquire);
+    if (transport.isRunning() || countInRemaining > 0 || waiting == nullptr)
+    {
+        recordingWaitSince = streamPosition;
+        return;
+    }
+
+    // ...and once what it plays at the start is loaded (or it has waited enough).
+    if (waiting->countInLength <= 0 && !isReadyAt(waiting->startPosition) &&
+        streamPosition - recordingWaitSince < maximumWait)
         return;
 
     const auto* setup = pendingRecording.exchange(nullptr, std::memory_order_acquire);
     if (setup == nullptr)
         return;
+
+    waitingForData = false;
 
     recorder.begin(*setup, streamPosition);
     recordingTransport = true;
@@ -204,6 +219,23 @@ void Engine::endRecording() noexcept
 {
     if (recorder.isRecording())
         recorder.end(streamPosition);
+}
+
+bool Engine::isReadyAt(juce::int64 position) const noexcept
+{
+    return !canPlay(current) || isArrangementReady(*current->arrangement, position, readyAheadLength);
+}
+
+void Engine::startWhenReady() noexcept
+{
+    if (!waitingForData || transport.isRunning())
+        return;
+
+    if (isReadyAt(transport.getPosition()) || streamPosition - waitingSince >= maximumWait)
+    {
+        waitingForData = false;
+        transport.play();
+    }
 }
 
 bool Engine::autoMonitorsAt(juce::int64 timelinePosition) const noexcept
@@ -481,6 +513,21 @@ bool Engine::isCountingIn() const noexcept
     return publishedCountingIn.load(std::memory_order_relaxed);
 }
 
+bool Engine::isWaitingForData() const noexcept
+{
+    return publishedWaiting.load(std::memory_order_relaxed);
+}
+
+juce::int64 Engine::getLoopStart() const noexcept
+{
+    return publishedLoopStart.load(std::memory_order_relaxed);
+}
+
+juce::int64 Engine::getLoopEnd() const noexcept
+{
+    return publishedLoopEnd.load(std::memory_order_relaxed);
+}
+
 float Engine::takeOutputPeak(int channel) noexcept
 {
     return outputMeter.takePeak(channel);
@@ -538,6 +585,30 @@ void Engine::apply(const Command& command) noexcept
     const bool wasCountingIn = countInRemaining > 0;
     if (endsCountIn)
         countInRemaining = 0;
+
+    // Stopping or pausing gives up waiting for streamed audio; a seek waits on.
+    if (command.type == Command::Type::pause || command.type == Command::Type::stop ||
+        command.type == Command::Type::resetTransport)
+        waitingForData = false;
+
+    // Playback that would start, or jump, onto audio still loading waits for it.
+    if (command.type == Command::Type::play && countInRemaining == 0 && !transport.isRunning() &&
+        transport.getState() != TransportState::playing && !isReadyAt(transport.getPosition()))
+    {
+        waitingForData = true;
+        waitingSince = streamPosition;
+        return;
+    }
+
+    if (command.type == Command::Type::seek && transport.getState() == TransportState::playing &&
+        !isReadyAt(std::max(juce::int64{0}, command.value)))
+    {
+        transport.pause(); // fades out, then lands on the target and waits there
+        transport.seek(command.value);
+        waitingForData = true;
+        waitingSince = streamPosition;
+        return;
+    }
 
     // Stopping or pausing a count-in leaves the transport where it waited to start.
     switch (command.type)
@@ -640,7 +711,11 @@ bool Engine::canPlay(const Snapshot* snapshot) const noexcept
 
 void Engine::publish() noexcept
 {
-    publishedState.store(transport.getState(), std::memory_order_relaxed);
+    publishedState.store(waitingForData ? TransportState::playing : transport.getState(),
+                         std::memory_order_relaxed);
+    publishedWaiting.store(waitingForData, std::memory_order_relaxed);
+    publishedLoopStart.store(transport.getLoopStart(), std::memory_order_relaxed);
+    publishedLoopEnd.store(transport.getLoopEnd(), std::memory_order_relaxed);
     publishedPosition.store(transport.getPosition(), std::memory_order_relaxed);
     publishedLength.store(transport.getLength(), std::memory_order_relaxed);
     publishedLooping.store(transport.isLooping(), std::memory_order_relaxed);

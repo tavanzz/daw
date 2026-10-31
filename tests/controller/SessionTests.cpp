@@ -53,7 +53,8 @@ struct Fixture
         engine.prepare(sampleRate, blockSize);
     }
 
-    // Runs the audio "device" for numBlocks and returns the left channel.
+    // Runs the audio "device" for numBlocks and returns the left channel. Between
+    // blocks the session's update() runs the read-ahead, as its thread would.
     std::vector<float> play(int numBlocks)
     {
         std::vector<float> left;
@@ -62,12 +63,13 @@ struct Fixture
         {
             heapOperations += daw::test::heapOperationsDuring([&] { engine.process(block); });
             left.insert(left.end(), block.getReadPointer(0), block.getReadPointer(0) + blockSize);
+            session.update();
         }
         return left;
     }
 
     Engine engine;
-    Session session{engine};
+    Session session{engine, {daw::engine::io::DiskStreamer::Mode::manual}};
     std::size_t heapOperations = 0;
 };
 

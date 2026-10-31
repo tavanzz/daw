@@ -42,14 +42,15 @@ Modules with one-way dependencies:
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
 - Anything both UIs will need (waveform peaks, meter values, transport state) lives
   in `engine` or `model`, never in a UI module.
-- Audio files: `engine::io::loadAudioFile()` decodes a whole WAV/AIFF into memory
-  and converts it to the device sample rate with `engine::dsp::resample()` (offline
-  windowed sinc, `dsp::Resampling` also converts a block at a time), off the audio
-  thread. `engine::io::SourcePool` loads each file
-  once however many clips use it, on worker threads; finished loads are applied
-  when the owner calls `collectFinishedLoads()`. Clips read audio only through
-  `engine::AudioSource::read()` (real-time safe; `MemoryAudioSource` today), so a
-  streaming source can replace the in-memory one later without touching the mixer.
+- Audio files: `engine::io::SourcePool` opens each file once however many clips use
+  it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
+  through once for its waveform; finished loads are applied when the owner calls
+  `collectFinishedLoads()`. Clips read audio only through `engine::AudioSource::read()`
+  (real-time safe; `StreamingAudioSource` in the app, `MemoryAudioSource` in tests)
+  and `isReady()`. No file is held whole in memory, so there is no length limit.
+  `engine::io::loadAudioFile()` still decodes a whole file (tests compare against it),
+  converting with `engine::dsp::resample()` (offline windowed sinc; `dsp::Resampling`
+  also converts a block at a time, identically).
 - Engine threading: UI commands go through an `SpscQueue` and apply at the next
   block. A new `Arrangement` (with its `MixState`) arrives through one atomic pointer
   exchange (`Engine::setArrangement()`); if it changes what the tracks play
@@ -197,6 +198,16 @@ Modules with one-way dependencies:
   streamed audio equals the in-memory conversion to the bit. A dropped block is
   reused only once the engine's `RenderClock` shows the audio block that could read
   it is over.
+- Streaming everywhere (Phase 3): the session's pool streams with a read-ahead
+  thread that follows the engine's playhead (and the last seek target, loaded
+  first); its plan is the arrangement playing. Playback that would start, or jump,
+  onto audio not loaded yet waits for it (up to 2 s, then plays with dropouts):
+  `Engine::isWaitingForData()`, reported as playing. A new arrangement while playing
+  goes to the engine once its audio at the playhead is loaded (up to 0.5 s); the
+  plan covers both meanwhile. Exports stream their own files synchronously (the
+  export thread may wait for the disk). `Session::takeDropouts()` counts missing
+  audio for the UI. Tests use `SessionOptions{DiskStreamer::Mode::manual}`: the
+  read-ahead runs in `update()`, between audio blocks, deterministically.
 - Audio I/O: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
   forwards the device callback to `Engine::process(inputs, output)` (stereo output;
   extra outputs cleared). Inputs reach the engine as `AudioInputs`, indexed by the
@@ -433,7 +444,7 @@ automation, mobile UI.
 - [x] 9. Latency measurement with a loopback cable
 - [x] 10. Disk streaming in the engine: block cache, read-ahead thread, sample-rate
       conversion while streaming, dropout reporting
-- [ ] 11. Streaming everywhere: source pool, transport waiting for data, export
+- [x] 11. Streaming everywhere: source pool, transport waiting for data, export
 - [ ] 12. Microphone permission and app wiring (input device, latency offset)
 - [ ] 13. Desktop UI: arm, monitoring, inputs, input meters, record/metronome/
       count-in/punch controls, live recording clips

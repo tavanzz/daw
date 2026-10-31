@@ -1,51 +1,81 @@
 #include "daw/engine/io/SourcePool.h"
 
-#include "daw/engine/io/AudioFileLoader.h"
-
 namespace daw::engine::io
 {
 
 namespace
 {
 
-PooledSource loadSource(const juce::File& file, double sampleRate)
+PooledSource loadSource(const juce::File& file, DiskStreamer& streamer, bool computePeaks)
 {
-    auto loaded = loadAudioFile(file, sampleRate);
-
     PooledSource source;
-    source.error = loaded.error;
-    source.formatName = loaded.formatName;
-    source.fileSampleRate = loaded.sourceSampleRate;
-    source.bitsPerSample = loaded.sourceBitsPerSample;
-    source.numChannels = loaded.numChannels;
-
-    if (!loaded.succeeded())
+    auto streamed = streamer.open(file, source.error);
+    if (streamed == nullptr)
     {
         source.status = PooledSource::Status::failed;
         return source;
     }
 
-    source.peaks = std::make_shared<const dsp::WaveformPeaks>(
-        dsp::WaveformPeaks::compute(loaded.audio->samples));
-    source.audio = std::make_shared<const MemoryAudioSource>(std::move(*loaded.audio));
+    source.formatName = streamed->getFormatName();
+    source.fileSampleRate = streamed->getFileSampleRate();
+    source.bitsPerSample = streamed->getFileBitsPerSample();
+    source.numChannels = streamed->getNumChannels();
+
+    if (computePeaks)
+    {
+        dsp::WaveformPeaks::Builder peaks(streamed->getNumChannels());
+        const bool scanned = streamer.scan(*streamed, [&](const juce::AudioBuffer<float>& block,
+                                                          int count) {
+            peaks.append(block.getArrayOfReadPointers(), count);
+        });
+        if (!scanned)
+        {
+            source.status = PooledSource::Status::failed;
+            source.error = "\"" + file.getFileName() + "\" could not be read completely.";
+            return source;
+        }
+        source.peaks = std::make_shared<const dsp::WaveformPeaks>(peaks.build());
+    }
+
+    source.audio = std::move(streamed);
     source.status = PooledSource::Status::ready;
     return source;
 }
 
 } // namespace
 
-SourcePool::SourcePool(double newSampleRate, int numLoaderThreads)
+SourcePool::SourcePool(double newSampleRate, int numLoaderThreads, StreamingOptions options)
     : sampleRate(newSampleRate)
+    , streaming(options)
     , loaders(juce::ThreadPoolOptions{}
                   .withThreadName("Audio file loader")
                   .withNumberOfThreads(numLoaderThreads))
 {
     jassert(newSampleRate > 0.0);
+    streamer = makeStreamer();
 }
 
 SourcePool::~SourcePool()
 {
     loaders.removeAllJobs(true, -1);
+}
+
+std::shared_ptr<DiskStreamer> SourcePool::makeStreamer() const
+{
+    DiskStreamer::Settings settings;
+    settings.sampleRate = sampleRate;
+    settings.mode = streaming.mode;
+    settings.memoryBudget = streaming.memoryBudget;
+    auto newStreamer = std::make_shared<DiskStreamer>(settings, streaming.clock);
+    if (playhead)
+        newStreamer->followPlayhead(playhead);
+    return newStreamer;
+}
+
+void SourcePool::followPlayhead(std::function<DiskStreamer::Playhead()> newPlayhead)
+{
+    playhead = std::move(newPlayhead);
+    streamer->followPlayhead(playhead);
 }
 
 void SourcePool::setSampleRate(double newSampleRate)
@@ -55,6 +85,7 @@ void SourcePool::setSampleRate(double newSampleRate)
         return;
 
     sampleRate = newSampleRate;
+    streamer = makeStreamer();
 
     for (auto& [path, source] : sources)
     {
@@ -142,8 +173,9 @@ void SourcePool::startLoad(const juce::File& file)
     ++loadsStarted;
     ++runningLoads;
 
-    loaders.addJob([this, file, path, generation, rate = sampleRate] {
-        Finished result{path, generation, loadSource(file, rate)};
+    loaders.addJob([this, file, path, generation, loadingStreamer = streamer,
+                    peaks = streaming.computePeaks] {
+        Finished result{path, generation, loadSource(file, *loadingStreamer, peaks)};
         {
             const std::scoped_lock lock(finishedLock);
             finished.push_back(std::move(result));
