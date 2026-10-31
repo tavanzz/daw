@@ -224,6 +224,24 @@ void Session::setTrackSoloed(model::ObjectId trackId, bool soloed)
     }
 }
 
+void Session::setTrackInput(model::ObjectId trackId, model::TrackInput input)
+{
+    if (auto track = findTrack(trackId); track && track->getInput() != input.normalised())
+    {
+        startEdit("Track Input");
+        track->setInput(input, &undoManager);
+    }
+}
+
+void Session::setTrackMonitoring(model::ObjectId trackId, model::MonitoringMode mode)
+{
+    if (auto track = findTrack(trackId); track && track->getMonitoring() != mode)
+    {
+        startEdit("Input Monitoring");
+        track->setMonitoring(mode, &undoManager);
+    }
+}
+
 void Session::setMasterVolume(double gain)
 {
     startEdit("Master Volume");
@@ -332,6 +350,42 @@ void Session::setSnapEnabled(bool shouldSnap)
 void Session::setGridDivision(model::GridDivision division)
 {
     project.setGridDivision(division);
+}
+
+void Session::setTrackArmed(model::ObjectId trackId, bool armed)
+{
+    if (auto track = findTrack(trackId))
+        track->setArmed(armed);
+}
+
+void Session::setMetronomeEnabled(bool shouldClick)
+{
+    project.setMetronomeEnabled(shouldClick);
+}
+
+void Session::setMetronomeVolume(double gain)
+{
+    project.setMetronomeVolume(gain);
+}
+
+void Session::setCountInEnabled(bool shouldCountIn)
+{
+    project.setCountInEnabled(shouldCountIn);
+}
+
+void Session::setCountInBars(int bars)
+{
+    project.setCountInBars(bars);
+}
+
+void Session::setPunchEnabled(bool shouldPunch)
+{
+    project.setPunchEnabled(shouldPunch);
+}
+
+void Session::setRecordingBitsPerSample(int bitsPerSample)
+{
+    project.setRecordingBitsPerSample(bitsPerSample);
 }
 
 juce::String Session::getUndoDescription() const

@@ -20,20 +20,26 @@ struct ClipLocation
 
 /**
     Everything a project file stores: tempo and metre, loop region, snap settings,
-    master volume and the tracks with their clips.
+    master volume, recording settings and the tracks with their clips.
 
     The state is a juce::ValueTree, so changes can be undone (pass an UndoManager)
     and watched (ValueTree::Listener). What is undoable is decided here, by which
-    setters take an UndoManager: loop on/off, snap and grid are settings the user
-    flips while working, saved with the project but not part of its undo history.
+    setters take an UndoManager: loop on/off, snap, grid, arming and the recording
+    settings are switches the user flips while working, saved with the project but
+    not part of its undo history.
 
     Message thread only; the engine never sees the model directly.
 */
 class Project
 {
 public:
+    static constexpr double defaultMetronomeVolume = 0.5; // -6 dB
+    static constexpr int maximumCountInBars = 2;
+    static constexpr int defaultRecordingBitsPerSample = 24;
+
     /** An empty project: no tracks, 120 BPM in 4/4, loop off over the whole project,
-        snap on with the automatic grid, master at 0 dB. */
+        snap on with the automatic grid, master at 0 dB; metronome, count-in (one
+        bar) and punch off; recordings in 24-bit. */
     Project();
 
     /** Wraps existing project state, as built by ProjectFile. */
@@ -90,6 +96,25 @@ public:
     // Master bus
     [[nodiscard]] double getMasterVolume() const; ///< linear gain, as Track::getVolume()
     void setMasterVolume(double gain, juce::UndoManager* undoManager = nullptr);
+
+    // Recording (none of it undoable)
+    [[nodiscard]] bool isMetronomeEnabled() const;
+    void setMetronomeEnabled(bool shouldClick);
+    [[nodiscard]] double getMetronomeVolume() const; ///< linear gain, 0 to 1
+    void setMetronomeVolume(double gain);
+
+    [[nodiscard]] bool isCountInEnabled() const;
+    void setCountInEnabled(bool shouldCountIn);
+    [[nodiscard]] int getCountInBars() const; ///< 1 to maximumCountInBars
+    void setCountInBars(int bars);
+
+    /** With punch on, recording happens only inside the loop region. */
+    [[nodiscard]] bool isPunchEnabled() const;
+    void setPunchEnabled(bool shouldPunch);
+
+    /** 16 or 24 (integer) or 32 (floating point); other values are ignored. */
+    [[nodiscard]] int getRecordingBitsPerSample() const;
+    void setRecordingBitsPerSample(int bitsPerSample);
 
     /** Same settings, tracks and clips, in the same order. */
     [[nodiscard]] bool isEquivalentTo(const Project& other) const;

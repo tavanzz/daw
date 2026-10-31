@@ -98,6 +98,8 @@ public:
     void setTrackPan(model::ObjectId trackId, double pan);
     void setTrackMuted(model::ObjectId trackId, bool muted);
     void setTrackSoloed(model::ObjectId trackId, bool soloed);
+    void setTrackInput(model::ObjectId trackId, model::TrackInput input);
+    void setTrackMonitoring(model::ObjectId trackId, model::MonitoringMode mode);
     void setMasterVolume(double gain);
 
     /** Adds audio files as clips starting at position: one file onto an existing
@@ -119,6 +121,13 @@ public:
     void setLoopEnabled(bool shouldLoop);
     void setSnapEnabled(bool shouldSnap);
     void setGridDivision(model::GridDivision division);
+    void setTrackArmed(model::ObjectId trackId, bool armed);
+    void setMetronomeEnabled(bool shouldClick);
+    void setMetronomeVolume(double gain);
+    void setCountInEnabled(bool shouldCountIn);
+    void setCountInBars(int bars);
+    void setPunchEnabled(bool shouldPunch);
+    void setRecordingBitsPerSample(int bitsPerSample);
 
     bool undo();
     bool redo();

@@ -95,8 +95,14 @@ Modules with one-way dependencies:
   - Tracks and clips have ids, unique across both, computed as the largest id in
     the project + 1 (no hidden counter; see `model/src/ObjectIds.h`).
   - Undo: setters that take a `juce::UndoManager*` are undoable; the others (loop
-    on/off, snap, grid, length resolution) deliberately are not. The caller groups
-    changes into transactions.
+    on/off, snap, grid, length resolution, arming, metronome, count-in, punch,
+    recording format) deliberately are not. The caller groups changes into
+    transactions.
+  - Recording (format version 3): each track has an input (`TrackInput`: none, or a
+    device channel, mono or a stereo pair 1+2, 3+4, ...; stored counting from 1),
+    a `MonitoringMode` (off / auto / on) and an arm state; the project has the
+    metronome (on/off, volume), count-in (on/off, 1 or 2 bars), punch on/off and
+    the recording bit depth (16, 24 or 32 float).
 - Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
   integers at 282,240,000 per second, a number every common sample rate divides, so
   sample positions at any of them are exact and the project has no sample rate of its
@@ -334,9 +340,9 @@ from disk. Out of scope: multiple takes and comping, MIDI, effects, plugins,
 automation, mobile UI.
 
 - [x] 0. Plan (this list) and draft pull request
-- [ ] 1. Audio input in the engine: input channels from the device, channel mapping,
+- [x] 1. Audio input in the engine: input channels from the device, channel mapping,
       input meters; simulated device for tests
-- [ ] 2. Project format version 3: track input, monitoring and arm; metronome,
+- [x] 2. Project format version 3: track input, monitoring and arm; metronome,
       count-in, punch and recording format; migration from version 2
 - [ ] 3. Input monitoring: per-track input/timeline switch with ramps, off/auto/on,
       transport fade on the timeline part only, mixer running while stopped
