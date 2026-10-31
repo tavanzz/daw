@@ -157,6 +157,14 @@ void Transport::render(TimelineRenderer& renderer, juce::AudioBuffer<float>& out
             continue;
         }
 
+        // Stopped or paused before the fade-in got anywhere (both in one block):
+        // already silent, so the fade-out is over before it starts.
+        if (fadingOut && level == 0)
+        {
+            finishFadeOut();
+            continue;
+        }
+
         int segment = static_cast<int>(std::min<juce::int64>(numSamples - done, limit - position));
 
         const int levelsToGo = std::abs(targetLevel() - level);

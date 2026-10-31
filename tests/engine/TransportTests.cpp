@@ -624,3 +624,25 @@ TEST_CASE("Reset fades out and goes to 0", "[engine][transport]")
     transport.reset(); // while stopped: at once
     CHECK(transport.getPosition() == 0);
 }
+
+TEST_CASE("Play then stop or pause before the next block renders silence", "[engine][transport]")
+{
+    const auto source = makeConstant(48000, 0.5f);
+    juce::AudioBuffer<float> output(1, 512);
+
+    for (const bool stop : {true, false})
+    {
+        auto transport = makeTransport(source);
+        transport.seek(1000);
+        transport.play();
+        if (stop)
+            transport.stop();
+        else
+            transport.pause();
+
+        renderSource(transport, source, output, 0, 512);
+        CHECK(output.getMagnitude(0, 0, 512) == 0.0f);
+        CHECK_FALSE(transport.isRunning());
+        CHECK(transport.getPosition() == 1000);
+    }
+}
