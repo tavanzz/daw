@@ -64,6 +64,9 @@ struct EngineSnapshot
     the old and the new are crossfaded over crossfadeSeconds; gain changes ramp in
     the mixer instead. Replaced arrangements go back to the message thread on a
     queue and are freed by collectGarbage().
+
+    Tracks that monitor their input are heard whatever the transport does: the
+    mixer runs while stopped too, and the transport's fades only touch the clips.
 */
 class Engine final : private TimelineRenderer
 {
@@ -132,9 +135,12 @@ private:
     using Snapshot = detail::EngineSnapshot;
 
     void renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
-                        int outputStart, int numSamples) noexcept override;
+                        int outputStart, int numSamples, const TimelineFade& fade) noexcept override;
+    void renderStopped(juce::AudioBuffer<float>& output, int outputStart,
+                       int numSamples) noexcept override;
     void renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
-                     int outputStart, int numSamples) noexcept;
+                     int outputStart, int numSamples, const MixContext& context) noexcept;
+    [[nodiscard]] MixContext makeContext(int outputStart) const noexcept;
 
     void send(Command command);
     void apply(const Command& command) noexcept;
@@ -156,6 +162,11 @@ private:
     int crossfadeDone = 0;
     juce::AudioBuffer<float> crossfadeBuffer;
     juce::AudioBuffer<float> stereoBuffer; // for devices with fewer than two outputs
+
+    // The current block's inputs, and where the buffer being rendered starts in it
+    // (devices with fewer than two outputs are rendered in pieces).
+    const AudioInputs* blockInputs = nullptr;
+    int renderOffset = 0;
     Snapshot* waitingToRetire = nullptr; // only if the retired queue was full
 
     // Message thread -> audio thread.

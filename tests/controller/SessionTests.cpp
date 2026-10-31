@@ -4,6 +4,7 @@
 
 #include "support/RealtimeCheck.h"
 #include "support/SignalAnalysis.h"
+#include "support/SimulatedDevice.h"
 #include "support/TestAudioFiles.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -11,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <array>
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
@@ -282,6 +284,34 @@ TEST_CASE("Arming and recording settings are saved but not undoable", "[controll
     CHECK(session.getUndoDescription() == undoDescription);
     session.setTrackMonitoring(track, daw::model::MonitoringMode::off);
     CHECK(session.getUndoDescription() == "Input Monitoring");
+}
+
+TEST_CASE("Track input meters show the levels of their input channels", "[controller][session]")
+{
+    daw::engine::Engine engine;
+    daw::test::SimulatedDevice device(engine, sampleRate, 4, {blockSize});
+    device.inputSignal = [](int channel, juce::int64) { return -0.1f * (channel + 1); };
+    device.start();
+
+    daw::controller::Session session(engine);
+    const auto mono = session.addTrack();
+    const auto stereo = session.addTrack();
+    const auto none = session.addTrack();
+    session.setTrackInput(mono, {1, false});
+    session.setTrackInput(stereo, {2, true});
+    session.setTrackInput(none, daw::model::TrackInput::none());
+
+    REQUIRE(device.run(2048) == 0);
+    session.takeInputPeaks();
+
+    CHECK(session.getInputPeak(0) == 0.1f);
+    CHECK(session.getTrackInputPeaks(mono) == std::array<float, 2>{0.2f, 0.2f});
+    CHECK(session.getTrackInputPeaks(stereo) == std::array<float, 2>{0.3f, 0.4f});
+    CHECK(session.getTrackInputPeaks(none) == std::array<float, 2>{0.0f, 0.0f});
+
+    // One reader: the peaks are taken once per refresh.
+    session.takeInputPeaks();
+    CHECK(session.getInputPeak(0) == 0.0f);
 }
 
 TEST_CASE("Changes are tracked until the project is saved", "[controller][session]")

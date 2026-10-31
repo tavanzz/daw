@@ -7,6 +7,7 @@
 
 #include <juce_data_structures/juce_data_structures.h>
 
+#include <array>
 #include <map>
 #include <memory>
 #include <optional>
@@ -80,6 +81,15 @@ public:
     /** The meter of a track, measured after its fader. */
     [[nodiscard]] std::shared_ptr<engine::dsp::PeakLevelMeter>
     getTrackMeter(model::ObjectId trackId);
+
+    /** Input meters. The engine's input peaks have one reader: the view refreshing
+        the meters calls takeInputPeaks() once per refresh, then reads each track's
+        level (or each device channel's) as of that call. */
+    void takeInputPeaks();
+    [[nodiscard]] float getInputPeak(int channel) const noexcept;
+    /** Left and right input level of a track (a mono input gives the same on both);
+        0 for a track without an input. */
+    [[nodiscard]] std::array<float, 2> getTrackInputPeaks(model::ObjectId trackId) const;
 
     /** Snapping as set in the project, at the zoom level given (for the automatic
         grid); bypass turns it off for one drag. */
@@ -169,6 +179,7 @@ private:
     model::Project project;
     juce::File projectFile;
     std::map<model::ObjectId, std::shared_ptr<engine::dsp::PeakLevelMeter>> meters;
+    std::array<float, engine::AudioInputs::maxChannels> inputPeaks{};
 
     juce::uint64 revision = 1;
     bool arrangementOutOfDate = true;

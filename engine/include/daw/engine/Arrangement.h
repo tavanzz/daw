@@ -26,6 +26,14 @@ struct ClipSegment
     bool operator==(const ClipSegment&) const = default;
 };
 
+/** When a track plays its input instead of its clips (see model::MonitoringMode). */
+enum class InputMonitoring : std::uint8_t
+{
+    off,
+    automatic, ///< while armed and stopped, during the count-in and while recording
+    on
+};
+
 /** A track as the mixer sees it. */
 struct ArrangementTrack
 {
@@ -33,6 +41,11 @@ struct ArrangementTrack
     float leftGain = 1.0f; ///< volume × pan law, 0 when the track is not heard
     float rightGain = 1.0f;
     std::vector<ClipSegment> segments; ///< sorted by start, never overlapping
+
+    int inputChannel = -1;  ///< first device input channel; -1 for none
+    int numInputChannels = 0; ///< 1 (heard on both sides) or 2
+    InputMonitoring monitoring = InputMonitoring::off;
+    bool armed = false;
 
     /** Measures the track after its fader, for the UI; may be null. */
     std::shared_ptr<dsp::PeakLevelMeter> meter;

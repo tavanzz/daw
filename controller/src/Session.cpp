@@ -129,6 +129,31 @@ std::shared_ptr<engine::dsp::PeakLevelMeter> Session::getTrackMeter(model::Objec
     return meter;
 }
 
+void Session::takeInputPeaks()
+{
+    for (int channel = 0; channel < engine::AudioInputs::maxChannels; ++channel)
+        inputPeaks[static_cast<std::size_t>(channel)] = engine.takeInputPeak(channel);
+}
+
+float Session::getInputPeak(int channel) const noexcept
+{
+    if (channel < 0 || channel >= engine::AudioInputs::maxChannels)
+        return 0.0f;
+
+    return inputPeaks[static_cast<std::size_t>(channel)];
+}
+
+std::array<float, 2> Session::getTrackInputPeaks(model::ObjectId trackId) const
+{
+    const auto track = findTrack(trackId);
+    if (!track || track->getInput().isNone())
+        return {0.0f, 0.0f};
+
+    const auto input = track->getInput();
+    const float left = getInputPeak(input.channel);
+    return {left, input.stereo ? getInputPeak(input.channel + 1) : left};
+}
+
 Snapper Session::makeSnapper(double ticksPerPixel, bool bypass) const
 {
     if (bypass || !project.isSnapEnabled())

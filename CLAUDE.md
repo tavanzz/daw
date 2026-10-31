@@ -73,6 +73,15 @@ Modules with one-way dependencies:
   timeline is cut into blocks (tested). `MixState` holds the ramps of one
   arrangement; `continueFrom()` carries them over by track id. Pan law:
   `dsp::panGains()`, constant power compensated to 0 dB in the centre.
+- Monitoring (Phase 3): a track plays either its clips or its input
+  (`MixState::TrackGains::timeline` / `input`, crossfaded over 5 ms when it
+  switches); the input then goes through the track's gains and meter like the clips.
+  `MixContext` tells the mixer about the block: the device inputs (null offline, so
+  exports never hear an input), whether the timeline runs, the transport's fade and
+  whether automatic monitoring hears inputs now. The transport hands its de-click
+  fade to the renderer as a `TimelineFade`, applied to each track's clips only, and
+  calls `renderStopped()` while stopped, so monitored inputs are never faded by
+  play/stop and are heard while stopped.
 - Export: `engine::OfflineRenderer` drives the same `Mixer` faster than real time;
   `engine::io::bounceToWav()` writes a stereo WAV (16/24-bit integer with
   `quantise()` = round(x·2^(bits−1)) clipped, optional seeded TPDF dither, or 32-bit
@@ -344,7 +353,7 @@ automation, mobile UI.
       input meters; simulated device for tests
 - [x] 2. Project format version 3: track input, monitoring and arm; metronome,
       count-in, punch and recording format; migration from version 2
-- [ ] 3. Input monitoring: per-track input/timeline switch with ramps, off/auto/on,
+- [x] 3. Input monitoring: per-track input/timeline switch with ramps, off/auto/on,
       transport fade on the timeline part only, mixer running while stopped
 - [ ] 4. Metronome and count-in, sample-exact on the tempo map's beats
 - [ ] 5. Recording pipeline: lock-free audio FIFO, WAV writer thread, overrun and

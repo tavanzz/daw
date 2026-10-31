@@ -141,8 +141,7 @@ void Transport::render(TimelineRenderer& renderer, juce::AudioBuffer<float>& out
     {
         if (!running)
         {
-            for (int channel = 0; channel < output.getNumChannels(); ++channel)
-                output.clear(channel, startSample + done, numSamples - done);
+            renderer.renderStopped(output, startSample + done, numSamples - done);
             return;
         }
 
@@ -162,8 +161,12 @@ void Transport::render(TimelineRenderer& renderer, juce::AudioBuffer<float>& out
         if (levelsToGo > 0)
             segment = std::min(segment, levelsToGo);
 
-        renderer.renderTimeline(position, output, startSample + done, segment);
-        applyFade(output, startSample + done, segment);
+        const int step = level < targetLevel() ? 1 : (level > targetLevel() ? -1 : 0);
+        jassert(step != 0 || level == fadeLength); // not fading while running: full gain
+
+        renderer.renderTimeline(position, output, startSample + done, segment,
+                                TimelineFade{level, step, fadeLength});
+        level += step * segment;
         position += segment;
         done += segment;
 
@@ -216,35 +219,6 @@ void Transport::reachEnd() noexcept
     fadingOut = false;
     level = 0;
     hasPendingSeek = false;
-}
-
-void Transport::applyFade(juce::AudioBuffer<float>& output, int outputStart,
-                          int numSamples) noexcept
-{
-    const int step = level < targetLevel() ? 1 : (level > targetLevel() ? -1 : 0);
-
-    if (step == 0)
-    {
-        jassert(level == fadeLength); // not fading while running means full gain
-        return;
-    }
-
-    const auto fullLevel = static_cast<float>(fadeLength);
-
-    for (int channel = 0; channel < output.getNumChannels(); ++channel)
-    {
-        float* samples = output.getWritePointer(channel, outputStart);
-        int sampleLevel = level;
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            sampleLevel += step;
-            // Division, not a reciprocal multiply: the last fade-in sample gets exactly 1.
-            samples[i] *= static_cast<float>(sampleLevel) / fullLevel;
-        }
-    }
-
-    level += step * numSamples;
 }
 
 } // namespace daw::engine

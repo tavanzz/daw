@@ -26,7 +26,8 @@ public:
     }
 
     void renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
-                        int outputStart, int numSamples) noexcept override
+                        int outputStart, int numSamples,
+                        const daw::engine::TimelineFade& fade) noexcept override
     {
         for (int channel = 0; channel < output.getNumChannels(); ++channel)
         {
@@ -43,6 +44,8 @@ public:
                                      buffer.getSample(sourceChannel, static_cast<int>(index)));
             }
         }
+
+        fade.apply(output, outputStart, numSamples);
     }
 
 private:

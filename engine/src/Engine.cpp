@@ -57,8 +57,11 @@ void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output
     while (const auto command = commands.pop())
         apply(*command);
 
+    blockInputs = &inputs;
+
     if (output.getNumChannels() >= 2)
     {
+        renderOffset = 0;
         transport.render(*this, output, 0, output.getNumSamples());
     }
     else
@@ -67,27 +70,54 @@ void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output
         for (int done = 0; done < output.getNumSamples(); done += maximumBlockSize)
         {
             const int chunk = std::min(maximumBlockSize, output.getNumSamples() - done);
+            renderOffset = done;
             transport.render(*this, stereoBuffer, 0, chunk);
             if (output.getNumChannels() == 1)
                 output.copyFrom(0, done, stereoBuffer, 0, 0, chunk);
         }
     }
 
+    blockInputs = nullptr;
     outputMeter.process(output, 0, output.getNumSamples());
     publish();
 }
 
+MixContext Engine::makeContext(int outputStart) const noexcept
+{
+    MixContext context;
+    context.inputs = blockInputs;
+    context.inputOffset = renderOffset + outputStart;
+    context.autoMonitorsInput = transport.getState() != TransportState::playing;
+    return context;
+}
+
 void Engine::renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
-                            int outputStart, int numSamples) noexcept
+                            int outputStart, int numSamples, const TimelineFade& fade) noexcept
 {
     // Devices may deliver more than they announced: render in pieces the mixer fits.
     for (int done = 0; done < numSamples; done += maximumBlockSize)
+    {
+        auto context = makeContext(outputStart + done);
+        context.fade = fade.from(done);
         renderPiece(timelineStart + done, output, outputStart + done,
-                    std::min(maximumBlockSize, numSamples - done));
+                    std::min(maximumBlockSize, numSamples - done), context);
+    }
+}
+
+void Engine::renderStopped(juce::AudioBuffer<float>& output, int outputStart,
+                           int numSamples) noexcept
+{
+    for (int done = 0; done < numSamples; done += maximumBlockSize)
+    {
+        auto context = makeContext(outputStart + done);
+        context.timelineRunning = false;
+        renderPiece(transport.getPosition(), output, outputStart + done,
+                    std::min(maximumBlockSize, numSamples - done), context);
+    }
 }
 
 void Engine::renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
-                         int outputStart, int numSamples) noexcept
+                         int outputStart, int numSamples, const MixContext& context) noexcept
 {
     if (!canPlay(current))
     {
@@ -97,7 +127,7 @@ void Engine::renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& ou
     }
 
     mixer.render(*current->arrangement, current->mix, timelineStart, output, outputStart,
-                 numSamples);
+                 numSamples, context);
 
     if (fadingOut == nullptr)
         return;
@@ -106,7 +136,7 @@ void Engine::renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& ou
 
     if (canPlay(fadingOut))
         mixer.render(*fadingOut->arrangement, fadingOut->mix, timelineStart, crossfadeBuffer, 0,
-                     fading);
+                     fading, context);
     else
         crossfadeBuffer.clear();
 
@@ -252,9 +282,9 @@ void Engine::adoptPendingSnapshot() noexcept
 
     if (current != nullptr)
     {
-        // While playing, gains carry on from where they are and ramp to the new
-        // targets; while silent, the new gains simply apply.
-        if (transport.isRunning())
+        // While anything is heard, gains carry on from where they are and ramp to
+        // the new targets; while silent, the new gains simply apply.
+        if (transport.isRunning() || current->mix.isHearingInput())
             incoming->mix.continueFrom(current->mix, *current->arrangement,
                                        *incoming->arrangement, mixer.getGainRampLength());
 

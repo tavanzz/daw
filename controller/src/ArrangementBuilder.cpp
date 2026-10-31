@@ -9,6 +9,26 @@
 namespace daw::controller
 {
 
+namespace
+{
+
+engine::InputMonitoring toEngine(model::MonitoringMode mode)
+{
+    switch (mode)
+    {
+    case model::MonitoringMode::off:
+        return engine::InputMonitoring::off;
+    case model::MonitoringMode::automatic:
+        return engine::InputMonitoring::automatic;
+    case model::MonitoringMode::on:
+        return engine::InputMonitoring::on;
+    }
+
+    return engine::InputMonitoring::off;
+}
+
+} // namespace
+
 std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& project,
                                                       double sampleRate,
                                                       const SourceLookup& sources,
@@ -36,6 +56,12 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
         arrangementTrack.id = track.getId();
         if (meters)
             arrangementTrack.meter = meters(track.getId());
+
+        const auto input = track.getInput();
+        arrangementTrack.inputChannel = input.channel;
+        arrangementTrack.numInputChannels = input.getNumChannels();
+        arrangementTrack.monitoring = toEngine(track.getMonitoring());
+        arrangementTrack.armed = track.isArmed();
 
         if (project.isTrackAudible(trackIndex))
         {
