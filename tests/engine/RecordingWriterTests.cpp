@@ -422,12 +422,16 @@ TEST_CASE("Files being recorded are readable up to the last check", "[engine][re
     Producer producer(fifo, testInputSample);
     producer.push(48000);
     REQUIRE(waitUntil([&] { return writer.getSamplesWritten(0) == 48000; }));
-    juce::Thread::sleep(50); // at least one check after the last write
 
-    // What a crash would leave behind: the file as it is on disk now.
+    // What a crash would leave behind: the file as it is on disk, once a check has
+    // come after the last write (every 10 ms here, whenever the thread gets to it).
     const auto copy = directory.file("copy.wav");
-    REQUIRE(directory.file("live.wav").copyFileTo(copy));
-    CHECK(fileHolds(copy, 1, 48000, testInputSample));
+    CHECK(waitUntil(
+        [&] {
+            return directory.file("live.wav").copyFileTo(copy) &&
+                   fileHolds(copy, 1, 48000, testInputSample);
+        },
+        10000));
 
     writer.finish();
     REQUIRE(waitUntil([&] { return writer.isFinished(); }));
