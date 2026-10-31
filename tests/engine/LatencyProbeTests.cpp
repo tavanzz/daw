@@ -19,8 +19,9 @@ constexpr double sampleRate = 48000.0;
 
 // What an input would deliver: the signal delayed by delay[burst] samples, scaled
 // by gain, plus noise of the given amplitude.
-std::vector<float> loopBack(const LatencyProbe& probe, std::array<int, LatencyProbe::numBursts> delays,
-                            float gain, float noise)
+std::vector<float> loopBack(const LatencyProbe& probe,
+                            std::array<int, LatencyProbe::numBursts> delays, float gain,
+                            float noise)
 {
     const auto& signal = probe.getSignal();
     std::vector<float> captured(signal.size(), 0.0f);

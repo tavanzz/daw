@@ -23,9 +23,8 @@ std::vector<float> makeClick(double sampleRate, double frequency, double amplitu
     {
         const auto n = static_cast<double>(i);
         const double tail = std::min(1.0, static_cast<double>(length - 1 - i) / fadeSamples);
-        click[i] = static_cast<float>(amplitude *
-                                      std::cos(2.0 * std::numbers::pi * frequency * n / sampleRate) *
-                                      std::exp(-n / decaySamples) * tail);
+        const double tone = std::cos(2.0 * std::numbers::pi * frequency * n / sampleRate);
+        click[i] = static_cast<float>(amplitude * tone * std::exp(-n / decaySamples) * tail);
     }
 
     return click;
@@ -73,7 +72,8 @@ void Metronome::ring(float* left, float* right, int from, int to) noexcept
     if (ringing == nullptr || to <= from)
         return;
 
-    const auto count = std::min(static_cast<std::size_t>(to - from), ringing->size() - ringingPosition);
+    const auto count =
+        std::min(static_cast<std::size_t>(to - from), ringing->size() - ringingPosition);
     const float* click = ringing->data() + ringingPosition;
 
     for (std::size_t i = 0; i < count; ++i)

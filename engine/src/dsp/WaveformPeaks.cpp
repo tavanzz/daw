@@ -60,7 +60,8 @@ WaveformPeaks WaveformPeaks::Builder::build() const
     const bool hasPartial = numSamples % samplesPerBucket != 0;
     for (std::size_t channel = 0; channel < complete.size(); ++channel)
     {
-        peaks.buckets.insert(peaks.buckets.end(), complete[channel].begin(), complete[channel].end());
+        const auto& full = complete[channel];
+        peaks.buckets.insert(peaks.buckets.end(), full.begin(), full.end());
         if (hasPartial)
             peaks.buckets.push_back(partial[channel]);
     }

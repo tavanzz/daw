@@ -112,7 +112,10 @@ public:
     void interrupt() noexcept;
 
     /** Message thread: a setup was handed to the engine. */
-    void markStarting() noexcept { state.store(RecordingState::starting, std::memory_order_release); }
+    void markStarting() noexcept
+    {
+        state.store(RecordingState::starting, std::memory_order_release);
+    }
 
     /** Audio thread: counting in or playing, not yet stopped. */
     [[nodiscard]] bool isRecording() const noexcept { return setup != nullptr && !stopped; }

@@ -33,7 +33,8 @@ constexpr int waitMs = 60000;
 
 bool waitUntil(const std::function<bool()>& condition, int timeoutMs = waitMs)
 {
-    const auto deadline = juce::Time::getMillisecondCounter() + static_cast<juce::uint32>(timeoutMs);
+    const auto deadline =
+        juce::Time::getMillisecondCounter() + static_cast<juce::uint32>(timeoutMs);
     while (!condition())
     {
         if (juce::Time::getMillisecondCounter() > deadline)
@@ -114,8 +115,9 @@ bool fileHolds(const juce::File& file, int numChannels, juce::int64 length,
                 if (std::bit_cast<std::uint32_t>(samples[i]) !=
                     std::bit_cast<std::uint32_t>(signal(channel, start + i)))
                 {
-                    UNSCOPED_INFO("first difference: channel " << channel << ", sample " << start + i
-                                  << ": " << samples[i] << " instead of " << signal(channel, start + i));
+                    UNSCOPED_INFO("first difference: channel "
+                                  << channel << ", sample " << start + i << ": " << samples[i]
+                                  << " instead of " << signal(channel, start + i));
                     return false;
                 }
         }
@@ -238,8 +240,11 @@ TEST_CASE("Waveform peaks built a block at a time equal those of the whole buffe
     bool same = true;
     for (int channel = 0; channel < 2; ++channel)
         for (int bucket = 0; bucket < whole.getNumBuckets(); ++bucket)
-            same = same && pieces.getBucket(channel, bucket).min == whole.getBucket(channel, bucket).min &&
-                   pieces.getBucket(channel, bucket).max == whole.getBucket(channel, bucket).max;
+        {
+            const auto piece = pieces.getBucket(channel, bucket);
+            const auto all = whole.getBucket(channel, bucket);
+            same = same && piece.min == all.min && piece.max == all.max;
+        }
     CHECK(same);
 }
 
@@ -328,7 +333,8 @@ TEST_CASE("A slow disk overruns the FIFO without ever making the audio thread wa
     for (int i = 0; i < 1000 && !overrun; ++i)
     {
         bool pushed = false;
-        heapOperations += daw::test::heapOperationsDuring([&] { pushed = fifo.push(channels, 512); });
+        heapOperations +=
+            daw::test::heapOperationsDuring([&] { pushed = fifo.push(channels, 512); });
         if (pushed)
             accepted += 512;
         else

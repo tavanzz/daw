@@ -92,7 +92,8 @@ DiskStreamer::Settings settingsFor(DiskStreamer::Mode mode)
 class StalledReader final : public juce::AudioFormatReader
 {
 public:
-    StalledReader(std::unique_ptr<juce::AudioFormatReader> readerToWrap, juce::WaitableEvent& gateToWait)
+    StalledReader(std::unique_ptr<juce::AudioFormatReader> readerToWrap,
+                  juce::WaitableEvent& gateToWait)
         : juce::AudioFormatReader(nullptr, readerToWrap->getFormatName())
         , inner(std::move(readerToWrap))
         , gate(gateToWait)
@@ -222,13 +223,16 @@ TEST_CASE("The read-ahead follows the playhead through loops and seeks", "[engin
                                      fromDisk, 0, 512);
             });
             clock.end();
-            memoryMixer.render(*memoryArrangement, memoryState, playhead.position, fromMemory, 0, 512);
+            memoryMixer.render(*memoryArrangement, memoryState, playhead.position, fromMemory, 0,
+                               512);
 
+            const auto samples = [](const juce::AudioBuffer<float>& buffer, int channel) {
+                return std::vector<float>(buffer.getReadPointer(channel),
+                                          buffer.getReadPointer(channel) + 512);
+            };
             for (int channel = 0; channel < 2; ++channel)
-                identical = identical && sameBits(std::vector<float>(fromDisk.getReadPointer(channel),
-                                                                     fromDisk.getReadPointer(channel) + 512),
-                                                  std::vector<float>(fromMemory.getReadPointer(channel),
-                                                                     fromMemory.getReadPointer(channel) + 512));
+                identical = identical && sameBits(samples(fromDisk, channel),
+                                                  samples(fromMemory, channel));
             playhead.position += 512;
         }
     };
@@ -289,12 +293,14 @@ TEST_CASE("A stalled disk gives counted silence and never makes the reader wait"
         // The disk comes back.
         gate.signal();
         const auto deadline = juce::Time::getMillisecondCounter() + 10000;
-        while (!streamed->isReady(0, 3 * blockLength) && juce::Time::getMillisecondCounter() < deadline)
+        while (!streamed->isReady(0, 3 * blockLength) &&
+               juce::Time::getMillisecondCounter() < deadline)
             juce::Thread::sleep(1);
         REQUIRE(streamed->isReady(0, 2 * blockLength));
 
         bool whole = false;
-        CHECK(sameBits(readRange(*streamed, 0, 1000, 512, &whole), readRange(*memory, 0, 1000, 512)));
+        CHECK(sameBits(readRange(*streamed, 0, 1000, 512, &whole),
+                       readRange(*memory, 0, 1000, 512)));
         CHECK(whole);
         streamer.setPlan(Arrangement{});
         streamed.reset(); // before the streamer goes

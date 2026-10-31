@@ -527,8 +527,10 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
             return damaged(*version, "a track mute or solo is not true or false");
 
         const auto inputJson = readObject(trackJson, json::input);
-        const auto inputChannel = inputJson ? readInteger(*inputJson, json::channel, 1) : std::nullopt;
-        const auto inputStereo = inputJson ? readBool(*inputJson, json::stereo, false) : std::nullopt;
+        const auto inputChannel =
+            inputJson ? readInteger(*inputJson, json::channel, 1) : std::nullopt;
+        const auto inputStereo =
+            inputJson ? readBool(*inputJson, json::stereo, false) : std::nullopt;
         if (!inputChannel || !inputStereo || *inputChannel < 0 ||
             *inputChannel > TrackInput::maximumChannels)
             return damaged(*version, "a track input is not valid");

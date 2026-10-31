@@ -176,7 +176,8 @@ TEST_CASE("Recording needs a saved project, an armed track, a loop to punch and 
     auto& session = studio.session;
     const auto track = session.addTrack();
 
-    CHECK_THAT(session.record().getErrorMessage().toStdString(), ContainsSubstring("Save the project"));
+    CHECK_THAT(session.record().getErrorMessage().toStdString(),
+               ContainsSubstring("Save the project"));
     REQUIRE(session.saveProject(studio.projectFile()).wasOk());
     CHECK_THAT(session.record().getErrorMessage().toStdString(), ContainsSubstring("Arm a track"));
 
@@ -226,7 +227,8 @@ TEST_CASE("Recordings never overwrite a file", "[controller][recording]")
 
     const auto audioFolder = studio.directory.file("Audio");
     REQUIRE(audioFolder.createDirectory());
-    const auto existing = audioFolder.getChildFile(juce::File::createLegalFileName("Bass/DI") + " 1.wav");
+    const auto legalName = juce::File::createLegalFileName("Bass/DI");
+    const auto existing = audioFolder.getChildFile(legalName + " 1.wav");
     REQUIRE(existing.replaceWithText("not audio"));
 
     REQUIRE(session.record().wasOk());
@@ -236,8 +238,7 @@ TEST_CASE("Recordings never overwrite a file", "[controller][recording]")
 
     const auto clip = onlyClip(session, track);
     REQUIRE(clip);
-    CHECK(clip->getAudioFile().getFileName() ==
-          juce::File::createLegalFileName("Bass/DI") + " 2.wav");
+    CHECK(clip->getAudioFile().getFileName() == legalName + " 2.wav");
     CHECK(existing.loadFileAsString() == "not audio");
 }
 
@@ -358,7 +359,10 @@ TEST_CASE("A nearly full disk stops the recording with a message", "[controller]
     CHECK(session.getRecording().getSecondsLeft() > 1.0e6);
 
     freeBytes = 144000 * 5; // five seconds left
-    for (int i = 0; i < 2000 && session.getTransportState() != daw::engine::TransportState::stopped; ++i)
+    const auto stopped = [&session] {
+        return session.getTransportState() == daw::engine::TransportState::stopped;
+    };
+    for (int i = 0; i < 2000 && !stopped(); ++i)
     {
         studio.run(blockSize);
         juce::Thread::sleep(1);

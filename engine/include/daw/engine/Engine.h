@@ -188,7 +188,8 @@ private:
     using Snapshot = detail::EngineSnapshot;
 
     void renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
-                        int outputStart, int numSamples, const TimelineFade& fade) noexcept override;
+                        int outputStart, int numSamples,
+                        const TimelineFade& fade) noexcept override;
     void renderStopped(juce::AudioBuffer<float>& output, int outputStart,
                        int numSamples) noexcept override;
     void processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept;

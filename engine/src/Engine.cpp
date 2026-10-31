@@ -223,7 +223,8 @@ void Engine::endRecording() noexcept
 
 bool Engine::isReadyAt(juce::int64 position) const noexcept
 {
-    return !canPlay(current) || isArrangementReady(*current->arrangement, position, readyAheadLength);
+    return !canPlay(current) ||
+           isArrangementReady(*current->arrangement, position, readyAheadLength);
 }
 
 void Engine::startWhenReady() noexcept

@@ -25,7 +25,8 @@ constexpr const char* keepEnd = "keepEnd";
 
 juce::File RecordingJournal::fileFor(const juce::File& projectDirectory)
 {
-    return projectDirectory.getChildFile(recordingsFolderName).getChildFile(".recording-journal.json");
+    return projectDirectory.getChildFile(recordingsFolderName)
+        .getChildFile(".recording-journal.json");
 }
 
 std::vector<JournalEntry> RecordingJournal::read(const juce::File& projectDirectory)
@@ -75,8 +76,8 @@ bool RecordingJournal::write(const juce::File& projectDirectory,
     for (const auto& entry : entries)
     {
         auto* item = new juce::DynamicObject();
-        item->setProperty(json::file,
-                          entry.file.getRelativePathFrom(projectDirectory).replaceCharacter('\\', '/'));
+        const auto path = entry.file.getRelativePathFrom(projectDirectory);
+        item->setProperty(json::file, path.replaceCharacter('\\', '/'));
         item->setProperty(json::track, entry.trackId);
         item->setProperty(json::firstPosition, entry.firstPosition);
         item->setProperty(json::keepStart, entry.keepStart);

@@ -119,12 +119,13 @@ bool isArrangementReady(const Arrangement& arrangement, juce::int64 position,
             track.segments.begin(), track.segments.end(),
             [position](const ClipSegment& segment) { return segment.end <= position; });
 
-        for (auto segment = first; segment != track.segments.end() && segment->start < end; ++segment)
+        for (auto segment = first; segment != track.segments.end() && segment->start < end;
+             ++segment)
         {
             const auto from = std::max(segment->start, position);
             const auto to = std::min(segment->end, end);
-            if (segment->source != nullptr &&
-                !segment->source->isReady(segment->sourceStart + (from - segment->start), to - from))
+            const auto sourceFrom = segment->sourceStart + (from - segment->start);
+            if (segment->source != nullptr && !segment->source->isReady(sourceFrom, to - from))
                 return false;
         }
     }

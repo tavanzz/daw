@@ -251,7 +251,8 @@ std::shared_ptr<StreamingAudioSource> DiskStreamerCore::open(
             ? info.length
             : dsp::resampledLength(info.length, info.sampleRate, settings.sampleRate);
 
-    std::shared_ptr<StreamingAudioSource> source(new StreamingAudioSource(self, info, streamLength));
+    std::shared_ptr<StreamingAudioSource> source(
+        new StreamingAudioSource(self, info, streamLength));
 
     const std::scoped_lock bookkeeping(lock);
     sources.push_back(source.get());
@@ -482,9 +483,10 @@ std::unique_ptr<StreamBlock> DiskStreamerCore::takeBlock(int numChannels)
 {
     recycleRetired();
 
-    const auto matching = std::find_if(freeBlocks.begin(), freeBlocks.end(), [&](const auto& block) {
-        return block->samples.getNumChannels() == numChannels;
-    });
+    const auto matching =
+        std::find_if(freeBlocks.begin(), freeBlocks.end(), [&](const auto& block) {
+            return block->samples.getNumChannels() == numChannels;
+        });
     if (matching != freeBlocks.end())
     {
         auto block = std::move(*matching);
@@ -587,8 +589,8 @@ bool DiskStreamerCore::readStream(const StreamingAudioSource& source,
     const auto inputCount = static_cast<int>(std::max(juce::int64{0}, end - first));
 
     scratch.setSize(into.getNumChannels(), std::max(1, inputCount), false, false, true);
-    if (inputCount > 0 &&
-        !reader.read(scratch.getArrayOfWritePointers(), scratch.getNumChannels(), first, inputCount))
+    if (inputCount > 0 && !reader.read(scratch.getArrayOfWritePointers(),
+                                       scratch.getNumChannels(), first, inputCount))
         return false;
 
     resampling.resampleRange(scratch.getArrayOfReadPointers(), into.getNumChannels(), first,
@@ -597,8 +599,9 @@ bool DiskStreamerCore::readStream(const StreamingAudioSource& source,
     return true;
 }
 
-bool DiskStreamerCore::scan(const StreamingAudioSource& source,
-                            const std::function<void(const juce::AudioBuffer<float>&, int)>& consume)
+bool DiskStreamerCore::scan(
+    const StreamingAudioSource& source,
+    const std::function<void(const juce::AudioBuffer<float>&, int)>& consume)
 {
     const auto reader = settings.openReader(source.file);
     if (reader == nullptr)
@@ -687,7 +690,8 @@ DiskStreamer::Mode DiskStreamer::getMode() const noexcept
     return core->getSettings().mode;
 }
 
-std::shared_ptr<StreamingAudioSource> DiskStreamer::open(const juce::File& file, juce::String& error)
+std::shared_ptr<StreamingAudioSource> DiskStreamer::open(const juce::File& file,
+                                                         juce::String& error)
 {
     return core->open(core, file, error);
 }

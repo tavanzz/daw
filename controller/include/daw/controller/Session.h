@@ -246,7 +246,10 @@ public:
         comes from takeLatencyResult() after a few seconds of update()s; applying
         its offset is up to the caller. */
     juce::Result measureLatency(int outputChannel, int inputChannel);
-    [[nodiscard]] bool isMeasuringLatency() const noexcept { return latencyMeasurement.isRunning(); }
+    [[nodiscard]] bool isMeasuringLatency() const noexcept
+    {
+        return latencyMeasurement.isRunning();
+    }
     [[nodiscard]] float getLatencyMeasurementProgress() const noexcept
     {
         return latencyMeasurement.getProgress();

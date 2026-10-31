@@ -56,11 +56,13 @@ struct SideBySide
             if (source == nullptr)
             {
                 auto loaded = daw::engine::io::loadAudioFile(file, sampleRate);
-                source = std::make_shared<const daw::engine::MemoryAudioSource>(std::move(*loaded.audio));
+                source = std::make_shared<const daw::engine::MemoryAudioSource>(
+                    std::move(*loaded.audio));
             }
             return source;
         };
-        memory.setArrangement(daw::controller::buildArrangement(session.getProject(), sampleRate, lookup));
+        memory.setArrangement(
+            daw::controller::buildArrangement(session.getProject(), sampleRate, lookup));
     }
 
     // Runs both for numBlocks; false if they ever differ.
@@ -77,8 +79,9 @@ struct SideBySide
 
             for (int channel = 0; channel < 2; ++channel)
                 for (int s = 0; s < blockSize; ++s)
-                    same = same && std::bit_cast<std::uint32_t>(fromDisk.getSample(channel, s)) ==
-                                       std::bit_cast<std::uint32_t>(fromMemory.getSample(channel, s));
+                    same = same &&
+                           std::bit_cast<std::uint32_t>(fromDisk.getSample(channel, s)) ==
+                               std::bit_cast<std::uint32_t>(fromMemory.getSample(channel, s));
         }
         return same;
     }

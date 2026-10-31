@@ -107,7 +107,8 @@ WavRepairResult repairWav(const juce::File& file, juce::int64 rf64Threshold)
     }
 
     const juce::int64 dataStart = layout->dataChunk + 8;
-    const juce::int64 numFrames = std::max(juce::int64{0}, fileSize - dataStart) / layout->blockAlign;
+    const juce::int64 numFrames =
+        std::max(juce::int64{0}, fileSize - dataStart) / layout->blockAlign;
     const juce::int64 dataSize = numFrames * layout->blockAlign;
     const bool needsRf64 = dataSize >= rf64Threshold;
     const juce::int64 end = dataStart + dataSize + (dataSize & 1); // a pad byte after odd data
@@ -139,7 +140,8 @@ WavRepairResult repairWav(const juce::File& file, juce::int64 rf64Threshold)
     if (needsRf64)
     {
         // The reserved chunk becomes "ds64": the 64-bit sizes.
-        written = written && stream.writeInt(static_cast<int>(tag("RF64"))) && stream.writeInt(-1) &&
+        written = written && stream.writeInt(static_cast<int>(tag("RF64"))) &&
+                  stream.writeInt(-1) &&
                   stream.setPosition(layout->reservedChunk) &&
                   stream.writeInt(static_cast<int>(tag("ds64"))) &&
                   stream.writeInt(static_cast<int>(layout->reservedSize)) &&

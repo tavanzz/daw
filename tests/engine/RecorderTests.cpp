@@ -61,8 +61,9 @@ std::unique_ptr<Arrangement> rampAndRecordTrack(InputMonitoring monitoring = Inp
 
 std::vector<float> popAll(AudioFifo& fifo, int channel = 0)
 {
+    const auto ready = static_cast<std::size_t>(fifo.getNumReady());
     std::vector<std::vector<float>> channels(static_cast<std::size_t>(fifo.getNumChannels()),
-                                             std::vector<float>(static_cast<std::size_t>(fifo.getNumReady())));
+                                             std::vector<float>(ready));
     std::vector<float*> pointers;
     for (auto& samples : channels)
         pointers.push_back(samples.data());
@@ -191,8 +192,11 @@ TEST_CASE("Several tracks record at once from mono and stereo inputs", "[engine]
 
     bool exact = true;
     for (std::size_t k = 0; k < recordedMono.size(); ++k)
-        exact = exact && sameBits(recordedMono[k], testInputSample(1, 300 + static_cast<juce::int64>(k))) &&
-                sameBits(recordedLeft[k], testInputSample(2, 300 + static_cast<juce::int64>(k)));
+    {
+        const auto index = 300 + static_cast<juce::int64>(k);
+        exact = exact && sameBits(recordedMono[k], testInputSample(1, index)) &&
+                sameBits(recordedLeft[k], testInputSample(2, index));
+    }
     CHECK(exact);
 }
 
@@ -225,10 +229,12 @@ TEST_CASE("The count-in is captured before the start position", "[engine][record
     // Silence while counting in (no metronome here, the timeline muted), then the
     // timeline from the start position.
     const auto recorded = popAll(fifo);
-    CHECK(std::all_of(recorded.begin(), recorded.begin() + 4321, [](float x) { return x == 0.0f; }));
+    CHECK(std::all_of(recorded.begin(), recorded.begin() + 4321,
+                      [](float x) { return x == 0.0f; }));
     bool aligned = true;
     for (std::size_t k = 4321; k < recorded.size(); ++k)
-        aligned = aligned && sameBits(recorded[k], playedFrom(20000, static_cast<juce::int64>(k) - 4321));
+        aligned = aligned &&
+                  sameBits(recorded[k], playedFrom(20000, static_cast<juce::int64>(k) - 4321));
     CHECK(aligned);
 }
 
@@ -262,9 +268,13 @@ TEST_CASE("While punching, automatic monitoring hears the input exactly between 
 
     // The recording started at stream index 2000, at timeline 0.
     const auto& output = device.getOutput(0);
-    const auto at = [&](juce::int64 position) { return output[static_cast<std::size_t>(2000 + position)]; };
+    const auto at = [&](juce::int64 position) {
+        return output[static_cast<std::size_t>(2000 + position)];
+    };
     const auto up = [](int i) { return static_cast<float>(i + 1) / 240.0f; };
-    const auto down = [](int i) { return 1.0f + (0.0f - 1.0f) * (static_cast<float>(i + 1) / 240.0f); };
+    const auto down = [](int i) {
+        return 1.0f + (0.0f - 1.0f) * (static_cast<float>(i + 1) / 240.0f);
+    };
 
     CHECK(at(9999) == 0.25f);
     bool exact = true;
