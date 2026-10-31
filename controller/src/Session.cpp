@@ -224,13 +224,19 @@ juce::Result Session::saveProject(const juce::File& file)
 
     if (result.wasOk())
     {
-        // Everything recorded is in the saved file now (or was undone on purpose).
+        // Everything recorded is in the saved file now (or was undone on purpose),
+        // except a recording still in progress: it stays recoverable.
         if (projectFile != juce::File())
             RecordingJournal::write(projectFile.getParentDirectory(), {});
-        journal.clear();
+        const auto takes = recording.getLiveTakes();
+        std::erase_if(journal, [&takes](const JournalEntry& entry) {
+            return std::none_of(takes.begin(), takes.end(),
+                                [&entry](const auto& take) { return take.file == entry.file; });
+        });
         recoverable.clear();
         projectFile = target;
         unsavedChanges = false;
+        writeJournal();
     }
 
     return result;

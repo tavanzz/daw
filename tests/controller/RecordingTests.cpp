@@ -450,6 +450,29 @@ TEST_CASE("The journal lists unsaved recordings until the project is saved",
     CHECK_FALSE(RecordingJournal::fileFor(studio.directory.file("")).exists());
 }
 
+TEST_CASE("Saving during a recording keeps it in the journal", "[controller][recording][recovery]")
+{
+    using daw::controller::RecordingJournal;
+
+    Studio studio;
+    auto& session = studio.session;
+    const auto track = session.addTrack("Saved");
+    session.setTrackArmed(track, true);
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+    REQUIRE(session.record().wasOk());
+    studio.run(10000);
+
+    // Saved mid-recording (quitting, say): a crash now must still leave it recoverable.
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+    REQUIRE(RecordingJournal::read(studio.directory.file("")).size() == 1);
+
+    session.stop();
+    REQUIRE(studio.finishRecording());
+    CHECK(RecordingJournal::read(studio.directory.file("")).size() == 1);
+    REQUIRE(session.saveProject(studio.projectFile()).wasOk());
+    CHECK_FALSE(RecordingJournal::fileFor(studio.directory.file("")).exists());
+}
+
 TEST_CASE("A recording interrupted by a crash is recovered when the project is opened",
           "[controller][recording][recovery]")
 {
