@@ -136,6 +136,16 @@ public:
     /** Any thread. */
     [[nodiscard]] RecordingStatus getRecordingStatus() const noexcept;
 
+    /** Message thread. Measures latency (see LatencyTest) as soon as the transport is
+        stopped and nothing records: while it runs, the output carries only the test
+        signal (no monitoring, no playback, so a cable cannot feed back). test must
+        stay alive, unchanged, until isLatencyTestDone(). */
+    void startLatencyTest(LatencyTest& test);
+
+    /** Any thread. */
+    [[nodiscard]] bool isLatencyTestDone() const noexcept;
+    [[nodiscard]] float getLatencyTestProgress() const noexcept;
+
     /** Message thread. Frees arrangements the audio thread no longer uses.
         setArrangement() calls it too; call it regularly (a UI timer is fine). */
     void collectGarbage();
@@ -176,6 +186,7 @@ private:
                      juce::int64 timelineStart, bool newClicks) noexcept;
     [[nodiscard]] MixContext makeContext(int outputStart) const noexcept;
     void startPendingRecording() noexcept;
+    bool runLatencyTest(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept;
     void endRecording() noexcept;
     [[nodiscard]] bool autoMonitorsAt(juce::int64 timelinePosition) const noexcept;
     [[nodiscard]] int pieceLength(juce::int64 timelinePosition, int available) const noexcept;
@@ -202,6 +213,8 @@ private:
     Recorder recorder;
     juce::int64 streamPosition = 0;   // samples processed since the engine started
     bool recordingTransport = false;  // the transport runs linear for a recording
+    LatencyTest* latencyTest = nullptr;
+    std::size_t latencyTestPosition = 0;
     Snapshot* current = nullptr;
     Snapshot* fadingOut = nullptr; // the previous snapshot, during a crossfade
     int crossfadeDone = 0;
@@ -218,6 +231,9 @@ private:
     rt::SpscQueue<Command, 256> commands;
     std::atomic<Snapshot*> pendingSnapshot{nullptr};
     std::atomic<const RecordingSetup*> pendingRecording{nullptr};
+    std::atomic<LatencyTest*> pendingLatencyTest{nullptr};
+    std::atomic<bool> latencyTestDone{false};
+    std::atomic<float> latencyTestProgress{0.0f};
 
     // Audio thread -> message thread: snapshots to free.
     rt::SpscQueue<Snapshot*, 256> retired;

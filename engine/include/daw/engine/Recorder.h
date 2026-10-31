@@ -43,6 +43,17 @@ struct RecordingSetup
     juce::int64 punchOut = 0;
 };
 
+/** A latency measurement: the engine plays signal on one output and captures one
+    input from the same sample on. Built on the message thread and handed to the
+    engine whole; it must outlive the measurement (until the engine reports done). */
+struct LatencyTest
+{
+    int outputChannel = 0; ///< 0 (left) or 1 (right)
+    int inputChannel = 0;  ///< a device input channel
+    const std::vector<float>* signal = nullptr;
+    std::vector<float> captured; ///< sized by the caller: how much input to capture
+};
+
 enum class RecordingState : std::uint8_t
 {
     idle,      ///< no recording yet

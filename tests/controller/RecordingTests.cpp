@@ -7,8 +7,10 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <bit>
 #include <cstdint>
@@ -568,4 +570,72 @@ TEST_CASE("Recoverable recordings can be discarded", "[controller][recording][re
     Session again(engine);
     REQUIRE(again.openProject(crashed.file("song.dawproject")).wasOk());
     CHECK(again.getRecoverableRecordings().empty());
+}
+
+TEST_CASE("A loopback cable is measured to the sample through the engine",
+          "[controller][latency]")
+{
+    const auto blockSizes = GENERATE(std::vector<int>{64}, std::vector<int>{7, 512, 1},
+                                     std::vector<int>{2048});
+    const int extra = GENERATE(0, 77, 3000);
+    const int largestBlock = *std::max_element(blockSizes.begin(), blockSizes.end());
+    const int latency = largestBlock + extra;
+    CAPTURE(blockSizes, latency);
+
+    daw::engine::Engine engine;
+    daw::test::SimulatedDevice device(engine, sampleRate, 2, blockSizes);
+    device.connectLoopback(1, 1, latency); // right output to input 2
+    device.start();
+    Session session(engine);
+    session.setDeviceLatency(100, 200);
+
+    // An armed track listening to that input: during the test it must not feed the
+    // cable back into itself.
+    const auto track = session.addTrack();
+    session.setTrackInput(track, {1, false});
+    session.setTrackArmed(track, true);
+    session.update();
+
+    REQUIRE(session.measureLatency(1, 1).wasOk());
+    CHECK(session.isMeasuringLatency());
+    std::size_t heapOperations = 0;
+    std::optional<daw::controller::LatencyMeasurement::Result> result;
+    for (int i = 0; i < 1000 && !result; ++i)
+    {
+        heapOperations += device.run(4096);
+        session.update();
+        result = session.takeLatencyResult();
+    }
+
+    CHECK(heapOperations == 0);
+    REQUIRE(result);
+    CAPTURE(result->message);
+    REQUIRE(result->succeeded);
+    CHECK(result->measured == latency);
+    CHECK(result->reported == 300);
+    CHECK(result->offset == latency - 300);
+    CHECK_FALSE(result->inverted);
+    CHECK_FALSE(session.isMeasuringLatency());
+}
+
+TEST_CASE("Measuring without a cable fails with an explanation", "[controller][latency]")
+{
+    daw::engine::Engine engine;
+    daw::test::SimulatedDevice device(engine, sampleRate, 2, {512});
+    device.start();
+    Session session(engine);
+
+    REQUIRE(session.measureLatency(0, 0).wasOk());
+    CHECK_FALSE(session.measureLatency(0, 0).wasOk()); // one at a time
+    std::optional<daw::controller::LatencyMeasurement::Result> result;
+    for (int i = 0; i < 1000 && !result; ++i)
+    {
+        device.run(4096);
+        session.update();
+        result = session.takeLatencyResult();
+    }
+
+    REQUIRE(result);
+    CHECK_FALSE(result->succeeded);
+    CHECK_THAT(result->message.toStdString(), ContainsSubstring("cable"));
 }

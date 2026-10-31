@@ -177,6 +177,13 @@ Modules with one-way dependencies:
   (`getRecoverableRecordings()`); `recoverRecordings()` repairs them with
   `engine::io::repairWav()` (header lengths from the file size, whole frames,
   RIFF to RF64 when needed) and adds them as clips in one undo step.
+- Latency measurement (Phase 3): `Session::measureLatency(output, input)` hands the
+  engine a `LatencyTest` (the output carries only `dsp::LatencyProbe`'s signal:
+  five pseudo-random noise bursts, each followed by 0.5 s of silence; no playback,
+  no monitoring, so a cable cannot feed back) and the input is captured from the
+  same sample. `controller::LatencyMeasurement` cross-correlates each burst's window
+  (FFT, message thread), requires a clear peak and the bursts to agree within a
+  sample, and gives the offset = measured round trip - reported latency.
 - Audio I/O: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
   forwards the device callback to `Engine::process(inputs, output)` (stereo output;
   extra outputs cleared). Inputs reach the engine as `AudioInputs`, indexed by the
@@ -410,7 +417,7 @@ automation, mobile UI.
 - [x] 7. Recording in the controller: files, clips in one undo step, discard,
       errors, disk-space checks
 - [x] 8. Crash recovery: recording journal, WAV repair, recovery on open
-- [ ] 9. Latency measurement with a loopback cable
+- [x] 9. Latency measurement with a loopback cable
 - [ ] 10. Disk streaming in the engine: block cache, read-ahead thread, sample-rate
       conversion while streaming, dropout reporting
 - [ ] 11. Streaming everywhere: source pool, transport waiting for data, export

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/controller/ClipEditing.h"
+#include "daw/controller/LatencyMeasurement.h"
 #include "daw/controller/RecordingController.h"
 #include "daw/controller/RecordingJournal.h"
 #include "daw/engine/Engine.h"
@@ -193,6 +194,18 @@ public:
     [[nodiscard]] int getLatencyOffset() const noexcept { return latencyOffset; }
     [[nodiscard]] juce::int64 getRecordingLatency() const noexcept;
 
+    /** Measures the round trip with a cable from output outputChannel (0 or 1) to
+        input inputChannel; stops playback first. Not while recording. The result
+        comes from takeLatencyResult() after a few seconds of update()s; applying
+        its offset is up to the caller. */
+    juce::Result measureLatency(int outputChannel, int inputChannel);
+    [[nodiscard]] bool isMeasuringLatency() const noexcept { return latencyMeasurement.isRunning(); }
+    [[nodiscard]] float getLatencyMeasurementProgress() const noexcept
+    {
+        return latencyMeasurement.getProgress();
+    }
+    [[nodiscard]] std::optional<LatencyMeasurement::Result> takeLatencyResult();
+
     // Transport, in ticks ---------------------------------------------------------------
 
     void play();
@@ -236,6 +249,8 @@ private:
     juce::String recordingProblem;
     std::vector<JournalEntry> journal;     // this project's recordings not saved yet
     std::vector<JournalEntry> recoverable; // found on opening it
+    LatencyMeasurement latencyMeasurement{engine};
+    std::optional<LatencyMeasurement::Result> latencyResult;
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;
     int latencyOffset = 0;

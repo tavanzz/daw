@@ -6,6 +6,7 @@ add_library(daw_controller STATIC
     src/ArrangementBuilder.cpp
     src/ClipEditing.cpp
     src/ExportJob.cpp
+    src/LatencyMeasurement.cpp
     src/RecordingController.cpp
     src/RecordingJournal.cpp
     src/Session.cpp

@@ -27,8 +27,13 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     metronome.prepare(newSampleRate);
     countInRemaining = 0;
 
-    // The device stopped: a recording cannot go on (its inputs are gone).
+    // The device stopped: a recording or a latency test cannot go on.
     recorder.interrupt();
+    if (latencyTest != nullptr)
+    {
+        latencyTest = nullptr;
+        latencyTestDone.store(true, std::memory_order_release);
+    }
     transport.setLinear(false);
     recordingTransport = false;
     crossfadeBuffer.setSize(2, newMaximumBlockSize);
@@ -65,6 +70,13 @@ void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output
 
     while (const auto command = commands.pop())
         apply(*command);
+
+    if (runLatencyTest(inputs, output))
+    {
+        streamPosition += output.getNumSamples();
+        publish();
+        return;
+    }
 
     // A recording's transport stays linear until its stop has faded out.
     if (recordingTransport && !recorder.isRecording() && !transport.isRunning() &&
@@ -128,6 +140,57 @@ void Engine::startPendingRecording() noexcept
     {
         transport.play();
     }
+}
+
+bool Engine::runLatencyTest(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept
+{
+    if (latencyTest == nullptr && !transport.isRunning() && countInRemaining == 0 &&
+        !recorder.isRecording() && pendingLatencyTest.load(std::memory_order_relaxed) != nullptr)
+    {
+        latencyTest = pendingLatencyTest.exchange(nullptr, std::memory_order_acquire);
+        latencyTestPosition = 0;
+    }
+
+    if (latencyTest == nullptr)
+        return false;
+
+    const auto numSamples = static_cast<std::size_t>(output.getNumSamples());
+    output.clear();
+
+    const auto& signal = *latencyTest->signal;
+    if (latencyTest->outputChannel < output.getNumChannels() && latencyTestPosition < signal.size())
+    {
+        const auto count = std::min(numSamples, signal.size() - latencyTestPosition);
+        juce::FloatVectorOperations::copy(output.getWritePointer(latencyTest->outputChannel),
+                                          signal.data() + latencyTestPosition,
+                                          static_cast<int>(count));
+    }
+
+    auto& captured = latencyTest->captured;
+    if (latencyTestPosition < captured.size())
+    {
+        const auto count = std::min(numSamples, captured.size() - latencyTestPosition);
+        if (const float* input = inputs.channel(latencyTest->inputChannel))
+            juce::FloatVectorOperations::copy(captured.data() + latencyTestPosition, input,
+                                              static_cast<int>(count));
+        else
+            juce::FloatVectorOperations::clear(captured.data() + latencyTestPosition,
+                                               static_cast<int>(count));
+    }
+
+    latencyTestPosition += numSamples;
+    const auto total = std::max<std::size_t>(1, captured.size());
+    latencyTestProgress.store(
+        static_cast<float>(std::min(latencyTestPosition, total)) / static_cast<float>(total),
+        std::memory_order_relaxed);
+
+    if (latencyTestPosition >= captured.size())
+    {
+        latencyTest = nullptr;
+        latencyTestDone.store(true, std::memory_order_release);
+    }
+
+    return true;
 }
 
 void Engine::endRecording() noexcept
@@ -360,6 +423,24 @@ void Engine::startRecording(const RecordingSetup& setup)
 RecordingStatus Engine::getRecordingStatus() const noexcept
 {
     return recorder.getStatus();
+}
+
+void Engine::startLatencyTest(LatencyTest& test)
+{
+    jassert(pendingLatencyTest.load() == nullptr);
+    latencyTestDone.store(false);
+    latencyTestProgress.store(0.0f);
+    pendingLatencyTest.store(&test, std::memory_order_release);
+}
+
+bool Engine::isLatencyTestDone() const noexcept
+{
+    return latencyTestDone.load(std::memory_order_acquire);
+}
+
+float Engine::getLatencyTestProgress() const noexcept
+{
+    return latencyTestProgress.load(std::memory_order_relaxed);
 }
 
 void Engine::collectGarbage()

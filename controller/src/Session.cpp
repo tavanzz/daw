@@ -34,6 +34,9 @@ void Session::update()
     if (const auto outcome = recording.update())
         addRecording(*outcome);
 
+    if (auto result = latencyMeasurement.update())
+        latencyResult = std::move(result);
+
     sources.collectFinishedLoads();
 
     if (arrangementOutOfDate)
@@ -601,6 +604,8 @@ juce::Result Session::record()
 {
     if (recording.isActive())
         return juce::Result::fail("A recording is already running.");
+    if (latencyMeasurement.isRunning())
+        return juce::Result::fail("Wait for the latency measurement to finish.");
     if (projectFile == juce::File())
         return juce::Result::fail("Save the project first: recordings go into its folder.");
 
@@ -686,6 +691,21 @@ juce::int64 Session::getRecordingLatency() const noexcept
 {
     return std::max(juce::int64{0},
                     juce::int64{deviceInputLatency} + deviceOutputLatency + latencyOffset);
+}
+
+juce::Result Session::measureLatency(int outputChannel, int inputChannel)
+{
+    if (recording.isActive())
+        return juce::Result::fail("Stop recording before measuring the latency.");
+
+    latencyResult.reset();
+    return latencyMeasurement.start(outputChannel, inputChannel,
+                                    juce::int64{deviceInputLatency} + deviceOutputLatency);
+}
+
+std::optional<LatencyMeasurement::Result> Session::takeLatencyResult()
+{
+    return std::exchange(latencyResult, std::nullopt);
 }
 
 void Session::addRecording(const RecordingOutcome& outcome)
