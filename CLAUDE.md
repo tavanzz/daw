@@ -339,8 +339,9 @@ ctest --preset debug            # run all tests
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files and the Phase 2 demo
   project from `python3 tools/make_listening_test_files.py` (into
   `build/listening-tests/`).
-- Mixing benchmark (Release only, not in CTest): `build/release/tests/daw_bench`;
-  results in `docs/PERFORMANCE.md`.
+- Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing)
+  and `build/release/tests/daw_stream_bench` (streaming and recording); results in
+  `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen.
 
@@ -474,7 +475,7 @@ automation, mobile UI.
       count-in/punch controls, live recording clips
 - [x] 14. Desktop UI: audio and recording settings, latency measurement, recovery,
       warnings
-- [ ] 15. Benchmark: tracks streamed and recorded at once (Release)
+- [x] 15. Benchmark: tracks streamed and recorded at once (Release)
 - [ ] 16. Listening tests and files for Phase 3 (`docs/LISTENING_TESTS.md`)
 
 Phase 3 decisions (agreed before starting):
