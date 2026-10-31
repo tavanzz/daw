@@ -1,11 +1,13 @@
 #include "daw/controller/Session.h"
 
 #include "daw/controller/ArrangementBuilder.h"
+#include "daw/controller/TempoBeatGrid.h"
 #include "daw/controller/TimelineViewport.h"
 #include "daw/model/ProjectFile.h"
 
 #include <algorithm>
 #include <set>
+#include <utility>
 
 namespace daw::controller
 {
@@ -28,6 +30,9 @@ Session::~Session()
 
 void Session::update()
 {
+    if (const auto outcome = recording.update())
+        addRecording(*outcome);
+
     sources.collectFinishedLoads();
 
     if (arrangementOutOfDate)
@@ -74,6 +79,12 @@ juce::Result Session::openProject(const juce::File& file)
 juce::Result Session::saveProject(const juce::File& file)
 {
     const auto target = file.withFileExtension(model::projectFileExtension);
+
+    // Saved somewhere else, the project takes its recordings along.
+    if (projectFile != juce::File() &&
+        target.getParentDirectory() != projectFile.getParentDirectory())
+        copyRecordingsTo(target.getParentDirectory());
+
     const auto result = model::saveProject(project, target);
 
     if (result.wasOk())
@@ -85,8 +96,45 @@ juce::Result Session::saveProject(const juce::File& file)
     return result;
 }
 
+void Session::copyRecordingsTo(const juce::File& newProjectDirectory)
+{
+    const auto oldFolder = projectFile.getParentDirectory().getChildFile(recordingsFolderName);
+    const auto newFolder = newProjectDirectory.getChildFile(recordingsFolderName);
+    std::map<juce::String, juce::File> copies; // by original path: each file copied once
+
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        const auto track = project.getTrack(t);
+        for (int c = 0; c < track.getNumClips(); ++c)
+        {
+            auto clip = track.getClip(c);
+            const auto original = clip.getAudioFile();
+            if (!original.isAChildOf(oldFolder) || !original.existsAsFile())
+                continue;
+
+            auto& copy = copies[original.getFullPathName()];
+            if (copy == juce::File())
+            {
+                auto destination = newFolder.getChildFile(original.getRelativePathFrom(oldFolder));
+                if (destination.exists() && !destination.hasIdenticalContentTo(original))
+                    destination = destination.getNonexistentSibling();
+
+                if (!destination.getParentDirectory().createDirectory() ||
+                    (!destination.exists() && !original.copyFileTo(destination)))
+                    continue; // left where it is: saved as an absolute path
+                copy = destination;
+            }
+
+            clip.setAudioFile(copy);
+            sources.request(copy);
+        }
+    }
+}
+
 void Session::replaceProject(model::Project newProject)
 {
+    jassert(!recording.isActive()); // the UI stops a recording before replacing the project
+
     project.getState().removeListener(this);
     project = std::move(newProject);
     project.getState().addListener(this);
@@ -444,12 +492,130 @@ void Session::play()
 
 void Session::pause()
 {
-    engine.pause();
+    if (recording.isActive())
+        recording.stop();
+    else
+        engine.pause();
 }
 
 void Session::stop()
 {
-    engine.stop();
+    if (recording.isActive())
+        recording.stop();
+    else
+        engine.stop();
+}
+
+// Recording --------------------------------------------------------------------------
+
+juce::Result Session::record()
+{
+    if (recording.isActive())
+        return juce::Result::fail("A recording is already running.");
+    if (projectFile == juce::File())
+        return juce::Result::fail("Save the project first: recordings go into its folder.");
+
+    const double rate = engineRate();
+    RecordingRequest request;
+    request.folder = projectFile.getParentDirectory().getChildFile(recordingsFolderName);
+    request.sampleRate = rate;
+    request.bitsPerSample = project.getRecordingBitsPerSample();
+    request.latency = getRecordingLatency();
+
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        const auto track = project.getTrack(t);
+        const auto input = track.getInput();
+        if (track.isArmed() && !input.isNone())
+            request.tracks.push_back(
+                {track.getId(), track.getName(), input.channel, input.getNumChannels()});
+    }
+
+    const auto start = getPlayhead();
+    request.startPosition = model::ticksToSamples(start, rate);
+
+    if (project.isCountInEnabled())
+        request.countInLength =
+            request.startPosition -
+            model::ticksToSamples(countInStart(project.getTempoMap(), start,
+                                               project.getCountInBars()),
+                                  rate);
+
+    if (project.isPunchEnabled())
+    {
+        if (project.getLoopEnd() <= project.getLoopStart())
+            return juce::Result::fail("Punch in/out records the loop region: set one first.");
+        request.punchIn = model::ticksToSamples(project.getLoopStart(), rate);
+        request.punchOut = model::ticksToSamples(project.getLoopEnd(), rate);
+    }
+
+    // Recording starts from a silent transport.
+    if (engine.getTransportState() != engine::TransportState::stopped)
+        engine.stop();
+
+    recordingProblem.clear();
+    return recording.start(request);
+}
+
+void Session::discardRecording()
+{
+    recording.discard();
+}
+
+juce::String Session::takeRecordingProblem()
+{
+    return std::exchange(recordingProblem, {});
+}
+
+void Session::setDeviceLatency(int inputSamples, int outputSamples)
+{
+    deviceInputLatency = std::max(0, inputSamples);
+    deviceOutputLatency = std::max(0, outputSamples);
+}
+
+void Session::setLatencyOffset(int samples)
+{
+    latencyOffset = samples;
+}
+
+juce::int64 Session::getRecordingLatency() const noexcept
+{
+    return std::max(juce::int64{0},
+                    juce::int64{deviceInputLatency} + deviceOutputLatency + latencyOffset);
+}
+
+void Session::addRecording(const RecordingOutcome& outcome)
+{
+    if (outcome.problem.isNotEmpty())
+        recordingProblem = outcome.problem;
+
+    const double rate = engineRate();
+    bool started = false;
+
+    for (const auto& take : outcome.takes)
+    {
+        const auto start = std::max({outcome.keepStart, take.firstPosition, juce::int64{0}});
+        const auto end = std::min(outcome.keepEnd, take.firstPosition + take.length);
+        auto track = findTrack(take.trackId);
+
+        // Nothing to keep (stopped during the count-in, before the punch in, or the
+        // track was deleted meanwhile): the file goes too.
+        if (end <= start || !track)
+        {
+            take.file.deleteFile();
+            continue;
+        }
+
+        if (!started)
+            startEdit("Record");
+        started = true;
+
+        const auto position = model::samplesToTicks(start, rate);
+        const auto offset = model::samplesToTicks(start - take.firstPosition, rate);
+        const auto length = model::samplesToTicks(end, rate) - position;
+        sources.request(take.file);
+        track->addClip(take.file, {position, offset, length}, &undoManager);
+    }
 }
 
 void Session::seek(model::Ticks position)

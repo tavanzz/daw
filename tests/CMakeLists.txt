@@ -8,6 +8,7 @@ add_executable(daw_tests
     support/TestAudioFiles.cpp
     controller/ArrangementBuilderTests.cpp
     controller/MetronomeTests.cpp
+    controller/RecordingTests.cpp
     controller/SessionTests.cpp
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp

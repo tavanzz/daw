@@ -158,6 +158,17 @@ Modules with one-way dependencies:
   the rulers; `ClipEditing.h` the move/trim rules with `Snapper`. `ExportJob` copies
   the project on the message thread and exports on another, loading files at the
   export rate when it differs from the device's.
+- Recording in the controller (Phase 3): `Session::record()` records every armed
+  track with an input from the playhead (count-in, punch range, latency = device
+  input + output latency + manual offset) through `controller::RecordingController`,
+  which names the files (`Audio/<track> <n>.wav` next to the saved project, never
+  overwriting), runs the writer, stops on problems (overrun, nearly full disk, a
+  refused write, the device stopping) and reports a `RecordingOutcome`. At the
+  `Session::update()` after the files are complete, the takes become clips in one
+  undo step ("Record"), trimmed to what is kept (from the start or punch in to the
+  stop or punch out); the files keep the rest as handles. Undo keeps the files;
+  `discardRecording()` deletes them. Save As to another folder copies the project's
+  recordings into the new `Audio/` folder.
 - Audio I/O: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
   forwards the device callback to `Engine::process(inputs, output)` (stereo output;
   extra outputs cleared). Inputs reach the engine as `AudioInputs`, indexed by the
@@ -388,7 +399,7 @@ automation, mobile UI.
       disk-space reporting
 - [x] 6. `Recorder` in the engine: latency-compensated capture, several tracks,
       punch in/out
-- [ ] 7. Recording in the controller: files, clips in one undo step, discard,
+- [x] 7. Recording in the controller: files, clips in one undo step, discard,
       errors, disk-space checks
 - [ ] 8. Crash recovery: recording journal, WAV repair, recovery on open
 - [ ] 9. Latency measurement with a loopback cable

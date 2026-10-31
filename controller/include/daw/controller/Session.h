@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/controller/ClipEditing.h"
+#include "daw/controller/RecordingController.h"
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/SourcePool.h"
 #include "daw/model/Project.h"
@@ -146,6 +147,35 @@ public:
     [[nodiscard]] juce::String getUndoDescription() const;
     [[nodiscard]] juce::String getRedoDescription() const;
 
+    // Recording ---------------------------------------------------------------------
+
+    /** Records every armed track that has an input, from the playhead (after the
+        count-in, if it is on; with punch on, keeping only the loop region), until
+        stop(). The files go into the "Audio" folder next to the project, which must
+        have been saved. Fails with a message for the user (unsaved project, nothing
+        armed, too little disk space...). The clips appear, in one undo step, at an
+        update() once the files are complete. */
+    juce::Result record();
+
+    /** Stops the recording and deletes its files: no clip is added. */
+    void discardRecording();
+
+    /** From record() until its clips are added (or it is discarded). */
+    [[nodiscard]] bool isRecording() const noexcept { return recording.isActive(); }
+    [[nodiscard]] const RecordingController& getRecording() const noexcept { return recording; }
+    [[nodiscard]] RecordingController& getRecording() noexcept { return recording; }
+
+    /** Why the last recording ended early, for the user (empty if it did not);
+        reading it clears it. */
+    [[nodiscard]] juce::String takeRecordingProblem();
+
+    /** Latency compensation: what the device reports for its input and output, plus
+        a manual offset (the result of measuring with a cable); all in samples. */
+    void setDeviceLatency(int inputSamples, int outputSamples);
+    void setLatencyOffset(int samples);
+    [[nodiscard]] int getLatencyOffset() const noexcept { return latencyOffset; }
+    [[nodiscard]] juce::int64 getRecordingLatency() const noexcept;
+
     // Transport, in ticks ---------------------------------------------------------------
 
     void play();
@@ -160,6 +190,8 @@ public:
 private:
     void startEdit(const juce::String& name);
     void replaceProject(model::Project newProject);
+    void addRecording(const RecordingOutcome& outcome);
+    void copyRecordingsTo(const juce::File& newProjectDirectory);
     void requestAllSources();
     void sourceChanged(const juce::File& file);
     void resolveLengths(const juce::File& file);
@@ -180,6 +212,12 @@ private:
     juce::File projectFile;
     std::map<model::ObjectId, std::shared_ptr<engine::dsp::PeakLevelMeter>> meters;
     std::array<float, engine::AudioInputs::maxChannels> inputPeaks{};
+
+    RecordingController recording{engine};
+    juce::String recordingProblem;
+    int deviceInputLatency = 0;
+    int deviceOutputLatency = 0;
+    int latencyOffset = 0;
 
     juce::uint64 revision = 1;
     bool arrangementOutOfDate = true;
