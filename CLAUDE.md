@@ -243,8 +243,8 @@ apt.llvm.org.
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
 - Phase work happens on a branch (`phase-N`) with a draft pull request into `main`;
   CI must be green on Windows, macOS and Linux.
-- Don't implement later phases (recording, MIDI, effects, plugins, automation,
-  mobile) beyond keeping the architecture ready for them.
+- Don't implement later phases (multiple takes and comping, MIDI, effects, plugins,
+  automation, mobile) beyond keeping the architecture ready for them.
 
 ## Status
 
@@ -284,7 +284,7 @@ automation, mobile UI.
 - [x] 7. Offline bounce to WAV (16/24-bit, 32-bit float; sample rate; dither)
 - [x] 8. `controller` module: session, snapshot building, timeline viewport and ruler,
       clip drags with snap
-- [ ] 9. Benchmark: tracks per audio callback budget (Release)
+- [x] 9. Benchmark: tracks per audio callback budget (Release)
 - [x] 10. Desktop UI: timeline, track headers, clip editing, zoom/scroll, loop, snap
 - [x] 11. Desktop UI: mixer, export dialog, undo/redo, new project, unsaved changes
 - [x] 12. Listening-test files and `docs/LISTENING_TESTS.md` for Phase 2
@@ -313,3 +313,81 @@ Phase 2 decisions (agreed before starting):
   track, X mixer, N snap, Cmd while dragging bypasses snap, Backspace or Delete
   deletes the selected clips. Several dropped files: one new track each, all at the
   same position.
+
+Phase 3 (in progress, branch `phase-3`): audio recording. Input device and channels;
+each track records mono or stereo from chosen inputs; arming and recording on several
+tracks at once; input monitoring per track (off / auto / on) and input meters;
+latency compensation (driver-reported plus a manual offset, and a loopback
+measurement tool) so recordings line up to the sample with what was heard; metronome
+and count-in; punch in/out on the loop region; every recording becomes clips in one
+undo step, files in the project's `Audio/` folder with relative paths; recordings
+can be discarded; recovery of interrupted recordings after a crash; disk-space
+checks; macOS microphone permission (ready for iOS); playback and recording stream
+from disk. Out of scope: multiple takes and comping, MIDI, effects, plugins,
+automation, mobile UI.
+
+- [x] 0. Plan (this list) and draft pull request
+- [ ] 1. Audio input in the engine: input channels from the device, channel mapping,
+      input meters; simulated device for tests
+- [ ] 2. Project format version 3: track input, monitoring and arm; metronome,
+      count-in, punch and recording format; migration from version 2
+- [ ] 3. Input monitoring: per-track input/timeline switch with ramps, off/auto/on,
+      transport fade on the timeline part only, mixer running while stopped
+- [ ] 4. Metronome and count-in, sample-exact on the tempo map's beats
+- [ ] 5. Recording pipeline: lock-free audio FIFO, WAV writer thread, overrun and
+      disk-space reporting
+- [ ] 6. `Recorder` in the engine: latency-compensated capture, several tracks,
+      punch in/out
+- [ ] 7. Recording in the controller: files, clips in one undo step, discard,
+      errors, disk-space checks
+- [ ] 8. Crash recovery: recording journal, WAV repair, recovery on open
+- [ ] 9. Latency measurement with a loopback cable
+- [ ] 10. Disk streaming in the engine: block cache, read-ahead thread, sample-rate
+      conversion while streaming, dropout reporting
+- [ ] 11. Streaming everywhere: source pool, transport waiting for data, export
+- [ ] 12. Microphone permission and app wiring (input device, latency offset)
+- [ ] 13. Desktop UI: arm, monitoring, inputs, input meters, record/metronome/
+      count-in/punch controls, live recording clips
+- [ ] 14. Desktop UI: audio and recording settings, latency measurement, recovery,
+      warnings
+- [ ] 15. Benchmark: tracks streamed and recorded at once (Release)
+- [ ] 16. Listening tests and files for Phase 3 (`docs/LISTENING_TESTS.md`)
+
+Phase 3 decisions (agreed before starting):
+
+- Monitoring: a track plays either its timeline or its input, never both; the switch
+  is a 5 ms ramp, and the input goes through the track's volume, pan, mute, solo and
+  meter. Auto: the input is heard while the track is armed and the transport is
+  stopped, during the count-in, and while recording inside the recorded range (with
+  punch: between punch in and punch out only); otherwise the timeline. On: always the
+  input. Off: never.
+- New tracks take input 1 (mono). Stereo inputs are channel pairs 1+2, 3+4, ...
+- Recording in a project that was never saved first asks to save it.
+- Recording is linear: loop playback is suspended while recording, seeks are ignored,
+  the end of the project does not stop the transport.
+- Punch: when on, the loop region is the recorded range. The file keeps everything
+  captured (count-in, pre-roll and post-roll) as handles; the clip is trimmed to the
+  punch range, so its edges get the usual 5 ms fades.
+- If the disk cannot keep up (FIFO overrun), recording stops; the audio up to the
+  overrun is kept and an error says where it happened. Disk space: at least 1 minute
+  of recording time to start, a warning below 10 minutes, a clean stop at 10 seconds.
+- Files: `Audio/<track name> <n>.wav` next to the project, never overwritten; WAV at
+  the device rate, 24-bit by default (16-bit and 32-bit float available). Save As to
+  another folder copies the project's recordings into the new `Audio/` folder.
+- Undo removes recorded clips and keeps their files (redo needs them). Discarding a
+  recording in progress (Cmd+., after the confirmation "Discard the recording and
+  delete its files?") deletes its files and adds no clip. Escape never discards a
+  recording; at most it closes dialogs.
+- Arm state is saved in the project and is not undoable (like loop on/off); track
+  input and monitoring mode are undoable.
+- Metronome: when on, it clicks during playback and recording, after the master
+  fader, never in exports or on the master meter. Count-in: 1 bar (or 2) of clicks
+  only before recording starts, the timeline silent.
+- Latency offset: user settings, per input/output device pair and sample rate.
+- Microphone permission is asked for the first time an input is needed (arming,
+  monitoring, the input settings, a project with armed tracks), not at launch.
+- Disk streaming: a fixed 512 MB block cache.
+- Shortcuts: R record, K metronome, Shift+K count-in, P punch, Cmd+. discard the
+  recording in progress (with confirmation).
+- The one-hour recording test records 48 kHz mono 24-bit to disk and reads it back
+  (8 kHz if it takes more than about a minute in the Debug jobs).
