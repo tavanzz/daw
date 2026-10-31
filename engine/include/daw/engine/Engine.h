@@ -1,8 +1,10 @@
 #pragma once
 
 #include "daw/engine/Arrangement.h"
+#include "daw/engine/AudioInputs.h"
 #include "daw/engine/Mixer.h"
 #include "daw/engine/Transport.h"
+#include "daw/engine/dsp/InputMeters.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
 #include "daw/engine/rt/SpscQueue.h"
 
@@ -80,8 +82,13 @@ public:
         while it restarts). Call whenever the sample rate or block size changes. */
     void prepare(double newSampleRate, int newMaximumBlockSize);
 
-    /** Audio thread. Overwrites the whole buffer with the next block of output. */
-    void process(juce::AudioBuffer<float>& output) noexcept;
+    /** Audio thread. Takes the device's input for this block (as many samples per
+        channel as output has) and overwrites the whole output buffer with the next
+        block of output. */
+    void process(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept;
+
+    /** Audio thread. A block without any input. */
+    void process(juce::AudioBuffer<float>& output) noexcept { process(AudioInputs{}, output); }
 
     /** Message thread. Replaces what is played, from the next audio block. Its
         sample rate must match the one given to prepare(), otherwise the engine
@@ -115,6 +122,10 @@ public:
         (0 = left, 1 = right) since the previous call, as a linear gain. This is the
         master meter: after the master volume and the transport fades. */
     [[nodiscard]] float takeOutputPeak(int channel) noexcept;
+
+    /** One reader thread (the UI): highest absolute sample on the device input
+        channel since the previous call, as a linear gain, before any processing. */
+    [[nodiscard]] float takeInputPeak(int channel) noexcept;
 
 private:
     using Command = detail::EngineCommand;
@@ -160,6 +171,7 @@ private:
     std::atomic<juce::int64> publishedLength{0};
     std::atomic<bool> publishedLooping{false};
     dsp::PeakLevelMeter outputMeter;
+    dsp::InputMeters inputMeters;
 };
 
 } // namespace daw::engine

@@ -9,6 +9,7 @@ add_library(daw_engine STATIC
     src/OfflineRenderer.cpp
     src/Transport.cpp
     src/dsp/GainRamp.cpp
+    src/dsp/InputMeters.cpp
     src/dsp/MeterBallistics.cpp
     src/dsp/PanLaw.cpp
     src/dsp/PeakLevelMeter.cpp

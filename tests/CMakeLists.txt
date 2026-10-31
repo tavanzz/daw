@@ -3,12 +3,14 @@ include(Catch)
 add_executable(daw_tests
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
+    support/SimulatedDevice.cpp
     support/TestMain.cpp
     support/TestAudioFiles.cpp
     controller/ArrangementBuilderTests.cpp
     controller/SessionTests.cpp
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
+    engine/AudioInputTests.cpp
     engine/AudioFileLoaderTests.cpp
     engine/BounceTests.cpp
     engine/EngineTests.cpp

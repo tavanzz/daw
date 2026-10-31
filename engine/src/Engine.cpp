@@ -33,8 +33,10 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     finishCrossfade();
 }
 
-void Engine::process(juce::AudioBuffer<float>& output) noexcept
+void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept
 {
+    inputMeters.process(inputs, output.getNumSamples());
+
     if (maximumBlockSize <= 0)
     {
         output.clear();
@@ -201,6 +203,11 @@ bool Engine::isLooping() const noexcept
 float Engine::takeOutputPeak(int channel) noexcept
 {
     return outputMeter.takePeak(channel);
+}
+
+float Engine::takeInputPeak(int channel) noexcept
+{
+    return inputMeters.takePeak(channel);
 }
 
 void Engine::send(Command command)

@@ -115,8 +115,11 @@ Modules with one-way dependencies:
   the rulers; `ClipEditing.h` the move/trim rules with `Snapper`. `ExportJob` copies
   the project on the message thread and exports on another, loading files at the
   export rate when it differs from the device's.
-- Audio output: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
-  forwards the device callback to `Engine::process()` (stereo; extra outputs cleared).
+- Audio I/O: `engine::io::AudioDeviceHost` owns JUCE's `AudioDeviceManager` and
+  forwards the device callback to `Engine::process(inputs, output)` (stereo output;
+  extra outputs cleared). Inputs reach the engine as `AudioInputs`, indexed by the
+  device's channel number (JUCE packs the active ones; the host unpacks them), up to
+  64; `dsp::InputMeters` measures every input channel before any processing.
 - Desktop UI (`ui/desktop`): views over a `controller::Session`; every edit goes
   through it. `MainComponent` (transport bar, `ArrangeView`, master meter) refreshes
   at 60 Hz and handles the commands (menus and shortcuts, JUCE's
@@ -168,6 +171,10 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
   requires 0. It counts operator new/delete everywhere; in the `linux-rtsan` CI job
   RealtimeSanitizer also aborts on malloc, locks, blocking system calls and I/O.
   Keep Catch2 assertions outside the checked lambda (Catch2 allocates).
+- `daw::test::SimulatedDevice` (`tests/support/SimulatedDevice.h`) plays the sound
+  card: it drives `AudioDeviceHost`'s callback with known input, variable block
+  sizes, switched-off channels, a loopback cable with a known latency and a stream
+  counter that can start near 2^32.
 
 ## Verification
 

@@ -18,9 +18,10 @@ AudioDeviceHost::~AudioDeviceHost()
     deviceManager.closeAudioDevice();
 }
 
-juce::String AudioDeviceHost::initialise(const juce::XmlElement* savedState)
+juce::String AudioDeviceHost::initialise(const juce::XmlElement* savedState, bool withInputs)
 {
-    const auto error = deviceManager.initialise(0, engineChannels, savedState, true);
+    const auto error = deviceManager.initialise(withInputs ? AudioInputs::maxChannels : 0,
+                                                engineChannels, savedState, true);
 
     if (!callbackAdded)
     {
@@ -32,15 +33,24 @@ juce::String AudioDeviceHost::initialise(const juce::XmlElement* savedState)
 }
 
 void AudioDeviceHost::audioDeviceIOCallbackWithContext(
-    const float* const* /*inputChannelData*/, int /*numInputChannels*/,
+    const float* const* inputChannelData, int numDeliveredInputs,
     float* const* outputChannelData, int numOutputChannels, int numSamples,
     const juce::AudioIODeviceCallbackContext& /*context*/) noexcept
 {
+    inputPointers.fill(nullptr);
+    const int delivered =
+        inputChannelData != nullptr ? std::min(numDeliveredInputs, numInputChannels) : 0;
+    for (int i = 0; i < delivered; ++i)
+        inputPointers[static_cast<std::size_t>(inputChannelNumbers[static_cast<std::size_t>(i)])] =
+            inputChannelData[i];
+
+    const AudioInputs inputs{inputPointers.data(), delivered > 0 ? numDeviceInputChannels : 0};
+
     // Referring to at most two channels stays within AudioBuffer's built-in
     // channel-pointer space, so this never allocates.
     const int engineOutputs = std::min(numOutputChannels, engineChannels);
     outputView.setDataToReferTo(outputChannelData, engineOutputs, numSamples);
-    engine.process(outputView);
+    engine.process(inputs, outputView);
 
     for (int channel = engineOutputs; channel < numOutputChannels; ++channel)
         if (outputChannelData[channel] != nullptr)
@@ -49,6 +59,18 @@ void AudioDeviceHost::audioDeviceIOCallbackWithContext(
 
 void AudioDeviceHost::audioDeviceAboutToStart(juce::AudioIODevice* device)
 {
+    const auto active = device->getActiveInputChannels();
+    numInputChannels = 0;
+    numDeviceInputChannels = 0;
+
+    for (int channel = active.findNextSetBit(0);
+         channel >= 0 && channel < AudioInputs::maxChannels;
+         channel = active.findNextSetBit(channel + 1))
+    {
+        inputChannelNumbers[static_cast<std::size_t>(numInputChannels++)] = channel;
+        numDeviceInputChannels = channel + 1;
+    }
+
     engine.prepare(device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
 }
 
