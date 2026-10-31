@@ -81,6 +81,11 @@ public:
 
     void setLooping(bool shouldLoop) noexcept;
 
+    /** While recording: playback runs straight on, with no loop and no end of the
+        timeline (it may start with an empty one). */
+    void setLinear(bool shouldRunStraight) noexcept { linear = shouldRunStraight; }
+    [[nodiscard]] bool isLinear() const noexcept { return linear; }
+
     /** Loops [start, end); an empty or invalid range means the whole timeline,
         [0, length). The range only applies while playback is before end. */
     void setLoopRange(juce::int64 start, juce::int64 end) noexcept;
@@ -120,6 +125,7 @@ private:
     juce::int64 loopStart = 0; // as requested; see getLoopStart()
     juce::int64 loopEnd = 0;
     bool looping = false;
+    bool linear = false;
 
     // Rendering: running is true while the timeline is rendered. The output gain is
     // level / fadeLength; an integer level makes every fade exact and repeatable.

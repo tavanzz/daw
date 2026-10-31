@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace daw::engine
 {
@@ -38,7 +39,7 @@ void Transport::reset() noexcept
 
 void Transport::play() noexcept
 {
-    if (length == 0 || state == TransportState::playing)
+    if ((length == 0 && !linear) || state == TransportState::playing)
         return;
 
     const bool wasStopped = state == TransportState::stopped;
@@ -148,7 +149,8 @@ void Transport::render(TimelineRenderer& renderer, juce::AudioBuffer<float>& out
         // Arriving exactly at the loop end wraps; a position already past it (after a
         // seek) plays on to the end of the timeline.
         const juce::int64 end = getLoopEnd();
-        const juce::int64 limit = looping && position <= end ? end : length;
+        const juce::int64 limit = linear ? std::numeric_limits<juce::int64>::max()
+                                         : (looping && position <= end ? end : length);
         if (position >= limit)
         {
             reachEnd();

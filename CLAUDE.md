@@ -99,6 +99,17 @@ Modules with one-way dependencies:
   checks the free disk space. A full FIFO refuses the block (the producer knows
   which samples were lost); a refused write or less than 10 s of disk left is
   reported as a `Problem`. Tests replace the disk with a `RecordingSink`.
+- Recording in the engine (Phase 3): `Engine::startRecording(RecordingSetup)` (the
+  targets' input channels and FIFOs, start position, count-in, latency, punch
+  range) starts as soon as the transport is silent. `engine::Recorder` works in
+  stream indices (samples since the engine started): the recording runs from s0
+  (count-in or playback start, timeline `firstPosition`) to s1 (stop); what was
+  played at s comes back at s + latency, so it captures inputs [s0 + latency,
+  s1 + latency) and sample k belongs at `firstPosition + k`, exactly. While
+  recording the transport is linear (no loop, no end, seeks ignored, pause stops);
+  automatic monitoring follows the punch range to the sample. A FIFO without room
+  ends the capture for all targets (overrun); a device restart interrupts it.
+  `RecordingStatus` reports it all.
 - Export: `engine::OfflineRenderer` drives the same `Mixer` faster than real time;
   `engine::io::bounceToWav()` writes a stereo WAV (16/24-bit integer with
   `quantise()` = round(x·2^(bits−1)) clipped, optional seeded TPDF dither, or 32-bit
@@ -375,7 +386,7 @@ automation, mobile UI.
 - [x] 4. Metronome and count-in, sample-exact on the tempo map's beats
 - [x] 5. Recording pipeline: lock-free audio FIFO, WAV writer thread, overrun and
       disk-space reporting
-- [ ] 6. `Recorder` in the engine: latency-compensated capture, several tracks,
+- [x] 6. `Recorder` in the engine: latency-compensated capture, several tracks,
       punch in/out
 - [ ] 7. Recording in the controller: files, clips in one undo step, discard,
       errors, disk-space checks

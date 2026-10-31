@@ -26,6 +26,11 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     mixer.prepare(newSampleRate, newMaximumBlockSize);
     metronome.prepare(newSampleRate);
     countInRemaining = 0;
+
+    // The device stopped: a recording cannot go on (its inputs are gone).
+    recorder.interrupt();
+    transport.setLinear(false);
+    recordingTransport = false;
     crossfadeBuffer.setSize(2, newMaximumBlockSize);
     stereoBuffer.setSize(2, newMaximumBlockSize);
     crossfadeLength =
@@ -56,8 +61,20 @@ void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output
     if (fadingOut == nullptr)
         adoptPendingSnapshot();
 
+    startPendingRecording();
+
     while (const auto command = commands.pop())
         apply(*command);
+
+    // A recording's transport stays linear until its stop has faded out.
+    if (recordingTransport && !recorder.isRecording() && !transport.isRunning() &&
+        countInRemaining == 0)
+    {
+        transport.setLinear(false);
+        recordingTransport = false;
+    }
+
+    recorder.capture(inputs, streamPosition, output.getNumSamples());
 
     blockInputs = &inputs;
     meteredChannels = std::min(output.getNumChannels(), 2);
@@ -81,7 +98,68 @@ void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output
     }
 
     blockInputs = nullptr;
+    streamPosition += output.getNumSamples();
     publish();
+}
+
+void Engine::startPendingRecording() noexcept
+{
+    // A recording starts from a silent transport, so that its first sample is where
+    // the timeline really starts.
+    if (transport.isRunning() || countInRemaining > 0 ||
+        pendingRecording.load(std::memory_order_relaxed) == nullptr)
+        return;
+
+    const auto* setup = pendingRecording.exchange(nullptr, std::memory_order_acquire);
+    if (setup == nullptr)
+        return;
+
+    recorder.begin(*setup, streamPosition);
+    recordingTransport = true;
+    transport.setLinear(true);
+    transport.seek(setup->startPosition);
+
+    if (setup->countInLength > 0)
+    {
+        countInRemaining = setup->countInLength;
+        countInPosition = setup->startPosition - setup->countInLength;
+    }
+    else
+    {
+        transport.play();
+    }
+}
+
+void Engine::endRecording() noexcept
+{
+    if (recorder.isRecording())
+        recorder.end(streamPosition);
+}
+
+bool Engine::autoMonitorsAt(juce::int64 timelinePosition) const noexcept
+{
+    if (countInRemaining > 0 || transport.getState() != TransportState::playing)
+        return true;
+
+    const auto* setup = recorder.isRecording() ? recorder.getSetup() : nullptr;
+    if (setup == nullptr)
+        return false;
+
+    const bool punches = setup->punchOut > setup->punchIn;
+    return !punches || (timelinePosition >= setup->punchIn && timelinePosition < setup->punchOut);
+}
+
+int Engine::pieceLength(juce::int64 timelinePosition, int available) const noexcept
+{
+    auto length = static_cast<juce::int64>(std::min(maximumBlockSize, available));
+
+    // Monitoring switches on the exact sample of a punch in or out.
+    if (const auto* setup = recorder.isRecording() ? recorder.getSetup() : nullptr)
+        for (const auto boundary : {setup->punchIn, setup->punchOut})
+            if (setup->punchOut > setup->punchIn && boundary > timelinePosition)
+                length = std::min(length, boundary - timelinePosition);
+
+    return static_cast<int>(length);
 }
 
 void Engine::renderBlock(juce::AudioBuffer<float>& output, int numSamples) noexcept
@@ -143,7 +221,7 @@ MixContext Engine::makeContext(int outputStart) const noexcept
     MixContext context;
     context.inputs = blockInputs;
     context.inputOffset = renderOffset + outputStart;
-    context.autoMonitorsInput = transport.getState() != TransportState::playing;
+    context.autoMonitorsInput = autoMonitorsAt(transport.getPosition());
     return context;
 }
 
@@ -154,13 +232,15 @@ void Engine::renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>&
                         transport.getState() == TransportState::playing;
 
     // Devices may deliver more than they announced: render in pieces the mixer fits.
-    for (int done = 0; done < numSamples; done += maximumBlockSize)
+    for (int done = 0; done < numSamples;)
     {
-        const int piece = std::min(maximumBlockSize, numSamples - done);
+        const int piece = pieceLength(timelineStart + done, numSamples - done);
         auto context = makeContext(outputStart + done);
         context.fade = fade.from(done);
+        context.autoMonitorsInput = autoMonitorsAt(timelineStart + done);
         renderPiece(timelineStart + done, output, outputStart + done, piece, context);
         finishPiece(output, outputStart + done, piece, timelineStart + done, clicks);
+        done += piece;
     }
 }
 
@@ -270,6 +350,18 @@ void Engine::playWithCountIn(juce::int64 position, juce::int64 countInLength)
     send({Command::Type::countIn, position, countInLength});
 }
 
+void Engine::startRecording(const RecordingSetup& setup)
+{
+    jassert(pendingRecording.load() == nullptr);
+    recorder.markStarting();
+    pendingRecording.store(&setup, std::memory_order_release);
+}
+
+RecordingStatus Engine::getRecordingStatus() const noexcept
+{
+    return recorder.getStatus();
+}
+
 void Engine::collectGarbage()
 {
     while (const auto snapshot = retired.pop())
@@ -322,14 +414,44 @@ void Engine::send(Command command)
 
 void Engine::apply(const Command& command) noexcept
 {
+    // While recording, the transport goes straight on: seeks and other starts are
+    // ignored, pause stops.
+    if (recorder.isRecording())
+    {
+        switch (command.type)
+        {
+        case Command::Type::play:
+        case Command::Type::seek:
+        case Command::Type::countIn:
+            return;
+        case Command::Type::pause:
+        case Command::Type::stop:
+        case Command::Type::resetTransport:
+        {
+            endRecording();
+            const bool wasCountingIn = countInRemaining > 0;
+            countInRemaining = 0;
+            if (command.type == Command::Type::resetTransport)
+                transport.reset();
+            else if (!wasCountingIn) // during a count-in the transport has not started
+                transport.stop();
+            return;
+        }
+        case Command::Type::setLooping:
+            break;
+        }
+    }
+
     // Anything that moves or stops the transport ends a count-in.
     const bool endsCountIn = command.type == Command::Type::pause ||
                              command.type == Command::Type::stop ||
                              command.type == Command::Type::seek ||
                              command.type == Command::Type::resetTransport;
+    const bool wasCountingIn = countInRemaining > 0;
     if (endsCountIn)
         countInRemaining = 0;
 
+    // Stopping or pausing a count-in leaves the transport where it waited to start.
     switch (command.type)
     {
     case Command::Type::play:
@@ -337,10 +459,12 @@ void Engine::apply(const Command& command) noexcept
             transport.play();
         break;
     case Command::Type::pause:
-        transport.pause();
+        if (!wasCountingIn)
+            transport.pause();
         break;
     case Command::Type::stop:
-        transport.stop();
+        if (!wasCountingIn)
+            transport.stop();
         break;
     case Command::Type::seek:
         transport.seek(command.value);

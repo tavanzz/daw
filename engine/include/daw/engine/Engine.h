@@ -3,6 +3,7 @@
 #include "daw/engine/Arrangement.h"
 #include "daw/engine/AudioInputs.h"
 #include "daw/engine/Mixer.h"
+#include "daw/engine/Recorder.h"
 #include "daw/engine/Transport.h"
 #include "daw/engine/dsp/InputMeters.h"
 #include "daw/engine/dsp/Metronome.h"
@@ -74,6 +75,11 @@ struct EngineSnapshot
     The metronome clicks on the arrangement's beats while playing (if it is on) and
     during a count-in: bars of clicks before playback starts, the timeline silent.
     Clicks are added after the master meter: they are not part of the mix.
+
+    Recording (see Recorder) plays from a start position, after an optional count-in,
+    and captures the targets' inputs aligned to the sample with what was played.
+    While it runs the transport goes straight on: loop and the end of the timeline
+    do not apply, seeks are ignored, pause stops.
 */
 class Engine final : private TimelineRenderer
 {
@@ -121,6 +127,15 @@ public:
         count-in. Stop, pause, seek and reset cancel it. */
     void playWithCountIn(juce::int64 position, juce::int64 countInLength);
 
+    /** Message thread. Records setup's targets (see RecordingSetup), starting as
+        soon as the transport is stopped, until stop() or pause(). setup must stay
+        alive, unchanged, until getRecordingStatus() is complete. Not while another
+        recording is in progress. */
+    void startRecording(const RecordingSetup& setup);
+
+    /** Any thread. */
+    [[nodiscard]] RecordingStatus getRecordingStatus() const noexcept;
+
     /** Message thread. Frees arrangements the audio thread no longer uses.
         setArrangement() calls it too; call it regularly (a UI timer is fine). */
     void collectGarbage();
@@ -160,6 +175,10 @@ private:
     void finishPiece(juce::AudioBuffer<float>& output, int outputStart, int numSamples,
                      juce::int64 timelineStart, bool newClicks) noexcept;
     [[nodiscard]] MixContext makeContext(int outputStart) const noexcept;
+    void startPendingRecording() noexcept;
+    void endRecording() noexcept;
+    [[nodiscard]] bool autoMonitorsAt(juce::int64 timelinePosition) const noexcept;
+    [[nodiscard]] int pieceLength(juce::int64 timelinePosition, int available) const noexcept;
 
     void send(Command command);
     void apply(const Command& command) noexcept;
@@ -180,6 +199,9 @@ private:
     juce::int64 countInRemaining = 0; // samples of count-in still to click
     juce::int64 countInPosition = 0;  // the timeline position the count-in stands for
     int meteredChannels = 2;          // the device's outputs, as far as the meter goes
+    Recorder recorder;
+    juce::int64 streamPosition = 0;   // samples processed since the engine started
+    bool recordingTransport = false;  // the transport runs linear for a recording
     Snapshot* current = nullptr;
     Snapshot* fadingOut = nullptr; // the previous snapshot, during a crossfade
     int crossfadeDone = 0;
@@ -195,6 +217,7 @@ private:
     // Message thread -> audio thread.
     rt::SpscQueue<Command, 256> commands;
     std::atomic<Snapshot*> pendingSnapshot{nullptr};
+    std::atomic<const RecordingSetup*> pendingRecording{nullptr};
 
     // Audio thread -> message thread: snapshots to free.
     rt::SpscQueue<Snapshot*, 256> retired;

@@ -8,6 +8,7 @@ add_library(daw_engine STATIC
     src/Engine.cpp
     src/Mixer.cpp
     src/OfflineRenderer.cpp
+    src/Recorder.cpp
     src/Transport.cpp
     src/dsp/GainRamp.cpp
     src/dsp/InputMeters.cpp
