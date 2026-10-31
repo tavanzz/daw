@@ -580,6 +580,9 @@ bool Session::setTrackArmed(model::ObjectId trackId, bool armed)
 
 bool Session::needsInputs() const
 {
+    if (inputsRequested)
+        return true;
+
     for (int t = 0; t < project.getNumTracks(); ++t)
     {
         const auto track = project.getTrack(t);

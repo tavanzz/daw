@@ -112,6 +112,9 @@ void AppController::deviceChanged()
     auto* device = deviceHost.getDeviceManager().getCurrentAudioDevice();
     session.setDeviceLatency(device != nullptr ? device->getInputLatencyInSamples() : 0,
                              device != nullptr ? device->getOutputLatencyInSamples() : 0);
+    session.setInputChannelNames(device != nullptr && deviceHost.hasInputs()
+                                     ? device->getInputChannelNames()
+                                     : juce::StringArray());
 
     // Each device pair and rate has its own measured offset.
     offsetKey = latencyOffsetKey();

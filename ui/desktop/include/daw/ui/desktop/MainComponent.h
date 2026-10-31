@@ -48,7 +48,12 @@ public:
         zoomIn,
         zoomOut,
         zoomToFit,
-        toggleMixer
+        toggleMixer,
+        record,
+        discardRecording,
+        toggleMetronome,
+        toggleCountIn,
+        togglePunch
     };
 
     MainComponent(controller::Session& sessionToShow, juce::AudioDeviceManager& audioDeviceManager,
@@ -84,9 +89,13 @@ private:
     void openProjectFile(const juce::File& file);
     void chooseAudioToImport();
     void chooseProjectToOpen();
-    void chooseProjectToSave(std::function<void()> afterSaving = {});
+    void chooseProjectToSave(std::function<void()> afterSaving = {},
+                             const juce::String& title = "Save the project");
     void saveThen(std::function<void()> afterSaving);
     void showAudioSettings();
+    void toggleRecording();
+    void startRecording();
+    void confirmDiscardRecording();
 
     controller::Session& session;
     juce::AudioDeviceManager& deviceManager;
@@ -104,6 +113,7 @@ private:
     engine::TransportState lastState = engine::TransportState::stopped;
     juce::uint64 lastRevision = 0;
     bool lastSelection = false;
+    bool lastRecording = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

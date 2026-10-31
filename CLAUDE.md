@@ -224,6 +224,15 @@ Modules with one-way dependencies:
   changes first (`MainComponent::askToSaveChanges()`). Views redraw when
   `Session::getRevision()` changes. Peak meters have one reader each: the output
   peaks are taken once per tick and fed to both master meters.
+- Desktop recording UI (Phase 3): `TrackInputControls` (arm, monitoring cycling
+  off/auto/on, the input menu of the device's channels, mono and stereo pairs) sits
+  in each track header, with an input meter, and in each mixer strip. The transport
+  bar has Rec (R), Click (K, right-click for its volume), Count (Shift+K, right-click
+  for 1 or 2 bars), Punch (P) and a status line (count-in, disk time left, warnings
+  such as dropouts). Recording a project never saved first asks where to save it;
+  Cmd+. discards the recording in progress after a confirmation, and Escape never
+  does. While recording, commands that could change or replace the project are off.
+  Recordings are drawn as they grow, from the writer's waveform.
 - `app/AppController` owns the engine, the device host, the session and the window;
   drives `Session::update()` at 60 Hz, passes device sample-rate and latency changes
   to the session, keeps the window title, and stores the chosen device and the
@@ -457,7 +466,7 @@ automation, mobile UI.
       conversion while streaming, dropout reporting
 - [x] 11. Streaming everywhere: source pool, transport waiting for data, export
 - [x] 12. Microphone permission and app wiring (input device, latency offset)
-- [ ] 13. Desktop UI: arm, monitoring, inputs, input meters, record/metronome/
+- [x] 13. Desktop UI: arm, monitoring, inputs, input meters, record/metronome/
       count-in/punch controls, live recording clips
 - [ ] 14. Desktop UI: audio and recording settings, latency measurement, recovery,
       warnings

@@ -122,7 +122,8 @@ public:
     {
         juce::int64 trackId = 0;
         juce::File file;
-        juce::int64 firstPosition = 0;
+        juce::int64 firstPosition = 0; ///< where the file's first sample belongs
+        juce::int64 keepStart = 0;     ///< where the clip it becomes will start
         juce::int64 length = 0;
         std::shared_ptr<const engine::dsp::WaveformPeaks> peaks;
     };

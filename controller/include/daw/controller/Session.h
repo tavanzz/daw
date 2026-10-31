@@ -205,8 +205,18 @@ public:
     void setInputAccess(InputAccess access) noexcept { inputAccess = access; }
     [[nodiscard]] InputAccess getInputAccess() const noexcept { return inputAccess; }
 
-    /** Whether any track needs the inputs now: armed, or monitoring always. */
+    /** Whether the inputs are needed now: a track armed or monitoring always, or
+        someone asked (requestInputs(), e.g. the input settings being open). */
     [[nodiscard]] bool needsInputs() const;
+    void requestInputs() noexcept { inputsRequested = true; }
+
+    /** The device's input channels by number, for choosing a track's input (set by
+        the app when the device changes; empty while no input is open). */
+    void setInputChannelNames(juce::StringArray names) { inputChannelNames = std::move(names); }
+    [[nodiscard]] const juce::StringArray& getInputChannelNames() const noexcept
+    {
+        return inputChannelNames;
+    }
 
     /** Recordings found when the project was opened that its file does not have:
         interrupted by a crash, or never saved before one. The UI offers to recover
@@ -297,6 +307,8 @@ private:
     LatencyMeasurement latencyMeasurement{engine};
     std::optional<LatencyMeasurement::Result> latencyResult;
     InputAccess inputAccess = InputAccess::unknown;
+    bool inputsRequested = false;
+    juce::StringArray inputChannelNames;
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;
     int latencyOffset = 0;

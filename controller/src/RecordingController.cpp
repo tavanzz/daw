@@ -251,9 +251,11 @@ std::vector<RecordingController::LiveTake> RecordingController::getLiveTakes() c
     if (!isActive())
         return takes;
 
+    const bool punches = request.punchOut > request.punchIn;
     for (int index = 0; index < writer->getNumFiles(); ++index)
         takes.push_back({setup->targets[static_cast<std::size_t>(index)].trackId,
                          writer->getFile(index), setup->startPosition - setup->countInLength,
+                         punches ? request.punchIn : request.startPosition,
                          writer->getSamplesWritten(index), writer->getPeaks(index)});
     return takes;
 }
