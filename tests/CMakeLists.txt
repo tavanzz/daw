@@ -6,6 +6,7 @@ add_executable(daw_tests
     support/SimulatedDevice.cpp
     support/TestMain.cpp
     support/TestAudioFiles.cpp
+    appearance/AnimationSettingsTests.cpp
     appearance/ColourTests.cpp
     appearance/ContrastTests.cpp
     appearance/ThemeFileTests.cpp

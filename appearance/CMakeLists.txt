@@ -11,6 +11,8 @@ juce_add_binary_data(daw_appearance_resources
         themes/synth-chrome.json)
 
 add_library(daw_appearance STATIC
+    src/AnimationSettings.cpp
+    src/AppearancePreferences.cpp
     src/Colour.cpp
     src/ColourMetrics.cpp
     src/ContrastRules.cpp

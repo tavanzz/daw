@@ -277,6 +277,14 @@ Modules with one-way dependencies:
   (record, mute, solo, clip, automation) at least 10 apart in CIELAB L*. Decorative
   lines, translucent overlays and disabled text are exempt. A UI that draws a new
   combination adds it to `colourPairs()`; the tests run the check on every theme.
+- Animation settings (Phase 5): `appearance::AnimationSettings` (level full /
+  reduced / off, a switch per `AnimationEffect`, the level to go back to after
+  "switch all off", following the system's reduce motion). An effect runs when the
+  theme draws it, its switch is on and the effective level allows it: reduced drops
+  moving backgrounds, glitch and panel transitions; a system asking to reduce motion
+  caps full at reduced. `animationLoad()` adds up the running effects' costs (low 1,
+  medium 2, high 3; rated low up to 4, medium up to 7). `AppearancePreferences` (theme
+  id and animations) goes to the user settings as JSON; reading it never fails.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -566,7 +574,7 @@ into `phase-5`.
       value
 - [x] 2. Contrast and status colours: WCAG contrast for every text/background pair,
       status colours apart in lightness, derived colours
-- [ ] 3. Animation settings: levels, per-effect switches, reduced/off rules, system
+- [x] 3. Animation settings: levels, per-effect switches, reduced/off rules, system
       reduce motion, costs and total load, user-setting persistence
 - [ ] 4. Bundled fonts (OFL), `docs/THIRD_PARTY.md`, typeface loading
 - [ ] 5. LookAndFeel base and one per theme for JUCE widgets; live switching across
