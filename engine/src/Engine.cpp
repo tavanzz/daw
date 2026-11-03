@@ -36,7 +36,7 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     }
     transport.setLinear(false);
     recordingTransport = false;
-    crossfadeBuffer.setSize(2, newMaximumBlockSize);
+    silentArrangement.sampleRate = newSampleRate;
     stereoBuffer.setSize(2, newMaximumBlockSize);
     crossfadeLength =
         std::max(1, static_cast<int>(std::lround(crossfadeSeconds * newSampleRate)));
@@ -70,10 +70,6 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
 
     if (waitingToRetire != nullptr && retired.push(waitingToRetire))
         waitingToRetire = nullptr;
-
-    // A crossfade only lasts while the timeline is being rendered.
-    if (fadingOut != nullptr && !transport.isRunning())
-        finishCrossfade();
 
     // One change of arrangement at a time: a newer one waits for the crossfade.
     if (fadingOut == nullptr)
@@ -369,34 +365,26 @@ void Engine::renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& ou
         return;
     }
 
-    mixer.render(*current->arrangement, current->mix, timelineStart, output, outputStart,
-                 numSamples, context);
-
     if (fadingOut == nullptr)
-        return;
-
-    const int fading = std::min(numSamples, crossfadeLength - crossfadeDone);
-
-    if (canPlay(fadingOut))
-        mixer.render(*fadingOut->arrangement, fadingOut->mix, timelineStart, crossfadeBuffer, 0,
-                     fading, context);
-    else
-        crossfadeBuffer.clear();
-
-    const auto fullLength = static_cast<float>(crossfadeLength);
-    for (int channel = 0; channel < 2; ++channel)
     {
-        float* mixed = output.getWritePointer(channel, outputStart);
-        const float* old = crossfadeBuffer.getReadPointer(channel);
-
-        for (int i = 0; i < fading; ++i)
-        {
-            const float gain = static_cast<float>(crossfadeDone + i + 1) / fullLength;
-            mixed[i] = old[i] + (mixed[i] - old[i]) * gain;
-        }
+        mixer.render(*current->arrangement, current->mix, timelineStart, output, outputStart,
+                     numSamples, context);
+        return;
     }
 
-    crossfadeDone += fading;
+    // Track by track, the clips that changed crossfade from the old arrangement to
+    // the new, and tracks that are gone fade out. (An arrangement at another rate
+    // plays nothing, so everything fades in from silence.)
+    auto crossfading = context;
+    const bool oldPlays = canPlay(fadingOut);
+    crossfading.previous = oldPlays ? fadingOut->arrangement.get() : &silentArrangement;
+    crossfading.previousState = oldPlays ? &fadingOut->mix : &silentMix;
+    crossfading.crossfadeDone = crossfadeDone;
+    crossfading.crossfadeLength = crossfadeLength;
+    mixer.render(*current->arrangement, current->mix, timelineStart, output, outputStart,
+                 numSamples, crossfading);
+
+    crossfadeDone += std::min(numSamples, crossfadeLength - crossfadeDone);
     if (crossfadeDone >= crossfadeLength)
         finishCrossfade();
 }
@@ -668,16 +656,23 @@ void Engine::adoptPendingSnapshot() noexcept
 
     if (current != nullptr)
     {
-        // While anything is heard, gains carry on from where they are and ramp to
-        // the new targets; while silent, the new gains simply apply.
-        if (transport.isRunning() || current->mix.isHearingInput())
+        // While anything may be heard (effects ring on after a stop), gains carry on
+        // from where they are and ramp to the new targets; while silent, the new
+        // gains simply apply.
+        const bool mayBeHeard = transport.isRunning() || current->mix.isHearingInput() ||
+                                current->arrangement->hasEffects();
+        if (mayBeHeard)
             incoming->mix.continueFrom(current->mix, *current->arrangement,
                                        *incoming->arrangement, mixer.getGainRampLength());
 
+        // Changed clips crossfade while the timeline plays; tracks that are gone fade
+        // out whenever they may be heard.
         const bool soundsDifferent =
             incoming->arrangement->layoutHash != current->arrangement->layoutHash;
+        const bool losesTracks = !hasEveryTrackOf(*incoming->arrangement, *current->arrangement);
 
-        if (transport.isRunning() && soundsDifferent && canPlay(current))
+        if (canPlay(current) &&
+            ((transport.isRunning() && soundsDifferent) || (mayBeHeard && losesTracks)))
         {
             fadingOut = current;
             crossfadeDone = 0;
@@ -692,6 +687,20 @@ void Engine::adoptPendingSnapshot() noexcept
     const auto& arrangement = *current->arrangement;
     transport.setLength(arrangement.length);
     transport.setLoopRange(arrangement.loopStart, arrangement.loopEnd);
+}
+
+bool Engine::hasEveryTrackOf(const Arrangement& arrangement, const Arrangement& other) noexcept
+{
+    for (std::size_t i = 0; i < other.tracks.size(); ++i)
+    {
+        const auto id = other.tracks[i].id;
+        if (i < arrangement.tracks.size() && arrangement.tracks[i].id == id)
+            continue;
+        if (std::none_of(arrangement.tracks.begin(), arrangement.tracks.end(),
+                         [id](const ArrangementTrack& track) { return track.id == id; }))
+            return false;
+    }
+    return true;
 }
 
 void Engine::finishCrossfade() noexcept

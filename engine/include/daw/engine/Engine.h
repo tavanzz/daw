@@ -67,10 +67,12 @@ struct EngineSnapshot
       published.
 
     A new arrangement replaces the current one as a whole, through one atomic
-    pointer exchange. If it changes what the tracks play while playback is running,
-    the old and the new are crossfaded over crossfadeSeconds; gain changes ramp in
-    the mixer instead. Replaced arrangements go back to the message thread on a
-    queue and are freed by collectGarbage().
+    pointer exchange. If it changes what a track plays while playback is running,
+    that track's clips crossfade from the old to the new over crossfadeSeconds,
+    before its effects (which are shared by both arrangements and run once); tracks
+    that are gone fade out over the same time; gain changes ramp in the mixer.
+    Replaced arrangements go back to the message thread on a queue and are freed by
+    collectGarbage().
 
     Tracks that monitor their input are heard whatever the transport does: the
     mixer runs while stopped too, and the transport's fades only touch the clips.
@@ -217,6 +219,8 @@ private:
     void apply(const Command& command) noexcept;
     void adoptPendingSnapshot() noexcept;
     void finishCrossfade() noexcept;
+    [[nodiscard]] static bool hasEveryTrackOf(const Arrangement& arrangement,
+                                              const Arrangement& other) noexcept;
     void retire(Snapshot* snapshot) noexcept;
     [[nodiscard]] bool canPlay(const Snapshot* snapshot) const noexcept;
     void publish() noexcept;
@@ -246,7 +250,8 @@ private:
     Snapshot* current = nullptr;
     Snapshot* fadingOut = nullptr; // the previous snapshot, during a crossfade
     int crossfadeDone = 0;
-    juce::AudioBuffer<float> crossfadeBuffer;
+    Arrangement silentArrangement; // what an arrangement at another rate sounds like
+    MixState silentMix;
     juce::AudioBuffer<float> stereoBuffer; // for devices with fewer than two outputs
 
     // The current block's inputs, and where the buffer being rendered starts in it

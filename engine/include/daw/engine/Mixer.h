@@ -63,12 +63,21 @@ struct MixContext
     /** Whether tracks monitoring automatically hear their input now (see
         InputMonitoring::automatic). */
     bool autoMonitorsInput = false;
+
+    /** While the engine changes from one arrangement to the next: the one before and
+        its gains. Tracks whose clips changed crossfade their clips (before their
+        effects) from the old ones to the new over crossfadeLength samples, of which
+        crossfadeDone are done; tracks the new arrangement no longer has fade out. */
+    const Arrangement* previous = nullptr;
+    MixState* previousState = nullptr;
+    int crossfadeDone = 0;
+    int crossfadeLength = 1;
 };
 
 /**
     Mixes an arrangement: reads the clips of every track, applies their fades, the
-    track gains (volume, pan, mute and solo, ramped) and the master gain, and sums
-    the tracks into a stereo output.
+    track's effects, the track gains (volume, pan, mute and solo, ramped) and the
+    master gain and effects, and sums the tracks into a stereo output.
 
     A track that monitors plays its input instead of its clips, through the same
     gains and meter; the switch is a monitorRampSeconds crossfade. Mono inputs are
@@ -77,6 +86,11 @@ struct MixContext
     The same code renders real-time playback and offline exports, and its result
     does not depend on how the timeline is cut into blocks: every gain is a function
     of the sample's position, so exports equal playback sample for sample.
+
+    Effects run whenever the mixer renders, also while the timeline is stopped, so
+    their tails ring on. A track without effects that is silent is skipped, as it
+    always was; with effects it is processed (its tail may still sound) but only
+    added to the mix when its gains let it be heard.
 
     render() is real-time safe. prepare() allocates.
 */
@@ -103,17 +117,29 @@ public:
                 const MixContext& context = {}) noexcept;
 
 private:
-    void renderTrack(const ArrangementTrack& track, MixState::TrackGains& gains,
-                     juce::int64 timelineStart, int numSamples, const MixContext& context) noexcept;
-    void readClips(const ArrangementTrack& track, juce::int64 timelineStart,
-                   int numSamples) noexcept;
+    /** Leaves the track's output in scratch; false if it adds nothing to the mix. */
+    bool renderTrack(const Arrangement& arrangement, const ArrangementTrack& track,
+                     MixState::TrackGains& gains, juce::int64 timelineStart, int numSamples,
+                     const MixContext& context, const ArrangementTrack* before) noexcept;
+    void renderVanishedTracks(const Arrangement& arrangement, juce::int64 timelineStart,
+                              float* const* mix, int numSamples,
+                              const MixContext& context) noexcept;
+    void readClips(const ArrangementTrack& track, juce::int64 timelineStart, int numSamples,
+                   juce::AudioBuffer<float>& destination) noexcept;
+    void crossfadeClips(const ArrangementTrack* before, juce::int64 timelineStart,
+                        int numSamples, const MixContext& context) noexcept;
     void readInput(const ArrangementTrack& track, const MixContext& context,
                    int numSamples) noexcept;
+    void processChain(const EffectChain& chain, const Arrangement& arrangement,
+                      float* const* channels, int numSamples, juce::int64 timelineStart,
+                      const MixContext& context) noexcept;
 
     int gainRampLength = 1;
     int monitorRampLength = 1;
     juce::AudioBuffer<float> scratch;      // one track at a time
     juce::AudioBuffer<float> inputScratch; // its input, while crossfading
+    juce::AudioBuffer<float> oldClips;     // its previous clips, while crossfading
+    fx::EffectScratch effectScratch;
 };
 
 } // namespace daw::engine

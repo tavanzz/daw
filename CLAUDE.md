@@ -53,9 +53,11 @@ Modules with one-way dependencies:
   also converts a block at a time, identically).
 - Engine threading: UI commands go through an `SpscQueue` and apply at the next
   block. A new `Arrangement` (with its `MixState`) arrives through one atomic pointer
-  exchange (`Engine::setArrangement()`); if it changes what the tracks play
-  (`layoutHash`) while the transport runs, old and new are crossfaded over 5 ms, one
-  change at a time; while stopped it simply applies. Replaced snapshots go back on a
+  exchange (`Engine::setArrangement()`); if it changes what a track plays
+  (`layoutHash`, per track too) while the transport runs, that track's clips
+  crossfade from old to new over 5 ms before its effects (which both arrangements
+  share and which run once), one change at a time; tracks that are gone fade out
+  over the same time whenever they may be heard; otherwise it simply applies. Replaced snapshots go back on a
   second queue and `Engine::collectGarbage()` frees them on the message thread. State
   for the UI is published with relaxed atomics after every block. Blocks larger than
   announced are rendered in pieces; mono devices get the left channel.
@@ -132,7 +134,17 @@ Modules with one-way dependencies:
   when added, removed or bypassed (a bypassed effect is not processed and restarts
   clean), the dry signal delayed by the latency (`dsp::DelayLine`), and a guard that
   resets and silences an effect producing NaN or infinity (`hasFailed()`). The audio
-  and export threads run with denormals flushed to zero (`juce::ScopedNoDenormals`).
+  and export threads run with denormals flushed to zero (`juce::ScopedNoDenormals`;
+  Accelerate's vector operations on macOS ignore the mode, the effects' own code
+  does not).
+- Insert chains (Phase 4): an `EffectChain` of `ChainSlot`s (a shared
+  `EffectInstance`, the normalised parameter values, enabled, revival) on every
+  track, before its fader, and on the master, after the master fader. The
+  instances persist across arrangements, never twice in one. Effects run whenever
+  the mixer renders, also while stopped, so tails ring on; a silent track without
+  effects is still skipped. With empty chains, bypassed effects or exact unity
+  gains the mix equals Phase 3 bit for bit: tests compare it with a frozen copy of
+  the v0.3.0 mixer (`tests/support/Phase3Mixer`).
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -551,7 +563,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 0. Plan (this list) and draft pull request
 - [x] 1. Effect interface (`fx::Effect`) and the host's slot: parameters, ramps,
       dry/wet fades, latency, NaN/Inf guard, denormals; test effects
-- [ ] 2. Insert chains in the mixer and the engine: persistent instances across
+- [x] 2. Insert chains in the mixer and the engine: persistent instances across
       snapshots, per-track clip crossfade, tails after stop; bit-identical to Phase 3
       with empty or bypassed chains
 - [ ] 3. Aux buses and pre/post-fader sends, mute and solo rules

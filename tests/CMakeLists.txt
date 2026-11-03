@@ -1,6 +1,7 @@
 include(Catch)
 
 add_executable(daw_tests
+    support/Phase3Mixer.cpp
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
     support/SimulatedDevice.cpp
@@ -17,6 +18,7 @@ add_executable(daw_tests
     engine/AudioFileLoaderTests.cpp
     engine/BounceTests.cpp
     engine/DiskStreamerTests.cpp
+    engine/EffectChainTests.cpp
     engine/EffectHostTests.cpp
     engine/EngineTests.cpp
     engine/LatencyProbeTests.cpp

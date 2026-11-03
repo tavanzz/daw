@@ -3,6 +3,7 @@
 #include "daw/engine/AudioSource.h"
 #include "daw/engine/BeatGrid.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
+#include "daw/engine/fx/EffectInstance.h"
 
 #include <juce_core/juce_core.h>
 
@@ -35,6 +36,31 @@ enum class InputMonitoring : std::uint8_t
     on
 };
 
+/** One effect of a chain, as an arrangement plays it. */
+struct ChainSlot
+{
+    /** The effect. One instance per effect, shared by every arrangement that plays
+        it, so that its state (tails, envelopes) goes on when the arrangement
+        changes; never in two places of one arrangement. */
+    std::shared_ptr<fx::EffectInstance> instance;
+
+    std::vector<float> parameters; ///< normalised values set by the user, one per parameter
+    bool enabled = true;           ///< false: bypassed, or fading out before it is removed
+    std::uint32_t revival = 0;     ///< see fx::SlotSettings
+};
+
+/** Effects in series, processed in order. */
+struct EffectChain
+{
+    std::vector<ChainSlot> slots;
+
+    [[nodiscard]] bool isEmpty() const noexcept { return slots.empty(); }
+
+    /** How many samples the chain delays its audio: the sum of its effects'
+        latencies, bypassed ones included (bypassing never moves audio in time). */
+    [[nodiscard]] int getLatency() const noexcept;
+};
+
 /** A track as the mixer sees it. */
 struct ArrangementTrack
 {
@@ -43,6 +69,9 @@ struct ArrangementTrack
     float rightGain = 1.0f;
     std::vector<ClipSegment> segments; ///< sorted by start, never overlapping
 
+    /** Effects on the track, before its fader. */
+    EffectChain inserts;
+
     int inputChannel = -1;  ///< first device input channel; -1 for none
     int numInputChannels = 0; ///< 1 (heard on both sides) or 2
     InputMonitoring monitoring = InputMonitoring::off;
@@ -50,6 +79,9 @@ struct ArrangementTrack
 
     /** Measures the track after its fader, for the UI; may be null. */
     std::shared_ptr<dsp::PeakLevelMeter> meter;
+
+    /** Summary of the segments (see Arrangement::layoutHash). */
+    std::uint64_t layoutHash = 0;
 };
 
 /**
@@ -66,6 +98,15 @@ struct Arrangement
     std::vector<ArrangementTrack> tracks;
     float masterGain = 1.0f;
 
+    /** Effects on the mix, after the master fader (so a limiter there holds its
+        ceiling whatever the fader does). */
+    EffectChain masterInserts;
+
+    /** The project's tempo and metre, for tempo-synced effects. */
+    double tempo = 120.0; ///< quarter notes per minute
+    int numerator = 4;
+    int denominator = 4;
+
     juce::int64 length = 0;    ///< where the last clip ends
     juce::int64 loopStart = 0; ///< loop region [loopStart, loopEnd); empty = [0, length)
     juce::int64 loopEnd = 0;
@@ -79,10 +120,14 @@ struct Arrangement
 
     /** Summary of the segments of every track. Two arrangements with different
         hashes sound different even at equal gains: swapping them while playing
-        needs a crossfade. Computed by updateLayoutHash(). */
+        needs a crossfade (of the tracks whose own hashes differ). Computed by
+        updateLayoutHash(), with the tracks' own. */
     std::uint64_t layoutHash = 0;
 
     void updateLayoutHash() noexcept;
+
+    /** Whether any track or the master has effects. */
+    [[nodiscard]] bool hasEffects() const noexcept;
 };
 
 /** Audio thread (or any). Whether every source the arrangement plays in
