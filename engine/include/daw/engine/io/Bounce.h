@@ -19,6 +19,14 @@ struct BounceSettings
     juce::int64 start = 0;        ///< timeline range [start, end), in samples
     juce::int64 end = 0;
     std::uint32_t ditherSeed = 1; ///< the same seed gives the same file
+
+    /** After end, the effects' tails: rendered without the clips until the mix has
+        stayed below tailSilenceDecibels for tailHoldSeconds, or for at most
+        maximumTailSeconds. */
+    bool includeTail = false;
+    double tailSilenceDecibels = -96.0;
+    double tailHoldSeconds = 1.0;
+    double maximumTailSeconds = 30.0;
 };
 
 struct BounceResult

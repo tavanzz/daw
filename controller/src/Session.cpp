@@ -1,6 +1,7 @@
 #include "daw/controller/Session.h"
 
 #include "daw/controller/ArrangementBuilder.h"
+#include "daw/controller/AutomationEditing.h"
 #include "daw/controller/TempoBeatGrid.h"
 #include "daw/controller/TimelineViewport.h"
 #include "daw/engine/io/WavRepair.h"
@@ -1193,6 +1194,74 @@ void Session::setSendPreFader(model::ObjectId trackId, model::ObjectId sendId, b
             startEdit(preFader ? "Pre-Fader Send" : "Post-Fader Send");
             track->getSend(index).setPreFader(preFader, &undoManager);
         }
+}
+
+// Automation ------------------------------------------------------------------------------
+
+model::Automation Session::getAutomation(const ChainOwner& owner) const
+{
+    if (owner.kind == ChainOwner::Kind::track)
+        if (const auto track = findTrack(owner.id))
+            return track->getAutomation();
+    if (owner.kind == ChainOwner::Kind::bus)
+        if (const auto bus = findBus(owner.id))
+            return bus->getAutomation();
+    return project.getMasterAutomation();
+}
+
+void Session::setAutomationMode(const ChainOwner& owner, model::AutomationMode mode)
+{
+    getAutomation(owner).setMode(mode);
+}
+
+int Session::addAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                                model::AutomationPointData point)
+{
+    startEdit("Add Automation Point");
+    return getAutomation(owner).getOrAddLane(target, &undoManager).addPoint(point, &undoManager);
+}
+
+int Session::setAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                                int index, model::AutomationPointData point)
+{
+    auto automation = getAutomation(owner);
+    const int lane = automation.indexOfLane(target);
+    if (lane < 0)
+        return -1;
+
+    startEdit("Move Automation Point");
+    return automation.getLane(lane).setPoint(index, point, &undoManager);
+}
+
+void Session::removeAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                                    int index)
+{
+    auto automation = getAutomation(owner);
+    if (const int lane = automation.indexOfLane(target); lane >= 0)
+    {
+        startEdit("Delete Automation Point");
+        automation.getLane(lane).removePoint(index, &undoManager);
+    }
+}
+
+void Session::clearAutomation(const ChainOwner& owner, const model::AutomationTarget& target)
+{
+    auto automation = getAutomation(owner);
+    if (const int lane = automation.indexOfLane(target); lane >= 0)
+    {
+        startEdit("Clear Automation");
+        automation.removeLane(lane, &undoManager);
+    }
+}
+
+std::optional<double> Session::getAutomatedValue(const ChainOwner& owner,
+                                                 const model::AutomationTarget& target) const
+{
+    const auto automation = getAutomation(owner);
+    const int lane = automation.indexOfLane(target);
+    if (automation.getMode() != model::AutomationMode::read || lane < 0)
+        return std::nullopt;
+    return automationValueAt(automation.getLane(lane), getPlayhead());
 }
 
 std::optional<model::Track> Session::findTrack(model::ObjectId trackId) const

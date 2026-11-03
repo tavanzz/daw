@@ -31,18 +31,38 @@ void OfflineRenderer::render(juce::AudioBuffer<float>& output)
         for (int done = 0; done < state.latency;)
         {
             const int length = std::min(maximumBlockSize, state.latency - done);
-            mixer.render(arrangement, state, readPosition, discarded, 0, length, contextAt());
-            readPosition += length;
+            renderRead(discarded, 0, length);
             done += length;
         }
     }
 
-    for (int done = 0; done < output.getNumSamples(); done += maximumBlockSize)
+    for (int done = 0; done < output.getNumSamples();)
     {
         const int length = std::min(maximumBlockSize, output.getNumSamples() - done);
-        mixer.render(arrangement, state, readPosition, output, done, length, contextAt());
-        readPosition += length;
+        renderRead(output, done, length);
         position += length;
+        done += length;
+    }
+}
+
+void OfflineRenderer::renderRead(juce::AudioBuffer<float>& output, int start, int length)
+{
+    for (int done = 0; done < length;)
+    {
+        // The timeline stops at its end: what is read there on is silence.
+        const bool running = readPosition < timelineEnd;
+        int piece = length - done;
+        if (running)
+            piece = static_cast<int>(std::min<juce::int64>(piece, timelineEnd - readPosition));
+        else
+            history.record({readPosition, timelineEnd, TimelineHistory::Kind::stopped, false});
+
+        auto context = contextAt();
+        context.timelineRunning = running;
+        mixer.render(arrangement, state, running ? readPosition : timelineEnd, output, start + done,
+                     piece, context);
+        readPosition += piece;
+        done += piece;
     }
 }
 

@@ -4,6 +4,7 @@
 
 add_library(daw_controller STATIC
     src/ArrangementBuilder.cpp
+    src/AutomationEditing.cpp
     src/ClipEditing.cpp
     src/EffectInstances.cpp
     src/ExportJob.cpp

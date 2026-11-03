@@ -54,6 +54,7 @@ engine::io::BounceResult ExportJob::run(const std::function<bool(double)>& keepG
     bounce.file = settings.file;
     bounce.bitsPerSample = settings.bitsPerSample;
     bounce.dither = settings.dither;
+    bounce.includeTail = settings.includeTail;
     bounce.start = 0;
     bounce.end = arrangement->length;
 

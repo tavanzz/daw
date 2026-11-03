@@ -196,6 +196,29 @@ public:
     /** Measured after its fader. */
     [[nodiscard]] std::shared_ptr<engine::dsp::PeakLevelMeter> getBusMeter(model::ObjectId busId);
 
+    // Automation --------------------------------------------------------------------
+
+    [[nodiscard]] model::Automation getAutomation(const ChainOwner& owner) const;
+    /** Read or off. Not undoable. */
+    void setAutomationMode(const ChainOwner& owner, model::AutomationMode mode);
+    /** Adds a point to target's lane (made if needed); returns its index. */
+    int addAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                           model::AutomationPointData point);
+    /** Changes a point; returns its index after moving among the others. A drag is
+        one gesture. */
+    int setAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                           int index, model::AutomationPointData point);
+    void removeAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                               int index);
+    /** Removes the lane with all its points. */
+    void clearAutomation(const ChainOwner& owner, const model::AutomationTarget& target);
+
+    /** The value (normalised) target's automation gives at the playhead; nothing if
+        its owner's automation is off or it has no points. Controls show it, and
+        cannot be moved while it is there. */
+    [[nodiscard]] std::optional<double> getAutomatedValue(const ChainOwner& owner,
+                                                          const model::AutomationTarget& target) const;
+
     /** A post-fader send at 0 dB from the track to the bus (or the one it has). */
     model::ObjectId addSend(model::ObjectId trackId, model::ObjectId busId);
     void removeSend(model::ObjectId trackId, model::ObjectId sendId);

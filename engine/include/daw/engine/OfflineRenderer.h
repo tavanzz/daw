@@ -6,6 +6,8 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include <limits>
+
 namespace daw::engine
 {
 
@@ -40,8 +42,14 @@ public:
     /** How far the mix lags the timeline: what render() makes up for. */
     [[nodiscard]] int getLatency() const noexcept { return state.latency; }
 
+    /** From this timeline position on the timeline is silent (no clip is read) and
+        only the effects' tails go on, as after a stop; automation holds its value
+        there. For exports that include the tail. Set it before the first render(). */
+    void setTimelineEnd(juce::int64 end) noexcept { timelineEnd = end; }
+
 private:
     [[nodiscard]] MixContext contextAt() const noexcept;
+    void renderRead(juce::AudioBuffer<float>& output, int start, int length);
 
     const Arrangement& arrangement;
     Mixer mixer;
@@ -49,6 +57,7 @@ private:
     int maximumBlockSize;
     juce::int64 position = 0;     // of the next sample out
     juce::int64 readPosition = 0; // of the next sample read: latency samples ahead
+    juce::int64 timelineEnd = std::numeric_limits<juce::int64>::max();
     bool started = false;
     juce::AudioBuffer<float> discarded;
     TimelineHistory history; // read in a straight line: stream index = read position

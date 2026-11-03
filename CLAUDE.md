@@ -266,6 +266,17 @@ Modules with one-way dependencies:
   `Session` edits effects (`ChainOwner`: track, bus or master), buses and sends
   with undo; delay and reverb start fully wet on a bus; while recording, edits
   that would change the latency are refused (`takeEditProblem()`).
+- Automation in the controller (Phase 4): `Session` adds, moves (a drag is one
+  gesture), removes and clears points of a target's lane (undoable) and switches
+  an owner's mode (not undoable); `getAutomatedValue()` gives a target's value at
+  the playhead, which controls show. `AutomationEditing.h` has the value of a lane
+  at a position (the engine's own curve, in ticks), point and segment hit tests and
+  the bend for dragging a segment.
+- Export tail (Phase 4): `BounceSettings::includeTail` (the export dialog's
+  "Include tail", on by default) renders on after the end with the timeline silent
+  (`OfflineRenderer::setTimelineEnd()`), until the mix has stayed below -96 dBFS for
+  1 s or for at most 30 s, and writes it up to its last sound: a mix without
+  tails gets nothing more.
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -659,7 +670,7 @@ comping, mobile UI, writing automation live (touch/latch).
       version 3
 - [x] 11. Controller: chains, buses and sends in the session, effect instances,
       arrangement building with latencies, NaN reports
-- [ ] 12. Controller: automation editing and undo, values for the UI, export with tail
+- [x] 12. Controller: automation editing and undo, values for the UI, export with tail
 - [ ] 13. Benchmark: cost of each effect, tracks with a typical chain per budget
 - [ ] 14. Desktop UI: inserts, sends, bus strips and master inserts in the mixer
 - [ ] 15. Desktop UI: generic effect editor, EQ curve, compressor view
