@@ -254,6 +254,18 @@ Modules with one-way dependencies:
   the rulers; `ClipEditing.h` the move/trim rules with `Snapper`. `ExportJob` copies
   the project on the message thread and exports on another, loading files at the
   export rate when it differs from the device's.
+- Effects in the controller (Phase 4): `buildArrangement()` turns chains (values
+  normalised in the effect's parameter order, bypass, automation curves in read
+  mode), buses (muted: gain 0), sends (none from a track that is not heard) and
+  the master chain into the arrangement; without an `EffectLookup` every effect
+  gets a fresh instance (exports). `controller::EffectInstances` keeps one engine
+  instance per model effect across rebuilds, and gives a new one (fading in) to an
+  effect that is new, changed type, moved (`markMoved()`, or found out of order)
+  or after a rate change. `FadeOutKeeper` keeps removed effects (switched off),
+  sends and buses (gain 0) in the arrangement for 150 ms so they fade out.
+  `Session` edits effects (`ChainOwner`: track, bus or master), buses and sends
+  with undo; delay and reverb start fully wet on a bus; while recording, edits
+  that would change the latency are refused (`takeEditProblem()`).
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -645,7 +657,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 9. Reverb: feedback delay network with an exact decay time
 - [x] 10. Project format version 4: effects, buses, sends, automation; migration from
       version 3
-- [ ] 11. Controller: chains, buses and sends in the session, effect instances,
+- [x] 11. Controller: chains, buses and sends in the session, effect instances,
       arrangement building with latencies, NaN reports
 - [ ] 12. Controller: automation editing and undo, values for the UI, export with tail
 - [ ] 13. Benchmark: cost of each effect, tracks with a typical chain per budget

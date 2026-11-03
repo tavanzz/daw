@@ -23,6 +23,7 @@ add_library(daw_engine STATIC
     src/dsp/PeakLevelMeter.cpp
     src/dsp/Resampler.cpp
     src/dsp/WaveformPeaks.cpp
+    src/fx/BuiltInEffects.cpp
     src/fx/Compressor.cpp
     src/fx/Delay.cpp
     src/fx/EffectInstance.cpp

@@ -1,6 +1,9 @@
 #pragma once
 
+#include "daw/controller/ChainOwner.h"
 #include "daw/controller/ClipEditing.h"
+#include "daw/controller/EffectInstances.h"
+#include "daw/controller/FadeOutKeeper.h"
 #include "daw/controller/LatencyMeasurement.h"
 #include "daw/controller/RecordingController.h"
 #include "daw/controller/RecordingJournal.h"
@@ -24,6 +27,18 @@ namespace daw::controller
 inline constexpr const char* microphoneDeniedMessage =
     "Microphone access is off for this app, so it cannot record or hear any input. "
     "Allow it in System Settings > Privacy & Security > Microphone, then try again.";
+
+/** Why an effect edit was refused while recording. */
+inline constexpr const char* latencyWhileRecordingMessage =
+    "Effects that delay the audio (such as the limiter) cannot be added, moved or removed "
+    "while recording: the recording would no longer line up. Stop recording first.";
+
+/** Where an effect of the project is. */
+struct EffectLocation
+{
+    ChainOwner owner;
+    int index = -1;
+};
 
 /** How a Session plays its files. */
 struct SessionOptions
@@ -57,6 +72,10 @@ public:
     static constexpr double fallbackSampleRate = 48000.0;
 
     static constexpr double maximumArrangementWait = 0.5; // seconds
+
+    /** The block size effects are prepared for (longer blocks are processed in
+        pieces). */
+    static constexpr int effectBlockSize = 512;
 
     explicit Session(engine::Engine& engineToDrive, SessionOptions options = {});
     ~Session() override;
@@ -137,6 +156,51 @@ public:
     void setTrackInput(model::ObjectId trackId, model::TrackInput input);
     void setTrackMonitoring(model::ObjectId trackId, model::MonitoringMode mode);
     void setMasterVolume(double gain);
+
+    // Effects, buses and sends -----------------------------------------------------------
+
+    /** Adds a built-in effect to an owner's chain at index (-1: the end). Delay and
+        reverb start fully wet on a bus. Returns its id; 0 if the type is unknown, the
+        owner does not exist or the edit is refused (see takeEditProblem()). */
+    model::ObjectId addEffect(const ChainOwner& owner, const juce::String& type, int index = -1);
+    bool removeEffect(model::ObjectId effectId);
+    /** Within its chain. */
+    bool moveEffect(model::ObjectId effectId, int toIndex);
+    void setEffectBypassed(model::ObjectId effectId, bool bypassed);
+    /** In the parameter's units; a drag is one gesture. */
+    void setEffectParameter(model::ObjectId effectId, const juce::String& parameterId,
+                            double value);
+    /** An effect silenced for a NaN or an infinity plays again, from a clean state.
+        Not undoable. */
+    void reviveEffect(model::ObjectId effectId);
+
+    [[nodiscard]] std::optional<EffectLocation> findEffect(model::ObjectId effectId) const;
+    [[nodiscard]] std::optional<model::Effect> getEffect(model::ObjectId effectId) const;
+    /** The engine's instance (for the effect's description, its meters and whether it
+        failed); null until the next update() after it was added. */
+    [[nodiscard]] std::shared_ptr<engine::fx::EffectInstance>
+    getEffectInstance(model::ObjectId effectId) const;
+    [[nodiscard]] model::EffectList getEffects(const ChainOwner& owner) const;
+
+    /** Why the last edit was refused, for the user; reading it clears it. */
+    [[nodiscard]] juce::String takeEditProblem();
+
+    /** Adds an aux bus at the end; an empty name becomes "Bus n". Returns its id. */
+    model::ObjectId addBus(const juce::String& name = {});
+    /** With the sends to it. */
+    void removeBus(model::ObjectId busId);
+    void renameBus(model::ObjectId busId, const juce::String& name);
+    void setBusVolume(model::ObjectId busId, double gain);
+    void setBusPan(model::ObjectId busId, double pan);
+    void setBusMuted(model::ObjectId busId, bool muted);
+    /** Measured after its fader. */
+    [[nodiscard]] std::shared_ptr<engine::dsp::PeakLevelMeter> getBusMeter(model::ObjectId busId);
+
+    /** A post-fader send at 0 dB from the track to the bus (or the one it has). */
+    model::ObjectId addSend(model::ObjectId trackId, model::ObjectId busId);
+    void removeSend(model::ObjectId trackId, model::ObjectId sendId);
+    void setSendLevel(model::ObjectId trackId, model::ObjectId sendId, double gain);
+    void setSendPreFader(model::ObjectId trackId, model::ObjectId sendId, bool preFader);
 
     /** Adds audio files as clips starting at position: one file onto an existing
         track if ontoTrack is given, otherwise one new track per file (named after
@@ -280,6 +344,8 @@ private:
     void sourceChanged(const juce::File& file);
     void resolveLengths(const juce::File& file);
     void rebuildArrangement();
+    [[nodiscard]] std::optional<model::Bus> findBus(model::ObjectId busId) const;
+    [[nodiscard]] bool refusesLatencyChange(int latency);
     void handOver(std::unique_ptr<engine::Arrangement> arrangement);
     void streamingTick();
     [[nodiscard]] double engineRate() const noexcept;
@@ -303,6 +369,10 @@ private:
     model::Project project;
     juce::File projectFile;
     std::map<model::ObjectId, std::shared_ptr<engine::dsp::PeakLevelMeter>> meters;
+    EffectInstances effectInstances;
+    FadeOutKeeper fadeOutKeeper;
+    bool freshEffects = true; // the next arrangement's new effects start at once
+    juce::String editProblem;
     std::array<float, engine::AudioInputs::maxChannels> inputPeaks{};
 
     RecordingController recording{engine};
