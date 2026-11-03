@@ -2,12 +2,16 @@
 # Never depends on any UI module, nor on the engine (see CLAUDE.md, Architecture).
 
 add_library(daw_model STATIC
+    src/Automation.cpp
+    src/Bus.cpp
     src/Clip.cpp
+    src/Effect.cpp
     src/FormatVersion.cpp
     src/Grid.cpp
     src/ObjectIds.cpp
     src/Project.cpp
     src/ProjectFile.cpp
+    src/Send.cpp
     src/TempoMap.cpp
     src/TimelineTime.cpp
     src/Track.cpp)

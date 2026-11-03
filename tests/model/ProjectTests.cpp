@@ -537,3 +537,188 @@ TEST_CASE("Equivalent projects compare equal, different ones do not", "[model]")
     b.setLoopEnabled(true);
     CHECK_FALSE(a.isEquivalentTo(b));
 }
+
+TEST_CASE("Effects can be added, moved, bypassed and removed, their automation with them",
+          "[model][fx]")
+{
+    Project project;
+    auto track = project.addTrack("T");
+    auto effects = track.getEffects();
+    const auto eq = effects.add("equaliser", -1, {{"bell1Gain", 3.0}});
+    const auto compressor = effects.add("compressor", -1);
+    const auto reverb = effects.add("reverb", 0);
+
+    REQUIRE(effects.getNumEffects() == 3);
+    CHECK(effects.getEffect(0).getId() == reverb.getId());
+    CHECK(effects.getEffect(1).getId() == eq.getId());
+    CHECK(effects.getEffect(1).getParameter("bell1Gain") == 3.0);
+    CHECK_FALSE(effects.getEffect(1).getParameter("bell2Gain").has_value());
+
+    effects.move(0, 2);
+    CHECK(effects.getEffect(2).getId() == reverb.getId());
+    CHECK(effects.indexOf(compressor.getId()) == 1);
+
+    auto bypassed = effects.getEffect(1);
+    bypassed.setBypassed(true);
+    CHECK(effects.getEffect(1).isBypassed());
+
+    using daw::model::AutomationTarget;
+    auto automation = track.getAutomation();
+    automation.getOrAddLane(AutomationTarget::effectParameter(compressor.getId(), "threshold"))
+        .addPoint({0, 0.5, 0.0});
+    automation.getOrAddLane(AutomationTarget::effectParameter(eq.getId(), "bell1Gain"));
+    automation.getOrAddLane(AutomationTarget::volume());
+
+    effects.remove(effects.indexOf(compressor.getId()));
+    CHECK(effects.getNumEffects() == 2);
+    CHECK(automation.getNumLanes() == 2);
+    CHECK(automation.indexOfLane(AutomationTarget::effectParameter(compressor.getId(),
+                                                                   "threshold")) < 0);
+
+    // Clips keep their places: the containers come after them.
+    track.addClip(audioFile("a.wav"), {0, 0, 100});
+    CHECK(track.getNumClips() == 1);
+    CHECK(project.getNumTracks() == 1);
+}
+
+TEST_CASE("Sends go one per bus, and a bus removed takes its sends and their automation",
+          "[model][fx]")
+{
+    Project project;
+    auto first = project.addTrack("A");
+    auto second = project.addTrack("B");
+    const auto reverb = project.addBus("Reverb");
+    const auto delay = project.addBus("Delay");
+    CHECK(project.getNumBuses() == 2);
+    CHECK(project.getNumTracks() == 2);
+    CHECK(reverb.getVolume() == 1.0);
+
+    const auto send = first.addSend(reverb.getId());
+    CHECK(send.getLevel() == 1.0);
+    CHECK_FALSE(send.isPreFader());
+    CHECK(first.addSend(reverb.getId()).getId() == send.getId()); // one per bus
+    first.addSend(delay.getId());
+    second.addSend(reverb.getId());
+    CHECK(first.getNumSends() == 2);
+    first.getAutomation()
+        .getOrAddLane(daw::model::AutomationTarget::sendLevel(send.getId()))
+        .addPoint({0, 1.0, 0.0});
+
+    project.removeBus(project.indexOfBus(reverb.getId()));
+    CHECK(project.getNumBuses() == 1);
+    CHECK(first.getNumSends() == 1);
+    CHECK(first.getSend(0).getBus() == delay.getId());
+    CHECK(second.getNumSends() == 0);
+    CHECK(first.getAutomation().getNumLanes() == 0);
+}
+
+TEST_CASE("Automation points stay in order as they are added and moved", "[model][fx]")
+{
+    Project project;
+    auto lane = project.addTrack("T").getAutomation().getOrAddLane(
+        daw::model::AutomationTarget::volume());
+
+    CHECK(lane.addPoint({1000, 0.5, 0.0}) == 0);
+    CHECK(lane.addPoint({0, 0.1, 0.0}) == 0);
+    CHECK(lane.addPoint({1000, 0.9, 0.0}) == 2); // a step: after the one already there
+    CHECK(lane.addPoint({500, 2.0, 5.0}) == 1);
+    CHECK(lane.getPoint(1) == daw::model::AutomationPointData{500, 1.0, 1.0}); // clamped
+
+    // Dragged past its neighbours, a point moves among them.
+    CHECK(lane.setPoint(1, {1500, 0.25, -0.5}) == 3);
+    CHECK(lane.getPoint(3).position == 1500);
+    CHECK(lane.setPoint(3, {-10, 0.25, 0.0}) == 1); // at 0, after the one already there
+    CHECK(lane.getPoint(0).position == 0);
+    lane.removePoint(0);
+    CHECK(lane.getNumPoints() == 3);
+}
+
+TEST_CASE("Automation targets are written and read back as text", "[model][fx]")
+{
+    using daw::model::AutomationTarget;
+    for (const auto& target : {AutomationTarget::volume(), AutomationTarget::pan(),
+                               AutomationTarget::sendLevel(12),
+                               AutomationTarget::effectParameter(9, "threshold"),
+                               AutomationTarget::effectParameter(9, "a:b")})
+        CHECK(AutomationTarget::fromString(target.toString()) == target);
+
+    CHECK(AutomationTarget::sendLevel(12).toString() == "send:12");
+    CHECK(AutomationTarget::effectParameter(9, "threshold").toString() == "effect:9:threshold");
+    for (const char* text : {"", "loudness", "send:", "send:x", "send:-4", "effect:3", "effect:3:"})
+        CHECK_FALSE(AutomationTarget::fromString(text).has_value());
+}
+
+TEST_CASE("Effect, send, bus and automation edits can be undone and redone", "[model][undo]")
+{
+    Project project;
+    juce::UndoManager undoManager;
+    auto track = project.addTrack("T");
+    const auto bus = project.addBus("Bus");
+    const auto effectId = track.getEffects().add("equaliser", -1).getId();
+    track.getEffects().add("compressor", -1);
+    const auto sendId = track.addSend(bus.getId()).getId();
+    track.getAutomation().getOrAddLane(daw::model::AutomationTarget::volume()).addPoint({0, 0.5, 0.0});
+
+    const auto lane = [&] { return track.getAutomation().getLane(0); };
+    const std::vector<std::pair<const char*, std::function<void()>>> edits{
+        {"add effect", [&] { track.getEffects().add("delay", 1, {{"time", 250.0}}, &undoManager); }},
+        {"move effect", [&] { track.getEffects().move(0, 1, &undoManager); }},
+        {"bypass", [&] { track.getEffects().getEffect(0).setBypassed(true, &undoManager); }},
+        {"parameter", [&] { track.getEffects().getEffect(0).setParameter("x", 2.5, &undoManager); }},
+        {"remove effect",
+         [&] { track.getEffects().remove(track.getEffects().indexOf(effectId), &undoManager); }},
+        {"master effect", [&] { project.getMasterEffects().add("limiter", -1, {}, &undoManager); }},
+        {"add bus", [&] { project.addBus("Other", &undoManager); }},
+        {"bus volume", [&] { project.getBus(0).setVolume(0.5, &undoManager); }},
+        {"bus pan", [&] { project.getBus(0).setPan(0.5, &undoManager); }},
+        {"bus mute", [&] { project.getBus(0).setMuted(true, &undoManager); }},
+        {"send level", [&] { track.getSend(0).setLevel(0.25, &undoManager); }},
+        {"pre-fader", [&] { track.getSend(0).setPreFader(true, &undoManager); }},
+        {"add point", [&] { lane().addPoint({100, 0.75, 0.0}, &undoManager); }},
+        {"move point", [&] { lane().setPoint(0, {200, 0.2, 0.3}, &undoManager); }},
+        {"remove point", [&] { lane().removePoint(0, &undoManager); }},
+        {"remove send", [&] { track.removeSend(track.indexOfSend(sendId), &undoManager); }},
+        {"remove bus", [&] { project.removeBus(0, &undoManager); }},
+    };
+
+    for (const auto& [name, edit] : edits)
+    {
+        INFO(name);
+        const auto before = project.getState().createCopy();
+
+        undoManager.beginNewTransaction();
+        edit();
+        const auto after = project.getState().createCopy();
+        REQUIRE_FALSE(identical(before, after));
+
+        REQUIRE(undoManager.undo());
+        CHECK(identical(project.getState(), before));
+        REQUIRE(undoManager.redo());
+        CHECK(identical(project.getState(), after));
+    }
+
+    // The automation mode is a switch, outside the undo history.
+    juce::UndoManager modeHistory;
+    modeHistory.beginNewTransaction();
+    track.getAutomation().setMode(daw::model::AutomationMode::off);
+    CHECK_FALSE(modeHistory.canUndo());
+    CHECK(track.getAutomation().getMode() == daw::model::AutomationMode::off);
+}
+
+TEST_CASE("Buses, effects and sends get ids no other object of the project has", "[model][fx]")
+{
+    Project project;
+    std::set<ObjectId> seen;
+    const auto unique = [&seen](ObjectId id) { return seen.insert(id).second; };
+
+    auto track = project.addTrack("T");
+    CHECK(unique(track.getId()));
+    CHECK(unique(track.addClip(audioFile("a.wav")).getId()));
+    const auto bus = project.addBus("B");
+    CHECK(unique(bus.getId()));
+    CHECK(unique(bus.getEffects().add("reverb", -1).getId()));
+    CHECK(unique(track.getEffects().add("equaliser", -1).getId()));
+    CHECK(unique(track.addSend(bus.getId()).getId()));
+    CHECK(unique(project.getMasterEffects().add("limiter", -1).getId()));
+    CHECK(unique(project.addTrack("U").getId()));
+}

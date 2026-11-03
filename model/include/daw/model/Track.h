@@ -1,6 +1,9 @@
 #pragma once
 
+#include "daw/model/Automation.h"
 #include "daw/model/Clip.h"
+#include "daw/model/Effect.h"
+#include "daw/model/Send.h"
 
 #include <juce_data_structures/juce_data_structures.h>
 
@@ -47,7 +50,8 @@ enum class MonitoringMode : std::uint8_t
 [[nodiscard]] std::optional<MonitoringMode> monitoringModeFromString(const juce::String& text);
 
 /**
-    A track: its mixer settings, its input and its clips.
+    A track: its mixer settings, its input, its clips, its effects (before its
+    fader), its sends to aux buses and its automation.
 
     Clips are kept in stacking order: the last one is on top. Where clips overlap,
     the one on top is heard. A handle onto part of a Project's state, like Clip.
@@ -99,6 +103,21 @@ public:
     Clip addClip(const juce::File& audioFile, const ClipBounds& bounds = {},
                  juce::UndoManager* undoManager = nullptr);
     void removeClip(int index, juce::UndoManager* undoManager = nullptr);
+
+    [[nodiscard]] EffectList getEffects() const;
+    [[nodiscard]] Automation getAutomation() const;
+
+    [[nodiscard]] int getNumSends() const;
+    [[nodiscard]] Send getSend(int index) const;
+    [[nodiscard]] int indexOfSend(ObjectId sendId) const; ///< -1 if not on this track
+    [[nodiscard]] int indexOfSendTo(ObjectId busId) const; ///< -1 if it does not send there
+
+    /** A post-fader send at 0 dB to the bus, with a new id; or the existing send to
+        it (one per bus). */
+    Send addSend(ObjectId busId, juce::UndoManager* undoManager = nullptr);
+
+    /** Also removes the automation of its level. */
+    void removeSend(int index, juce::UndoManager* undoManager = nullptr);
 
     [[nodiscard]] const juce::ValueTree& getState() const noexcept { return state; }
 

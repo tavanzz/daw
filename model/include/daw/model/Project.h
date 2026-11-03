@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/model/Bus.h"
 #include "daw/model/Grid.h"
 #include "daw/model/TempoMap.h"
 #include "daw/model/Track.h"
@@ -37,12 +38,12 @@ public:
     static constexpr int maximumCountInBars = 2;
     static constexpr int defaultRecordingBitsPerSample = 24;
 
-    /** An empty project: no tracks, 120 BPM in 4/4, loop off over the whole project,
+    /** An empty project: no tracks or buses, 120 BPM in 4/4, loop off over the whole project,
         snap on with the automatic grid, master at 0 dB; metronome, count-in (one
         bar) and punch off; recordings in 24-bit. */
     Project();
 
-    /** Wraps existing project state, as built by ProjectFile. */
+    /** Wraps existing project state, as built by ProjectFile (or a copy of one). */
     explicit Project(juce::ValueTree projectState);
 
     // Tracks
@@ -93,9 +94,22 @@ public:
     [[nodiscard]] GridDivision getGridDivision() const;
     void setGridDivision(GridDivision division);
 
+    // Aux buses
+    [[nodiscard]] int getNumBuses() const;
+    [[nodiscard]] Bus getBus(int index) const;
+    [[nodiscard]] int indexOfBus(ObjectId busId) const; ///< -1 if there is none
+    /** At the end, at 0 dB in the centre, with no effects. */
+    Bus addBus(const juce::String& name, juce::UndoManager* undoManager = nullptr);
+    /** Also removes every send to it (and their automation). */
+    void removeBus(int index, juce::UndoManager* undoManager = nullptr);
+
     // Master bus
     [[nodiscard]] double getMasterVolume() const; ///< linear gain, as Track::getVolume()
     void setMasterVolume(double gain, juce::UndoManager* undoManager = nullptr);
+    /** After the master fader. */
+    [[nodiscard]] EffectList getMasterEffects() const;
+    /** Of the master volume and the master's effects. */
+    [[nodiscard]] Automation getMasterAutomation() const;
 
     // Recording (none of it undoable)
     [[nodiscard]] bool isMetronomeEnabled() const;

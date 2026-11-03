@@ -7,9 +7,12 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
+#include <bit>
+#include <cstdint>
 #include <set>
 
 using Catch::Matchers::ContainsSubstring;
+using daw::model::AutomationTarget;
 using daw::model::ClipBounds;
 using daw::model::FormatMigration;
 using daw::model::GridDivision;
@@ -47,6 +50,34 @@ Project makeSampleProject(const juce::File& audioFile)
     track.setMonitoring(daw::model::MonitoringMode::on);
     track.setArmed(true);
     track.addClip(audioFile, {ticksPerSecond / 2, 0, ticksPerSecond * 5});
+
+    // Version 4: a bus with an effect and automation; an effect, a send and
+    // automation on the track; an effect and automation on the master.
+    auto bus = project.addBus("Reverb");
+    bus.setVolume(0.5);
+    bus.setPan(0.25);
+    bus.getEffects().add("reverb", -1, {{"decay", 2.5}, {"mix", 100.0}});
+    bus.getAutomation().getOrAddLane(AutomationTarget::volume()).addPoint({0, 0.5, 0.0});
+
+    auto equaliser = track.getEffects().add("equaliser", -1, {{"bell1Gain", -3.5}});
+    equaliser.setBypassed(true);
+    equaliser.setExtraState(juce::MemoryBlock("state", 5));
+    auto send = track.addSend(bus.getId());
+    send.setLevel(0.75);
+    send.setPreFader(true);
+    auto gainLane = track.getAutomation().getOrAddLane(
+        AutomationTarget::effectParameter(equaliser.getId(), "bell1Gain"));
+    gainLane.addPoint({ticksPerSecond, 0.25, 0.5});
+    gainLane.addPoint({ticksPerSecond * 2, 1.0, 0.0});
+    track.getAutomation()
+        .getOrAddLane(AutomationTarget::sendLevel(send.getId()))
+        .addPoint({0, 0.75, -0.25});
+    track.getAutomation().setMode(daw::model::AutomationMode::off);
+
+    project.getMasterEffects().add("limiter", -1, {{"ceiling", -1.0}});
+    project.getMasterAutomation()
+        .getOrAddLane(AutomationTarget::volume())
+        .addPoint({ticksPerSecond * 4, 0.0, 0.0});
     return project;
 }
 
@@ -63,7 +94,7 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
     // and add a migration, then update this text.
     const auto expected = R"({
   "format": "daw-project",
-  "formatVersion": 3,
+  "formatVersion": 4,
   "project": {
     "tempo": 128.0,
     "timeSignature": {
@@ -80,7 +111,32 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
       "grid": "1/16"
     },
     "master": {
-      "volume": 0.5
+      "volume": 0.5,
+      "effects": [
+        {
+          "id": 7,
+          "type": "limiter",
+          "bypass": false,
+          "parameters": {
+            "ceiling": -1.0
+          }
+        }
+      ],
+      "automation": {
+        "mode": "read",
+        "lanes": [
+          {
+            "target": "volume",
+            "points": [
+              {
+                "position": 1128960000,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ]
+          }
+        ]
+      }
     },
     "metronome": {
       "enabled": true,
@@ -96,6 +152,41 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
     "recording": {
       "bitsPerSample": 32
     },
+    "buses": [
+      {
+        "id": 3,
+        "name": "Reverb",
+        "volume": 0.5,
+        "pan": 0.25,
+        "mute": false,
+        "effects": [
+          {
+            "id": 4,
+            "type": "reverb",
+            "bypass": false,
+            "parameters": {
+              "decay": 2.5,
+              "mix": 100.0
+            }
+          }
+        ],
+        "automation": {
+          "mode": "read",
+          "lanes": [
+            {
+              "target": "volume",
+              "points": [
+                {
+                  "position": 0,
+                  "value": 0.5,
+                  "curve": 0.0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
     "tracks": [
       {
         "id": 1,
@@ -110,6 +201,55 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
         },
         "monitoring": "on",
         "armed": true,
+        "effects": [
+          {
+            "id": 5,
+            "type": "equaliser",
+            "bypass": true,
+            "parameters": {
+              "bell1Gain": -3.5
+            },
+            "data": "c3RhdGU="
+          }
+        ],
+        "sends": [
+          {
+            "id": 6,
+            "bus": 3,
+            "level": 0.75,
+            "preFader": true
+          }
+        ],
+        "automation": {
+          "mode": "off",
+          "lanes": [
+            {
+              "target": "effect:5:bell1Gain",
+              "points": [
+                {
+                  "position": 282240000,
+                  "value": 0.25,
+                  "curve": 0.5
+                },
+                {
+                  "position": 564480000,
+                  "value": 1.0,
+                  "curve": 0.0
+                }
+              ]
+            },
+            {
+              "target": "send:6",
+              "points": [
+                {
+                  "position": 0,
+                  "value": 0.75,
+                  "curve": -0.25
+                }
+              ]
+            }
+          ]
+        },
         "clips": [
           {
             "id": 2,
@@ -591,4 +731,198 @@ TEST_CASE("Version 3 fields of the wrong type make the file damaged", "[model][f
     CHECK(loaded.project->getCountInBars() == Project::maximumCountInBars);
     CHECK(loaded.project->getRecordingBitsPerSample() == 24);
     CHECK(loaded.project->getTrack(0).getMonitoring() == daw::model::MonitoringMode::automatic);
+}
+
+TEST_CASE("A version 3 project opens after the migration to version 4", "[model][file]")
+{
+    // Written by Phase 3 (v0.3.0): the golden text of format version 3.
+    const auto versionThree = R"({
+  "format": "daw-project",
+  "formatVersion": 3,
+  "project": {
+    "tempo": 128.0,
+    "timeSignature": {
+      "numerator": 6,
+      "denominator": 8
+    },
+    "loop": {
+      "enabled": true,
+      "start": 282240000,
+      "end": 846720000
+    },
+    "snap": {
+      "enabled": true,
+      "grid": "1/16"
+    },
+    "master": {
+      "volume": 0.5
+    },
+    "metronome": {
+      "enabled": true,
+      "volume": 0.25
+    },
+    "countIn": {
+      "enabled": true,
+      "bars": 2
+    },
+    "punch": {
+      "enabled": true
+    },
+    "recording": {
+      "bitsPerSample": 32
+    },
+    "tracks": [
+      {
+        "id": 1,
+        "name": "Track 1",
+        "volume": 0.25,
+        "pan": -0.5,
+        "mute": true,
+        "solo": false,
+        "input": {
+          "channel": 3,
+          "stereo": true
+        },
+        "monitoring": "on",
+        "armed": true,
+        "clips": [
+          {
+            "id": 2,
+            "audioFile": "audio/drums.wav",
+            "position": 141120000,
+            "offset": 0,
+            "length": 1411200000
+          }
+        ]
+      }
+    ]
+  }
+}
+)";
+
+    TemporaryDirectory directory;
+    const auto file = directory.file("phase3.dawproject");
+    REQUIRE(file.replaceWithText(versionThree));
+
+    const auto loaded = loadProject(file);
+    CAPTURE(loaded.error);
+    REQUIRE(loaded.succeeded());
+    CHECK(loaded.fileFormatVersion == 3);
+
+    const auto& project = *loaded.project;
+    CHECK(project.getMasterVolume() == 0.5);
+    CHECK(project.isMetronomeEnabled());
+    CHECK(project.getRecordingBitsPerSample() == 32);
+
+    // No buses, no effects, no sends, no automation; automation reads.
+    CHECK(project.getNumBuses() == 0);
+    CHECK(project.getMasterEffects().getNumEffects() == 0);
+    CHECK(project.getMasterAutomation().getNumLanes() == 0);
+    REQUIRE(project.getNumTracks() == 1);
+    const auto track = project.getTrack(0);
+    CHECK(track.getId() == 1);
+    CHECK(track.getVolume() == 0.25);
+    CHECK(track.getInput() == daw::model::TrackInput{2, true});
+    CHECK(track.getEffects().getNumEffects() == 0);
+    CHECK(track.getNumSends() == 0);
+    CHECK(track.getAutomation().getNumLanes() == 0);
+    CHECK(track.getAutomation().getMode() == daw::model::AutomationMode::read);
+    REQUIRE(track.getNumClips() == 1);
+    CHECK(track.getClip(0).getId() == 2);
+
+    REQUIRE(saveProject(project, file).wasOk());
+    const auto reloaded = loadProject(file);
+    REQUIRE(reloaded.succeeded());
+    CHECK(reloaded.fileFormatVersion == daw::model::currentFormatVersion);
+    CHECK(reloaded.project->isEquivalentTo(project));
+}
+
+TEST_CASE("Effect states load back exactly, at the precision effects use", "[model][file]")
+{
+    Project project;
+    auto track = project.addTrack("Track");
+    auto effect = track.getEffects().add("compressor", -1);
+    const std::array<double, 8> values{0.1 + 0.2, -1234.56789012345678, 1.0e-300, 3.0e12,
+                                       2.0 / 3.0, -0.0, 1.0e-7 / 3.0, 123456.789};
+    for (std::size_t i = 0; i < values.size(); ++i)
+        effect.setParameter("p" + juce::String(i), values[i]);
+    juce::MemoryBlock extra;
+    for (int i = 0; i < 1000; ++i)
+        extra.append(&i, 1);
+    effect.setExtraState(extra);
+
+    TemporaryDirectory directory;
+    const auto file = directory.file("states.dawproject");
+    REQUIRE(saveProject(project, file).wasOk());
+    const auto loaded = loadProject(file);
+    REQUIRE(loaded.succeeded());
+
+    const auto reloaded = loaded.project->getTrack(0).getEffects().getEffect(0);
+    CHECK(reloaded.getType() == "compressor");
+    for (std::size_t i = 0; i < values.size(); ++i)
+    {
+        const auto value = reloaded.getParameter("p" + juce::String(i));
+        REQUIRE(value.has_value());
+        const double expected = static_cast<double>(static_cast<float>(values[i]));
+        CHECK(std::bit_cast<std::uint64_t>(*value) == std::bit_cast<std::uint64_t>(expected));
+    }
+    CHECK(reloaded.getExtraState() == extra);
+    CHECK(loaded.project->isEquivalentTo(project));
+}
+
+TEST_CASE("Sends and lanes that refer to what is not there are left out", "[model][file]")
+{
+    const auto loaded = daw::model::fromJson(
+        R"({"format": "daw-project", "formatVersion": 4, "project": {
+              "master": {"volume": 1.0, "automation": {"lanes": [
+                  {"target": "pan", "points": [{"position": 0, "value": 0.5}]},
+                  {"target": "volume", "points": [{"position": 0, "value": 0.5}]}]}},
+              "buses": [{"id": 3, "name": "Real"}],
+              "tracks": [{"id": 1,
+                  "effects": [{"id": 4, "type": "equaliser"}],
+                  "sends": [{"id": 5, "bus": 99}, {"id": 6, "bus": 3}, {"id": 7, "bus": 3}],
+                  "automation": {"mode": "sideways", "lanes": [
+                      {"target": "send:5", "points": [{"position": 0, "value": 1}]},
+                      {"target": "send:6", "points": [{"position": 0, "value": 1}]},
+                      {"target": "effect:4:bell1Gain", "points": []},
+                      {"target": "effect:8:bell1Gain", "points": []},
+                      {"target": "something:new", "points": []}]}}]}})",
+        juce::File::getCurrentWorkingDirectory());
+
+    CAPTURE(loaded.error);
+    REQUIRE(loaded.succeeded());
+    const auto& project = *loaded.project;
+    const auto track = project.getTrack(0);
+    REQUIRE(track.getNumSends() == 1); // the one to bus 3; one per bus
+    CHECK(track.getSend(0).getId() == 6);
+    const auto automation = track.getAutomation();
+    CHECK(automation.getMode() == daw::model::AutomationMode::read);
+    REQUIRE(automation.getNumLanes() == 2);
+    CHECK(automation.getLane(0).getTarget() == AutomationTarget::sendLevel(6));
+    CHECK(automation.getLane(1).getTarget() == AutomationTarget::effectParameter(4, "bell1Gain"));
+    REQUIRE(project.getMasterAutomation().getNumLanes() == 1); // the master has no pan
+    CHECK(project.getMasterAutomation().getLane(0).getTarget() == AutomationTarget::volume());
+}
+
+TEST_CASE("Version 4 fields of the wrong type make the file damaged", "[model][file]")
+{
+    const auto errorForProject = [](const juce::String& project) {
+        return errorFor(R"({"format": "daw-project", "formatVersion": 4, "project": )" + project + "}")
+            .toStdString();
+    };
+
+    CHECK_THAT(errorForProject(R"({"buses": {}})"), ContainsSubstring("buses"));
+    CHECK_THAT(errorForProject(R"({"buses": [{"volume": "loud"}]})"), ContainsSubstring("bus"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"effects": 1}]})"), ContainsSubstring("effects"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"effects": [{"bypass": true}]}]})"),
+               ContainsSubstring("no type"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"effects": [{"type": "eq", "parameters": {"a": "b"}}]}]})"),
+               ContainsSubstring("parameter"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"effects": [{"type": "eq", "data": "!!!"}]}]})"),
+               ContainsSubstring("data"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"sends": [{"bus": "one"}]}]})"),
+               ContainsSubstring("send"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"automation": {"lanes": [{"target": "volume", "points": [{"position": 0.5}]}]}}]})"),
+               ContainsSubstring("automation point"));
+    CHECK_THAT(errorForProject(R"({"master": {"effects": [3]}})"), ContainsSubstring("master"));
 }

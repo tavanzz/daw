@@ -224,6 +224,18 @@ Modules with one-way dependencies:
     a `MonitoringMode` (off / auto / on) and an arm state; the project has the
     metronome (on/off, volume), count-in (on/off, 1 or 2 bars), punch on/off and
     the recording bit depth (16, 24 or 32 float).
+  - Effects and automation (format version 4): a project's children are its tracks
+    then the `Buses` and `Master` containers; a track's are its clips then
+    `Effects`, `Sends` and `Automation` (containers last, so track and clip
+    indices are unchanged; `detail::countLeading()`). `model::EffectList` /
+    `Effect` (type, bypass, parameter values by id at a float's precision so files
+    hold them exactly, extra state in standard Base64), `Send` (bus id, level,
+    pre-fader; one per bus), `Bus` (name, volume, pan, mute, effects, automation),
+    `Automation` (mode read/off, not undoable; one `AutomationLane` per
+    `AutomationTarget`: "volume", "pan", "send:<id>", "effect:<id>:<parameter>")
+    with points (ticks, normalised value, bend) kept sorted. Removing an effect,
+    a send or a bus removes what refers to it; on load, sends and lanes whose
+    targets are missing are left out.
 - Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
   integers at 282,240,000 per second, a number every common sample rate divides, so
   sample positions at any of them are exact and the project has no sample rate of its
@@ -631,7 +643,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 7. Compressor and limiter, gain-reduction meters
 - [x] 8. Delay: tempo sync, ping-pong, filtered feedback
 - [x] 9. Reverb: feedback delay network with an exact decay time
-- [ ] 10. Project format version 4: effects, buses, sends, automation; migration from
+- [x] 10. Project format version 4: effects, buses, sends, automation; migration from
       version 3
 - [ ] 11. Controller: chains, buses and sends in the session, effect instances,
       arrangement building with latencies, NaN reports
