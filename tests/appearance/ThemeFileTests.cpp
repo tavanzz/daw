@@ -146,10 +146,11 @@ TEST_CASE("Meter stops must run from the loudest down", "[appearance]")
 
 TEST_CASE("An effect a theme does not draw needs no cost", "[appearance]")
 {
-    auto json = completeTheme();
-    objectAt(json, "effects").setProperty("glitch", juce::JSON::parse(R"({ "available": false })"));
+    auto withoutGlitch = completeTheme();
+    objectAt(withoutGlitch, "effects")
+        .setProperty("glitch", juce::JSON::parse(R"({ "available": false })"));
 
-    const auto result = readTheme(juce::JSON::toString(json));
+    const auto result = readTheme(juce::JSON::toString(withoutGlitch));
     REQUIRE(result.theme.has_value());
     CHECK_FALSE(result.theme->effect(AnimationEffect::glitch).available);
 

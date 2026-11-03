@@ -117,22 +117,22 @@ TEST_CASE("A client may leave the clock from its own frame", "[ui]")
 
     struct LeavingClient final : AnimationClock::Client
     {
-        AnimationClock* clock = nullptr;
-        AnimationClock::Client* other = nullptr;
+        AnimationClock* owner = nullptr;
+        AnimationClock::Client* neighbour = nullptr;
         int frames = 0;
 
         void animationFrame(double) override
         {
             ++frames;
-            clock->unsubscribe(*this);
-            clock->unsubscribe(*other);
+            owner->unsubscribe(*this);
+            owner->unsubscribe(*neighbour);
         }
     };
 
     CountingClient other;
     LeavingClient leaving;
-    leaving.clock = &clock;
-    leaving.other = &other;
+    leaving.owner = &clock;
+    leaving.neighbour = &other;
     clock.subscribe(leaving, AnimationEffect::cursorGlow);
     clock.subscribe(other, AnimationEffect::cursorGlow);
 
