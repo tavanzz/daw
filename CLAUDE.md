@@ -896,7 +896,7 @@ Phase 4 decisions (agreed before starting):
   ms), plus optional opaque data for future plugins. A device sample-rate change
   recreates the effects.
 
-Phase 5 (in progress, branch `phase-5`): themes and animations. Three cyberpunk
+Phase 5 (done, released as v0.5.0): themes and animations. Three cyberpunk
 themes (Neon Grid, Acid Terminal, Synth Chrome) applied to the whole interface:
 transport, tracks, timeline, clips, ruler, mixer, meters, automation lanes, effect
 editors (EQ curve and compressor gain reduction included), dialogs, menus and
@@ -940,7 +940,7 @@ into `phase-5`.
 - [x] 13. Benchmark: UI frame time and CPU per theme and animation level with a large
       project (Release), `docs/PERFORMANCE.md`
 - [x] 14. Screenshots and visual checks in `docs/LISTENING_TESTS.md`; version 0.5.0
-- [ ] Visual checks (`docs/LISTENING_TESTS.md`, 69 to 83) on macOS
+- [x] Visual checks (`docs/LISTENING_TESTS.md`): all 15 passed on macOS, 2026-11-03
 
 Phase 5 decisions (agreed before starting):
 
