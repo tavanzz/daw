@@ -12,11 +12,16 @@
 namespace daw::engine
 {
 
-/** The gains the mixer is moving for one arrangement: per track and for the master.
-    Allocated with the arrangement on the message thread; only the thread that
-    renders that arrangement touches it afterwards. */
+/** The gains the mixer is moving for one arrangement: per track, send, bus and for
+    the master; and where the buses sum their sends. Allocated with the arrangement
+    on the message thread; only the thread that renders that arrangement touches it
+    afterwards. */
 struct MixState
 {
+    /** How many samples the buses can sum at once unless asked otherwise; the mixer
+        renders longer stretches in pieces. */
+    static constexpr int defaultBusBlockSize = 4096;
+
     struct TrackGains
     {
         dsp::GainRamp left;
@@ -26,18 +31,32 @@ struct MixState
         // monitoring switches; one is at 1 when the other is at 0.
         dsp::GainRamp timeline;
         dsp::GainRamp input{0.0f};
+
+        std::vector<dsp::GainRamp> sends; ///< one per send, same order
+    };
+
+    struct BusGains
+    {
+        dsp::GainRamp left;
+        dsp::GainRamp right;
     };
 
     std::vector<TrackGains> tracks; ///< one per track of the arrangement, same order
+    std::vector<BusGains> buses;    ///< one per bus, same order
     dsp::GainRamp master;
 
-    /** Message thread. Gains already at the arrangement's targets (no ramps). */
-    [[nodiscard]] static MixState startingAt(const Arrangement& arrangement);
+    /** Two channels per bus: what its sends add up to in the stretch being mixed. */
+    juce::AudioBuffer<float> busInputs;
 
-    /** Rendering thread. Takes over the gains of the tracks that previous also had
-        (matched by id) and ramps them to arrangement's targets over rampLength
-        samples, so that a change of arrangement never makes a gain jump. New
-        tracks start at their targets. Allocates nothing. */
+    /** Message thread. Gains already at the arrangement's targets (no ramps); buses
+        sum up to busBlockSize samples at once. */
+    [[nodiscard]] static MixState startingAt(const Arrangement& arrangement,
+                                             int busBlockSize = defaultBusBlockSize);
+
+    /** Rendering thread. Takes over the gains of the tracks, sends and buses that
+        previous also had (matched by id) and ramps them to arrangement's targets
+        over rampLength samples, so that a change of arrangement never makes a gain
+        jump. New ones start at their targets. Allocates nothing. */
     void continueFrom(const MixState& previous, const Arrangement& previousArrangement,
                       const Arrangement& arrangement, int rampLength) noexcept;
 
@@ -83,6 +102,10 @@ struct MixContext
     gains and meter; the switch is a monitorRampSeconds crossfade. Mono inputs are
     heard on both sides.
 
+    Sends add a track's audio, after its inserts (pre-fader) or after its volume and
+    pan (post-fader), to an aux bus; each bus runs its sum through its effects and
+    its fader into the mix, before the master.
+
     The same code renders real-time playback and offline exports, and its result
     does not depend on how the timeline is cut into blocks: every gain is a function
     of the sample's position, so exports equal playback sample for sample.
@@ -117,12 +140,22 @@ public:
                 const MixContext& context = {}) noexcept;
 
 private:
-    /** Leaves the track's output in scratch; false if it adds nothing to the mix. */
+    void renderPiece(const Arrangement& arrangement, MixState& state, juce::int64 timelineStart,
+                     float* const* mix, int numSamples, const MixContext& context) noexcept;
+
+    /** Leaves the track's output in scratch and adds its sends to the buses of
+        busOwner (whose state holds them); false if it adds nothing to the mix. A
+        vanishing track fades out (see MixContext::previous). */
     bool renderTrack(const Arrangement& arrangement, const ArrangementTrack& track,
                      MixState::TrackGains& gains, juce::int64 timelineStart, int numSamples,
-                     const MixContext& context, const ArrangementTrack* before) noexcept;
-    void renderVanishedTracks(const Arrangement& arrangement, juce::int64 timelineStart,
-                              float* const* mix, int numSamples,
+                     const MixContext& context, const ArrangementTrack* before,
+                     const Arrangement& busOwner, MixState& busState, bool vanishing) noexcept;
+    void addSends(const ArrangementTrack& track, MixState::TrackGains& gains, bool preFader,
+                  int numSamples, const Arrangement& busOwner, MixState& busState) noexcept;
+    void renderBuses(const Arrangement& arrangement, MixState& state, juce::int64 timelineStart,
+                     float* const* mix, int numSamples, const MixContext& context) noexcept;
+    void renderVanishedTracks(const Arrangement& arrangement, MixState& state,
+                              juce::int64 timelineStart, float* const* mix, int numSamples,
                               const MixContext& context) noexcept;
     void readClips(const ArrangementTrack& track, juce::int64 timelineStart, int numSamples,
                    juce::AudioBuffer<float>& destination) noexcept;
@@ -139,6 +172,8 @@ private:
     juce::AudioBuffer<float> scratch;      // one track at a time
     juce::AudioBuffer<float> inputScratch; // its input, while crossfading
     juce::AudioBuffer<float> oldClips;     // its previous clips, while crossfading
+    juce::AudioBuffer<float> sendScratch;  // one send at a time
+    std::vector<float> gainScratch;
     fx::EffectScratch effectScratch;
 };
 

@@ -7,7 +7,7 @@ namespace daw::engine
 
 OfflineRenderer::OfflineRenderer(const Arrangement& arrangementToRender, int blockSize)
     : arrangement(arrangementToRender)
-    , state(MixState::startingAt(arrangementToRender))
+    , state(MixState::startingAt(arrangementToRender, blockSize))
     , maximumBlockSize(std::max(1, blockSize))
 {
     jassert(arrangement.sampleRate > 0.0);

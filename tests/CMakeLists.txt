@@ -17,6 +17,7 @@ add_executable(daw_tests
     engine/AudioInputTests.cpp
     engine/AudioFileLoaderTests.cpp
     engine/BounceTests.cpp
+    engine/BusTests.cpp
     engine/DiskStreamerTests.cpp
     engine/EffectChainTests.cpp
     engine/EffectHostTests.cpp

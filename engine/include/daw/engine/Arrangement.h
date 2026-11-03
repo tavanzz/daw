@@ -61,6 +61,29 @@ struct EffectChain
     [[nodiscard]] int getLatency() const noexcept;
 };
 
+/** A track's send to an aux bus. */
+struct ArrangementSend
+{
+    juce::int64 id = 0;   ///< the model's send id: keeps its gain ramp going across arrangements
+    juce::int64 bus = 0;  ///< the bus's id
+    int busIndex = -1;    ///< where that bus is in Arrangement::buses (checked against bus)
+    float gain = 1.0f;    ///< the send level, 0 when the track is not heard
+    bool preFader = false; ///< after the inserts and before volume and pan, or after both
+};
+
+/** An aux bus: the sum of the sends it gets, through its effects and its fader,
+    into the master. */
+struct ArrangementBus
+{
+    juce::int64 id = 0;
+    float leftGain = 1.0f; ///< volume × pan law, 0 when muted
+    float rightGain = 1.0f;
+    EffectChain inserts; ///< before its fader
+
+    /** Measures the bus after its fader, for the UI; may be null. */
+    std::shared_ptr<dsp::PeakLevelMeter> meter;
+};
+
 /** A track as the mixer sees it. */
 struct ArrangementTrack
 {
@@ -71,6 +94,9 @@ struct ArrangementTrack
 
     /** Effects on the track, before its fader. */
     EffectChain inserts;
+
+    /** Sends to aux buses, at most one per bus. */
+    std::vector<ArrangementSend> sends;
 
     int inputChannel = -1;  ///< first device input channel; -1 for none
     int numInputChannels = 0; ///< 1 (heard on both sides) or 2
@@ -96,6 +122,7 @@ struct Arrangement
 {
     double sampleRate = 0.0;
     std::vector<ArrangementTrack> tracks;
+    std::vector<ArrangementBus> buses;
     float masterGain = 1.0f;
 
     /** Effects on the mix, after the master fader (so a limiter there holds its
@@ -126,7 +153,7 @@ struct Arrangement
 
     void updateLayoutHash() noexcept;
 
-    /** Whether any track or the master has effects. */
+    /** Whether any track, bus or the master has effects. */
     [[nodiscard]] bool hasEffects() const noexcept;
 };
 

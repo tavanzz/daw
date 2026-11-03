@@ -124,7 +124,9 @@ bool Arrangement::hasEffects() const noexcept
 {
     return !masterInserts.isEmpty() ||
            std::any_of(tracks.begin(), tracks.end(),
-                       [](const ArrangementTrack& track) { return !track.inserts.isEmpty(); });
+                       [](const ArrangementTrack& track) { return !track.inserts.isEmpty(); }) ||
+           std::any_of(buses.begin(), buses.end(),
+                       [](const ArrangementBus& bus) { return !bus.inserts.isEmpty(); });
 }
 
 bool isArrangementReady(const Arrangement& arrangement, juce::int64 position,

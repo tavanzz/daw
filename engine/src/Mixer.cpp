@@ -63,18 +63,50 @@ const ArrangementTrack* findTrack(const Arrangement& arrangement, juce::int64 id
     return nullptr;
 }
 
+// The bus with that id, looking at hint first; -1 if there is none.
+int findBus(const Arrangement& arrangement, juce::int64 id, int hint) noexcept
+{
+    const auto& buses = arrangement.buses;
+    if (hint >= 0 && static_cast<std::size_t>(hint) < buses.size() &&
+        buses[static_cast<std::size_t>(hint)].id == id)
+        return hint;
+
+    for (std::size_t i = 0; i < buses.size(); ++i)
+        if (buses[i].id == id)
+            return static_cast<int>(i);
+
+    return -1;
+}
+
 } // namespace
 
-MixState MixState::startingAt(const Arrangement& arrangement)
+MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
 {
     MixState state;
     state.tracks.resize(arrangement.tracks.size());
 
     for (std::size_t i = 0; i < arrangement.tracks.size(); ++i)
     {
-        state.tracks[i].left.reset(arrangement.tracks[i].leftGain);
-        state.tracks[i].right.reset(arrangement.tracks[i].rightGain);
+        const auto& track = arrangement.tracks[i];
+        auto& gains = state.tracks[i];
+        gains.left.reset(track.leftGain);
+        gains.right.reset(track.rightGain);
+
+        gains.sends.resize(track.sends.size());
+        for (std::size_t k = 0; k < track.sends.size(); ++k)
+            gains.sends[k].reset(track.sends[k].gain);
     }
+
+    state.buses.resize(arrangement.buses.size());
+    for (std::size_t i = 0; i < arrangement.buses.size(); ++i)
+    {
+        state.buses[i].left.reset(arrangement.buses[i].leftGain);
+        state.buses[i].right.reset(arrangement.buses[i].rightGain);
+    }
+
+    if (!arrangement.buses.empty())
+        state.busInputs.setSize(2 * static_cast<int>(arrangement.buses.size()),
+                                std::max(1, busBlockSize));
 
     state.master.reset(arrangement.masterGain);
     return state;
@@ -91,22 +123,47 @@ void MixState::continueFrom(const MixState& previous, const Arrangement& previou
     for (std::size_t i = 0; i < arrangement.tracks.size(); ++i)
     {
         const auto& track = arrangement.tracks[i];
+        const auto* previousTrack = findTrack(previousArrangement, track.id, i);
+        if (previousTrack == nullptr)
+            continue;
 
-        // Tracks usually keep their order: look at the same index first.
-        std::size_t match = i;
-        if (match >= before.size() || before[match].id != track.id)
+        const auto match = static_cast<std::size_t>(previousTrack - before.data());
+        const auto& old = previous.tracks[match];
+        auto& gains = tracks[i];
+
+        // Member by member: assigning the whole struct would copy (allocate) the
+        // vector of sends.
+        gains.left = old.left;
+        gains.right = old.right;
+        gains.timeline = old.timeline;
+        gains.input = old.input;
+        gains.left.setTarget(track.leftGain, rampLength);
+        gains.right.setTarget(track.rightGain, rampLength);
+
+        for (std::size_t k = 0; k < track.sends.size(); ++k)
         {
-            match = before.size();
-            for (std::size_t j = 0; j < before.size(); ++j)
-                if (before[j].id == track.id)
-                    match = j;
+            for (std::size_t j = 0; j < previousTrack->sends.size(); ++j)
+            {
+                if (previousTrack->sends[j].id == track.sends[k].id)
+                {
+                    gains.sends[k] = old.sends[j];
+                    gains.sends[k].setTarget(track.sends[k].gain, rampLength);
+                }
+            }
         }
+    }
 
-        if (match < before.size())
+    for (std::size_t i = 0; i < arrangement.buses.size(); ++i)
+    {
+        const auto& bus = arrangement.buses[i];
+        for (std::size_t j = 0; j < previousArrangement.buses.size(); ++j)
         {
-            tracks[i] = previous.tracks[match];
-            tracks[i].left.setTarget(track.leftGain, rampLength);
-            tracks[i].right.setTarget(track.rightGain, rampLength);
+            if (previousArrangement.buses[j].id == bus.id)
+            {
+                buses[i] = previous.buses[j];
+                buses[i].left.setTarget(bus.leftGain, rampLength);
+                buses[i].right.setTarget(bus.rightGain, rampLength);
+            }
         }
     }
 
@@ -130,6 +187,8 @@ void Mixer::prepare(double sampleRate, int maximumBlockSize)
     scratch.setSize(2, maximumBlockSize);
     inputScratch.setSize(2, maximumBlockSize);
     oldClips.setSize(2, maximumBlockSize);
+    sendScratch.setSize(2, maximumBlockSize);
+    gainScratch.assign(static_cast<std::size_t>(maximumBlockSize), 0.0f);
     effectScratch.prepare(maximumBlockSize);
 }
 
@@ -139,6 +198,7 @@ void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 
 {
     jassert(numSamples <= scratch.getNumSamples());
     jassert(state.tracks.size() == arrangement.tracks.size());
+    jassert(state.buses.size() == arrangement.buses.size());
     jassert(outputStart >= 0 && outputStart + numSamples <= output.getNumSamples());
 
     for (int channel = 0; channel < output.getNumChannels(); ++channel)
@@ -147,8 +207,32 @@ void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 
     if (output.getNumChannels() < 2 || numSamples <= 0)
         return;
 
-    float* const mix[] = {output.getWritePointer(0, outputStart),
-                          output.getWritePointer(1, outputStart)};
+    // The buses sum a limited stretch at once.
+    const int pieceLimit = arrangement.buses.empty() ? numSamples
+                                                     : std::max(1, state.busInputs.getNumSamples());
+
+    for (int done = 0; done < numSamples;)
+    {
+        const int piece = std::min(numSamples - done, pieceLimit);
+        float* const mix[] = {output.getWritePointer(0, outputStart + done),
+                              output.getWritePointer(1, outputStart + done)};
+
+        auto pieceContext = context;
+        pieceContext.fade = context.fade.from(done);
+        pieceContext.inputOffset = context.inputOffset + done;
+        pieceContext.crossfadeDone = std::min(context.crossfadeLength, context.crossfadeDone + done);
+        const juce::int64 pieceStart = context.timelineRunning ? timelineStart + done : timelineStart;
+
+        renderPiece(arrangement, state, pieceStart, mix, piece, pieceContext);
+        done += piece;
+    }
+}
+
+void Mixer::renderPiece(const Arrangement& arrangement, MixState& state, juce::int64 timelineStart,
+                        float* const* mix, int numSamples, const MixContext& context) noexcept
+{
+    for (int channel = 0; channel < state.busInputs.getNumChannels(); ++channel)
+        state.busInputs.clear(channel, 0, numSamples);
 
     for (std::size_t i = 0; i < arrangement.tracks.size(); ++i)
     {
@@ -156,8 +240,8 @@ void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 
         const ArrangementTrack* before =
             context.previous != nullptr ? findTrack(*context.previous, track.id, i) : nullptr;
 
-        if (!renderTrack(arrangement, track, state.tracks[i], timelineStart, numSamples,
-                         context, before))
+        if (!renderTrack(arrangement, track, state.tracks[i], timelineStart, numSamples, context,
+                         before, arrangement, state, false))
             continue;
 
         // A plain add, never a fused multiply-add, so that rounding is the same
@@ -167,7 +251,10 @@ void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 
     }
 
     if (context.previous != nullptr && context.previousState != nullptr)
-        renderVanishedTracks(arrangement, timelineStart, mix, numSamples, context);
+        renderVanishedTracks(arrangement, state, timelineStart, mix, numSamples, context);
+
+    if (!arrangement.buses.empty())
+        renderBuses(arrangement, state, timelineStart, mix, numSamples, context);
 
     state.master.apply(mix, 2, numSamples);
 
@@ -176,8 +263,8 @@ void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 
                      context);
 }
 
-void Mixer::renderVanishedTracks(const Arrangement& arrangement, juce::int64 timelineStart,
-                                 float* const* mix, int numSamples,
+void Mixer::renderVanishedTracks(const Arrangement& arrangement, MixState& state,
+                                 juce::int64 timelineStart, float* const* mix, int numSamples,
                                  const MixContext& context) noexcept
 {
     const auto& previous = *context.previous;
@@ -185,36 +272,27 @@ void Mixer::renderVanishedTracks(const Arrangement& arrangement, juce::int64 tim
     if (fading <= 0)
         return;
 
-    MixContext oldContext = context;
-    oldContext.previous = nullptr;
-
     for (std::size_t i = 0; i < previous.tracks.size(); ++i)
     {
         const auto& track = previous.tracks[i];
         if (findTrack(arrangement, track.id, i) != nullptr)
             continue;
 
-        // A track that is gone fades out, effects and all, as the new mix fades in.
+        // A track that is gone fades out, effects and sends and all, as the new mix
+        // fades in.
         if (!renderTrack(previous, track, context.previousState->tracks[i], timelineStart, fading,
-                         oldContext, nullptr))
+                         context, nullptr, arrangement, state, true))
             continue;
 
-        const auto fullLength = static_cast<float>(context.crossfadeLength);
-        for (int channel = 0; channel < 2; ++channel)
-        {
-            const float* old = scratch.getReadPointer(channel);
-            for (int k = 0; k < fading; ++k)
-            {
-                const float gain = static_cast<float>(context.crossfadeDone + k + 1) / fullLength;
-                mix[channel][k] += old[k] - old[k] * gain;
-            }
-        }
+        juce::FloatVectorOperations::add(mix[0], scratch.getReadPointer(0), fading);
+        juce::FloatVectorOperations::add(mix[1], scratch.getReadPointer(1), fading);
     }
 }
 
 bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& track,
                         MixState::TrackGains& gains, juce::int64 timelineStart, int numSamples,
-                        const MixContext& context, const ArrangementTrack* before) noexcept
+                        const MixContext& context, const ArrangementTrack* before,
+                        const Arrangement& busOwner, MixState& busState, bool vanishing) noexcept
 {
     float* const channels[] = {scratch.getWritePointer(0), scratch.getWritePointer(1)};
 
@@ -235,12 +313,20 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
                          juce::exactlyEqual(gains.right.getTarget(), 0.0f);
     const bool hasEffects = !track.inserts.isEmpty();
 
+    bool sendsBeforeFader = false;
+    for (std::size_t k = 0; k < track.sends.size(); ++k)
+        sendsBeforeFader = sendsBeforeFader ||
+                           (track.sends[k].preFader &&
+                            (gains.sends[k].isRamping() || gains.sends[k].getTarget() > 0.0f));
+
     // A silent track without effects reads nothing; its gains still move on, as if
     // it had played. With effects it runs on: they may still be ringing.
-    if (!hasEffects && (unheard || (!playsTimeline && !playsInput)))
+    if (!hasEffects && ((unheard && !sendsBeforeFader) || (!playsTimeline && !playsInput)))
     {
         for (auto* ramp : {&gains.left, &gains.right, &gains.timeline, &gains.input})
             ramp->skip(numSamples);
+        for (auto& send : gains.sends)
+            send.skip(numSamples);
         return false;
     }
 
@@ -250,7 +336,7 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
     if (playsTimeline)
     {
         readClips(track, timelineStart, numSamples, scratch);
-        if (context.previous != nullptr &&
+        if (context.previous != nullptr && !vanishing &&
             (before == nullptr || before->layoutHash != track.layoutHash))
             crossfadeClips(before, timelineStart, numSamples, context);
         context.fade.apply(channels[0], numSamples);
@@ -286,20 +372,98 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
     if (hasEffects)
         processChain(track.inserts, arrangement, channels, numSamples, timelineStart, context);
 
+    if (vanishing)
+    {
+        const auto fullLength = static_cast<float>(context.crossfadeLength);
+        for (int channel = 0; channel < 2; ++channel)
+            for (int i = 0; i < numSamples; ++i)
+                channels[channel][i] -= channels[channel][i] *
+                                        (static_cast<float>(context.crossfadeDone + i + 1) /
+                                         fullLength);
+    }
+
+    addSends(track, gains, true, numSamples, busOwner, busState);
+
     if (unheard)
     {
         gains.left.skip(numSamples);
         gains.right.skip(numSamples);
+        for (std::size_t k = 0; k < track.sends.size(); ++k)
+            if (!track.sends[k].preFader)
+                gains.sends[k].skip(numSamples);
         return false;
     }
 
     gains.left.apply(channels, 1, numSamples);
     gains.right.apply(channels + 1, 1, numSamples);
 
+    addSends(track, gains, false, numSamples, busOwner, busState);
+
     if (track.meter != nullptr)
         track.meter->process(scratch, 0, numSamples);
 
     return true;
+}
+
+void Mixer::addSends(const ArrangementTrack& track, MixState::TrackGains& gains, bool preFader,
+                     int numSamples, const Arrangement& busOwner, MixState& busState) noexcept
+{
+    for (std::size_t k = 0; k < track.sends.size(); ++k)
+    {
+        const auto& send = track.sends[k];
+        if (send.preFader != preFader)
+            continue;
+
+        auto& ramp = gains.sends[k];
+        const int bus = findBus(busOwner, send.bus, send.busIndex);
+        const bool silent = !ramp.isRamping() && juce::exactlyEqual(ramp.getTarget(), 0.0f);
+
+        if (bus < 0 || silent || busState.busInputs.getNumChannels() < 2 * (bus + 1))
+        {
+            ramp.skip(numSamples);
+            continue;
+        }
+
+        // Multiplied, then added: never a fused multiply-add (see render()).
+        float* const sent[] = {sendScratch.getWritePointer(0), sendScratch.getWritePointer(1)};
+        for (int channel = 0; channel < 2; ++channel)
+            juce::FloatVectorOperations::copy(sent[channel], scratch.getReadPointer(channel),
+                                              numSamples);
+        ramp.apply(sent, 2, numSamples);
+
+        for (int channel = 0; channel < 2; ++channel)
+            juce::FloatVectorOperations::add(busState.busInputs.getWritePointer(2 * bus + channel),
+                                             sent[channel], numSamples);
+    }
+}
+
+void Mixer::renderBuses(const Arrangement& arrangement, MixState& state, juce::int64 timelineStart,
+                        float* const* mix, int numSamples, const MixContext& context) noexcept
+{
+    for (std::size_t i = 0; i < arrangement.buses.size(); ++i)
+    {
+        const auto& bus = arrangement.buses[i];
+        auto& gains = state.buses[i];
+        const auto channel = static_cast<int>(2 * i);
+        float* const channels[] = {state.busInputs.getWritePointer(channel),
+                                   state.busInputs.getWritePointer(channel + 1)};
+
+        if (!bus.inserts.isEmpty())
+            processChain(bus.inserts, arrangement, channels, numSamples, timelineStart, context);
+
+        gains.left.apply(channels, 1, numSamples);
+        gains.right.apply(channels + 1, 1, numSamples);
+
+        if (bus.meter != nullptr)
+        {
+            // Refers to the two channels; no allocation for so few channel pointers.
+            const juce::AudioBuffer<float> busOutput(channels, 2, numSamples);
+            bus.meter->process(busOutput, 0, numSamples);
+        }
+
+        juce::FloatVectorOperations::add(mix[0], channels[0], numSamples);
+        juce::FloatVectorOperations::add(mix[1], channels[1], numSamples);
+    }
 }
 
 void Mixer::crossfadeClips(const ArrangementTrack* before, juce::int64 timelineStart,

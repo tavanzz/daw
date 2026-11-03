@@ -145,6 +145,13 @@ Modules with one-way dependencies:
   effects is still skipped. With empty chains, bypassed effects or exact unity
   gains the mix equals Phase 3 bit for bit: tests compare it with a frozen copy of
   the v0.3.0 mixer (`tests/support/Phase3Mixer`).
+- Buses and sends (Phase 4): `ArrangementBus` (id, gains, inserts, meter) sums the
+  sends it gets (`ArrangementSend`: id, bus id and index, gain, pre- or post-fader)
+  through its effects and its fader into the mix, before the master gain. Pre-fader
+  sends tap after the track's inserts, post-fader ones after its volume and pan;
+  send and bus gains ramp like faders and carry over by id (`MixState`, which also
+  holds the buses' summing buffer; longer stretches are mixed in pieces). A track
+  with only a pre-fader send is rendered even with its fader down.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -566,7 +573,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 2. Insert chains in the mixer and the engine: persistent instances across
       snapshots, per-track clip crossfade, tails after stop; bit-identical to Phase 3
       with empty or bypassed chains
-- [ ] 3. Aux buses and pre/post-fader sends, mute and solo rules
+- [x] 3. Aux buses and pre/post-fader sends, mute and solo rules
 - [ ] 4. Plugin delay compensation: latencies, compensation delays, the heard
       position (playhead, metronome, count-in, recording), latency changes, export
 - [ ] 5. Automation in the engine: curves, per-sample values at the audio's position,

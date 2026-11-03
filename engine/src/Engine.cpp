@@ -396,7 +396,8 @@ void Engine::setArrangement(std::unique_ptr<Arrangement> arrangement)
 
     arrangement->updateLayoutHash();
     auto snapshot = std::make_unique<Snapshot>();
-    snapshot->mix = MixState::startingAt(*arrangement);
+    snapshot->mix = MixState::startingAt(
+        *arrangement, std::max(MixState::defaultBusBlockSize, maximumBlockSize));
     snapshot->arrangement = std::move(arrangement);
 
     // A previous snapshot the audio thread has not picked up yet never will be: the
