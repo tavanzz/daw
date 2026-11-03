@@ -149,6 +149,21 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         menu.addSeparator();
         add(MainComponent::toggleMixer);
         add(MainComponent::toggleAutomation);
+        menu.addSeparator();
+        {
+            juce::PopupMenu themeMenu;
+            const auto numThemes =
+                static_cast<int>(themes.getLibrary().getThemes().size());
+            for (int index = 0; index < numThemes &&
+                                MainComponent::firstTheme + index <= MainComponent::lastTheme;
+                 ++index)
+                themeMenu.addCommandItem(&commandManager, MainComponent::firstTheme + index);
+            themeMenu.addSeparator();
+            themeMenu.addCommandItem(&commandManager, MainComponent::showThemePreviews);
+            menu.addSubMenu("Theme", themeMenu);
+        }
+        add(MainComponent::showAnimations);
+        add(MainComponent::toggleAllAnimations);
         break;
     default:
         break;

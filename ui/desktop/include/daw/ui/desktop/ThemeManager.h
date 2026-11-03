@@ -50,6 +50,9 @@ public:
 
     [[nodiscard]] const appearance::Theme& getTheme() const noexcept;
     [[nodiscard]] ThemedLookAndFeel& getLookAndFeel() noexcept;
+
+    /** The look and feel of any theme of the library (for previews of the others). */
+    [[nodiscard]] ThemedLookAndFeel& getLookAndFeelFor(const appearance::Theme& theme) noexcept;
     [[nodiscard]] const ThemeFonts& getFonts() const noexcept { return fonts; }
     [[nodiscard]] const appearance::ThemeLibrary& getLibrary() const noexcept { return library; }
     [[nodiscard]] const appearance::AppearancePreferences& getPreferences() const noexcept

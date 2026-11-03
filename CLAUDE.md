@@ -488,6 +488,16 @@ Modules with one-way dependencies:
   slides (`MainComponent::showMixer()`), and on a theme change a snapshot of the old
   look fades out (`ThemeCrossfade`, after `ThemeManager::Listener::
   themeAboutToChange()`); switching transitions off mid-way ends them at once.
+- Theme and animation menus (Phase 5): View > Theme lists the library's themes as
+  commands `MainComponent::firstTheme + index` (Cmd+1, Cmd+2, ...; ticked when in
+  use) and Show Previews (`ThemePreviewsPanel`: a card per theme drawn with that
+  theme's own look and feel, `ThemeManager::getLookAndFeelFor()`, with its fonts,
+  shapes and meters; clicking one uses it). View > Animations opens `AnimationsPanel`
+  (levels, a switch per effect with its cost and the theme's description, disabled
+  when the level turns it off, the load, following the system), and All Animations
+  Off (Shift+Cmd+A) toggles off and back. Panels are non-modal `PanelWindow`s that
+  fade in with panel transitions. UI tests can write pictures of panels into the
+  folder named by `DAW_UI_SNAPSHOTS`.
 - Prerendered images (Phase 5): `PrerenderedImages` keeps images costly to paint
   (glows, background tiles) by key and size, painted once, least recently used
   dropped beyond 96; each look and feel has its own set, emptied when its theme
@@ -910,7 +920,7 @@ into `phase-5`.
       themed alert windows); no colour or font literals outside the LookAndFeels
 - [x] 10. Animations: each theme's own and the shared ones (meters, record pulse,
       panel transitions, theme crossfade)
-- [ ] 11. View > Theme (Cmd+1/2/3), theme previews panel; View > Animations panel,
+- [x] 11. View > Theme (Cmd+1/2/3), theme previews panel; View > Animations panel,
       Shift+Cmd+A
 - [ ] 12. UI tests: every theme paints every component; switching themes leaves the
       project and the audio unchanged; the clock stops when off or hidden

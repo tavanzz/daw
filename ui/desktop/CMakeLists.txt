@@ -4,6 +4,7 @@ add_library(daw_ui_desktop STATIC
     src/Alerts.cpp
     src/AnimationClock.cpp
     src/AnimationLink.cpp
+    src/AnimationsPanel.cpp
     src/ArrangeView.cpp
     src/AudioSettingsDialog.cpp
     src/AutomationLanes.cpp
@@ -19,6 +20,7 @@ add_library(daw_ui_desktop STATIC
     src/MainComponent.cpp
     src/MainWindow.cpp
     src/MixerView.cpp
+    src/PanelWindow.cpp
     src/PrerenderedImages.cpp
     src/SendSlots.cpp
     src/StatusBar.cpp
@@ -26,6 +28,7 @@ add_library(daw_ui_desktop STATIC
     src/ThemeFonts.cpp
     src/ThemeLookAndFeels.cpp
     src/ThemeManager.cpp
+    src/ThemePreviewsPanel.cpp
     src/ThemedLookAndFeel.cpp
     src/TimelineRuler.cpp
     src/TrackHeaderList.cpp

@@ -34,6 +34,16 @@ ThemedLookAndFeel& ThemeManager::getLookAndFeel() noexcept
     return *lookAndFeels[current];
 }
 
+ThemedLookAndFeel& ThemeManager::getLookAndFeelFor(const appearance::Theme& theme) noexcept
+{
+    const auto& themes = library.getThemes();
+    for (std::size_t index = 0; index < themes.size(); ++index)
+        if (themes[index].id == theme.id)
+            return *lookAndFeels[index];
+
+    return getLookAndFeel();
+}
+
 void ThemeManager::setTheme(const juce::String& themeId)
 {
     if (library.find(themeId) == nullptr || themeId == getTheme().id)

@@ -155,8 +155,17 @@ Effects, buses and automation:
 | Automation lanes on/off | A |
 | New aux bus | Shift+Cmd+T |
 | Audio settings | Cmd+, |
+| Theme: Neon Grid / Acid Terminal / Synth Chrome | Cmd+1 / Cmd+2 / Cmd+3 |
+| All animations off (again: back on) | Shift+Cmd+A |
 
 (Ctrl instead of Cmd on Windows and Linux.)
+
+Appearance: View > Theme chooses one of three themes (Neon Grid, the default; Acid
+Terminal; Synth Chrome), which applies at once to every window; Show Previews puts
+them side by side. View > Animations sets how much moves: Full, Reduced (no moving
+backgrounds, glitches or panel transitions) or Off, and each effect on its own; by
+default the app follows the system's "Reduce motion". Both are kept in the user
+settings, not in projects.
 
 Projects (`.dawproject`) are small JSON files that refer to the audio files; keep the
 audio next to the project (or in a subfolder) and the folder can be moved as a whole.

@@ -6,6 +6,7 @@
 #include "daw/ui/desktop/HazardBand.h"
 #include "daw/ui/desktop/LevelMeter.h"
 #include "daw/ui/desktop/MixerView.h"
+#include "daw/ui/desktop/PanelWindow.h"
 #include "daw/ui/desktop/StatusBar.h"
 #include "daw/ui/desktop/ThemeManager.h"
 #include "daw/ui/desktop/TransportBar.h"
@@ -60,7 +61,13 @@ public:
         toggleCountIn,
         togglePunch,
         newBus,
-        toggleAutomation
+        toggleAutomation,
+        showThemePreviews,
+        showAnimations,
+        toggleAllAnimations,
+        // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
+        firstTheme = 0x2100,
+        lastTheme = firstTheme + 8
     };
 
     MainComponent(controller::Session& sessionToShow, juce::AudioDeviceManager& audioDeviceManager,
@@ -97,6 +104,9 @@ private:
     void themeAboutToChange() override;
     void animationSettingsChanged() override;
     void showMixer(bool shouldShow);
+    void themeChanged() override;
+    void showPanel(std::unique_ptr<PanelWindow>& window, const juce::String& title,
+                   const std::function<std::unique_ptr<juce::Component>()>& makeContent);
     void mixerFrame(double seconds);
     void togglePlayPause();
     void openProjectFile(const juce::File& file);
@@ -128,6 +138,8 @@ private:
     AnimationLink mixerSlide{*this, appearance::AnimationEffect::panelTransitions,
                              [this](double seconds) { mixerFrame(seconds); }};
     std::unique_ptr<ThemeCrossfade> crossfade;
+    std::unique_ptr<PanelWindow> previewsWindow;
+    std::unique_ptr<PanelWindow> animationsWindow;
     StatusBar statusBar{session};
     EffectEditors effectEditors{session};
     juce::TooltipWindow tooltipWindow{this};

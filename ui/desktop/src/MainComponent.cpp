@@ -2,8 +2,10 @@
 
 #include "daw/model/ProjectFile.h"
 #include "daw/ui/desktop/Alerts.h"
+#include "daw/ui/desktop/AnimationsPanel.h"
 #include "daw/ui/desktop/AudioSettingsDialog.h"
 #include "daw/ui/desktop/ExportDialog.h"
+#include "daw/ui/desktop/ThemePreviewsPanel.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
@@ -196,6 +198,11 @@ void MainComponent::lookAndFeelChanged()
     resized(); // the band under the transport is the theme's
 }
 
+void MainComponent::themeChanged()
+{
+    commandManager.commandStatusChanged(); // the menu's tick moves
+}
+
 void MainComponent::themeAboutToChange()
 {
     // The old look fades out over the new one, if panel transitions are on.
@@ -212,6 +219,8 @@ void MainComponent::themeAboutToChange()
 
 void MainComponent::animationSettingsChanged()
 {
+    commandManager.commandStatusChanged();
+
     // Effects switched on or off: everything draws again, with or without them.
     repaint();
 
@@ -424,7 +433,12 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        deleteSelection,  playPause,       stop,          toggleLoop,    toggleSnap,
                        zoomIn,           zoomOut,         zoomToFit,     toggleMixer,   record,
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
-                       newBus,           toggleAutomation});
+                       newBus,           toggleAutomation, showThemePreviews, showAnimations,
+                       toggleAllAnimations});
+
+    const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
+    for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
+        commands.add(firstTheme + index);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationCommandInfo& result)
@@ -568,7 +582,33 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.addDefaultKeypress('p', 0);
         result.setTicked(project.isPunchEnabled());
         break;
+    case showThemePreviews:
+        result.setInfo("Show Previews...", "Shows every theme side by side", "View", 0);
+        break;
+    case showAnimations:
+        result.setInfo("Animations...", "Chooses which animations play, for every theme", "View",
+                       0);
+        break;
+    case toggleAllAnimations:
+        result.setInfo("All Animations Off", "Switches every animation off, and again back on",
+                       "View", 0);
+        result.addDefaultKeypress('a', shiftCommand);
+        result.setTicked(themes.getPreferences().animations.level ==
+                         appearance::AnimationLevel::off);
+        break;
     default:
+        if (commandId >= firstTheme && commandId <= lastTheme)
+        {
+            const auto& library = themes.getLibrary().getThemes();
+            const auto index = static_cast<std::size_t>(commandId - firstTheme);
+            if (index < library.size())
+            {
+                const auto& theme = library[index];
+                result.setInfo(theme.name, "Uses the " + theme.name + " theme", "View", 0);
+                result.addDefaultKeypress(static_cast<juce::juce_wchar>('1' + index), command);
+                result.setTicked(themes.getTheme().id == theme.id);
+            }
+        }
         break;
     }
 
@@ -682,11 +722,54 @@ bool MainComponent::perform(const InvocationInfo& info)
     case togglePunch:
         session.setPunchEnabled(!session.getProject().isPunchEnabled());
         break;
+    case showThemePreviews:
+        showPanel(previewsWindow, "Themes",
+                  [this] { return std::make_unique<ThemePreviewsPanel>(themes); });
+        break;
+    case showAnimations:
+        showPanel(animationsWindow, "Animations",
+                  [this] { return std::make_unique<AnimationsPanel>(themes); });
+        break;
+    case toggleAllAnimations:
+    {
+        auto settings = themes.getPreferences().animations;
+        settings.toggleAllOff();
+        themes.setAnimationSettings(settings);
+        commandManager.commandStatusChanged();
+        break;
+    }
     default:
-        return false;
+    {
+        const auto& library = themes.getLibrary().getThemes();
+        const auto index = static_cast<std::size_t>(info.commandID - firstTheme);
+        if (info.commandID < firstTheme || info.commandID > lastTheme || index >= library.size())
+            return false;
+
+        themes.setTheme(library[index].id);
+        break;
+    }
     }
 
     return true;
+}
+
+void MainComponent::showPanel(std::unique_ptr<PanelWindow>& window, const juce::String& title,
+                              const std::function<std::unique_ptr<juce::Component>()>& makeContent)
+{
+    if (window != nullptr)
+    {
+        window->toFront(true);
+        return;
+    }
+
+    window = std::make_unique<PanelWindow>(title, makeContent(), this,
+                                           [&window]
+                                           {
+                                               // Closing from the window's own button: not
+                                               // from inside its callback.
+                                               juce::MessageManager::callAsync(
+                                                   [&window] { window.reset(); });
+                                           });
 }
 
 bool MainComponent::isInterestedInFileDrag(const juce::StringArray& files)
