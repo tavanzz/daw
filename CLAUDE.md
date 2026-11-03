@@ -359,6 +359,14 @@ Modules with one-way dependencies:
   reduction), and `GenericEffectEditor` rows made from `ParameterInfo` (sliders
   over 0..1 in the parameter's scale, menus, switches; automated ones follow and
   are disabled). The export dialog has "Include tail" (on).
+- Automation view (Phase 4, A): `ArrangeState` holds whether it is on and each
+  owner's chosen target; rows are the tracks, then the buses and the master
+  (`numRows()`, `ownerOfRow()`). `TrackLanes` dims the clips and hands its rows to
+  `AutomationLanes` (the lane drawn from the engine's own curve in ticks; click to
+  add a point at the grid, drag to move, double-click to delete, Alt+drag to bend,
+  right-click to clear or switch read/off; each one undo step). Track headers swap
+  the recording controls for the target menu and the Read/Off button; buses and
+  the master get headers of their own.
 - Desktop recording UI (Phase 3): `TrackInputControls` (arm, monitoring cycling
   off/auto/on, the input menu of the device's channels, mono and stereo pairs) sits
   in each track header, with an input meter, and in each mixer strip. The transport
@@ -692,7 +700,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 13. Benchmark: cost of each effect, tracks with a typical chain per budget
 - [x] 14. Desktop UI: inserts, sends, bus strips and master inserts in the mixer
 - [x] 15. Desktop UI: generic effect editor, EQ curve, compressor view
-- [ ] 16. Desktop UI: automation lanes
+- [x] 16. Desktop UI: automation lanes
 - [ ] 17. Listening tests and files for Phase 4 (`docs/LISTENING_TESTS.md`)
 
 Phase 4 decisions (agreed before starting):

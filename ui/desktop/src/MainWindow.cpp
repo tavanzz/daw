@@ -111,6 +111,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::zoomToFit);
         menu.addSeparator();
         add(MainComponent::toggleMixer);
+        add(MainComponent::toggleAutomation);
         break;
     default:
         break;

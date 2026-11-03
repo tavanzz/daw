@@ -9,11 +9,8 @@
 namespace daw::controller
 {
 
-std::optional<double> automationValueAt(const model::AutomationLane& lane, model::Ticks position)
+engine::AutomationCurve automationCurveInTicks(const model::AutomationLane& lane)
 {
-    if (lane.getNumPoints() == 0)
-        return std::nullopt;
-
     // Ticks instead of samples: the same shape between the same points.
     std::vector<engine::AutomationPoint> points;
     for (int i = 0; i < lane.getNumPoints(); ++i)
@@ -22,7 +19,14 @@ std::optional<double> automationValueAt(const model::AutomationLane& lane, model
         points.push_back({point.position, static_cast<float>(point.value),
                           static_cast<float>(point.curve)});
     }
-    return engine::AutomationCurve(std::move(points)).valueAt(position);
+    return engine::AutomationCurve(std::move(points));
+}
+
+std::optional<double> automationValueAt(const model::AutomationLane& lane, model::Ticks position)
+{
+    if (lane.getNumPoints() == 0)
+        return std::nullopt;
+    return automationCurveInTicks(lane).valueAt(position);
 }
 
 int findAutomationPoint(const model::AutomationLane& lane, model::Ticks position, double value,

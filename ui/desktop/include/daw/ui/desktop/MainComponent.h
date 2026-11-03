@@ -55,7 +55,8 @@ public:
         toggleMetronome,
         toggleCountIn,
         togglePunch,
-        newBus
+        newBus,
+        toggleAutomation
     };
 
     MainComponent(controller::Session& sessionToShow, juce::AudioDeviceManager& audioDeviceManager,

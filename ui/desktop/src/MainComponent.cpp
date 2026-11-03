@@ -338,7 +338,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        deleteSelection,  playPause,       stop,          toggleLoop,    toggleSnap,
                        zoomIn,           zoomOut,         zoomToFit,     toggleMixer,   record,
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
-                       newBus});
+                       newBus,           toggleAutomation});
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationCommandInfo& result)
@@ -402,6 +402,11 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
     case newBus:
         result.setInfo("New Bus", "Adds an aux bus for tracks to send to", "Track", 0);
         result.addDefaultKeypress('t', shiftCommand);
+        break;
+    case toggleAutomation:
+        result.setInfo("Automation", "Shows or hides the automation over the tracks", "View", 0);
+        result.addDefaultKeypress('a', 0);
+        result.setTicked(arrangeView.isShowingAutomation());
         break;
 
     case deleteSelection:
@@ -542,6 +547,10 @@ bool MainComponent::perform(const InvocationInfo& info)
         session.addBus();
         if (!mixerVisible)
             perform(InvocationInfo(toggleMixer));
+        break;
+    case toggleAutomation:
+        arrangeView.setShowingAutomation(!arrangeView.isShowingAutomation());
+        commandManager.commandStatusChanged();
         break;
 
     case deleteSelection:

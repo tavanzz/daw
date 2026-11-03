@@ -3,6 +3,7 @@
 add_library(daw_ui_desktop STATIC
     src/ArrangeView.cpp
     src/AudioSettingsDialog.cpp
+    src/AutomationLanes.cpp
     src/CompressorView.cpp
     src/EffectEditorWindow.cpp
     src/EffectSlots.cpp
