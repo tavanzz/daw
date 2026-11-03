@@ -39,6 +39,7 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
     addAndMakeVisible(arrangeView);
     masterMeter.setTooltip("Master output level (click to clear the clip indicators)");
     addAndMakeVisible(masterMeter);
+    mixerView.openEffect = [this](model::ObjectId effectId) { effectEditors.open(effectId); };
     addAndMakeVisible(mixerView);
 
     setSize(1280, 900);
@@ -158,6 +159,7 @@ void MainComponent::timerCallback()
     masterMeter.update(left, right, elapsed);
     if (mixerVisible)
         mixerView.refresh(left, right, elapsed);
+    effectEditors.refresh(elapsed);
 
     // Menu items show play/pause state, ticks and what can be undone.
     const auto state = session.getTransportState();

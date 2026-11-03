@@ -40,6 +40,7 @@ private:
     juce::ComboBox rateBox;
     juce::ComboBox bitsBox;
     juce::ToggleButton ditherButton{"Dither (TPDF)"};
+    juce::ToggleButton tailButton{"Include tail"};
     juce::TextButton exportButton{"Export..."};
     juce::TextButton cancelButton{"Cancel"};
     std::unique_ptr<juce::FileChooser> fileChooser;

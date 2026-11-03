@@ -350,6 +350,15 @@ Modules with one-way dependencies:
   0 dB, right-click for pre-fader or remove; "+ Send" to a bus or a new one).
   Faders and knobs whose automation reads follow it and are disabled. Shift+Cmd+T
   adds a bus.
+- Effect editors (Phase 4): `EffectEditors` keeps one `EffectEditorWindow` per
+  effect (closed when the effect goes): a header (Bypass; a warning with
+  Reactivate after NaN or infinity), then `EqualiserView` (the exact response
+  curve, a handle per band: drag for frequency and gain, wheel for Q, double-click
+  to switch) with the selected band's controls, `CompressorView` (static curve
+  with the input level, gain-reduction bar and history; for the limiter only the
+  reduction), and `GenericEffectEditor` rows made from `ParameterInfo` (sliders
+  over 0..1 in the parameter's scale, menus, switches; automated ones follow and
+  are disabled). The export dialog has "Include tail" (on).
 - Desktop recording UI (Phase 3): `TrackInputControls` (arm, monitoring cycling
   off/auto/on, the input menu of the device's channels, mono and stereo pairs) sits
   in each track header, with an input meter, and in each mixer strip. The transport
@@ -682,7 +691,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 12. Controller: automation editing and undo, values for the UI, export with tail
 - [x] 13. Benchmark: cost of each effect, tracks with a typical chain per budget
 - [x] 14. Desktop UI: inserts, sends, bus strips and master inserts in the mixer
-- [ ] 15. Desktop UI: generic effect editor, EQ curve, compressor view
+- [x] 15. Desktop UI: generic effect editor, EQ curve, compressor view
 - [ ] 16. Desktop UI: automation lanes
 - [ ] 17. Listening tests and files for Phase 4 (`docs/LISTENING_TESTS.md`)
 

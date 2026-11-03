@@ -2,6 +2,7 @@
 
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
+#include "daw/ui/desktop/EffectEditorWindow.h"
 #include "daw/ui/desktop/LevelMeter.h"
 #include "daw/ui/desktop/MixerView.h"
 #include "daw/ui/desktop/TransportBar.h"
@@ -108,6 +109,7 @@ private:
     LevelMeter masterMeter;
     MixerView mixerView;
     bool mixerVisible = true;
+    EffectEditors effectEditors{session};
     juce::TooltipWindow tooltipWindow{this};
 
     std::unique_ptr<juce::FileChooser> fileChooser;
