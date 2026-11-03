@@ -183,10 +183,17 @@ void EqualiserView::paint(juce::Graphics& g)
 
 void EqualiserView::set(int index, float value)
 {
-    if (index >= 0)
-        session.setEffectParameter(effectId,
-                                   reference.getDescription().parameters[static_cast<std::size_t>(index)].id,
-                                   value);
+    const auto location = session.findEffect(effectId);
+    if (index < 0 || !location)
+        return;
+
+    // While its automation reads, the handle shows the automation: a stored value
+    // changed underneath would not be heard.
+    const auto& id = reference.getDescription().parameters[static_cast<std::size_t>(index)].id;
+    const auto target = model::AutomationTarget::effectParameter(effectId, id);
+    if (session.getAutomatedValue(location->owner, target))
+        return;
+    session.setEffectParameter(effectId, id, value);
 }
 
 void EqualiserView::mouseDown(const juce::MouseEvent& event)

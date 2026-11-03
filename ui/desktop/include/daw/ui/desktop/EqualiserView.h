@@ -16,6 +16,7 @@ namespace daw::ui::desktop
     Equaliser::magnitude()), 20 Hz to 20 kHz and -24 to +24 dB, with a handle per
     band: drag it for frequency and gain (one undo step), the wheel changes its Q,
     double-click switches the band on or off. Clicking a handle selects its band.
+    Automated parameters follow their automation and cannot be changed here.
 */
 class EqualiserView final : public juce::Component
 {

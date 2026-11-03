@@ -354,7 +354,8 @@ Modules with one-way dependencies:
   effect (closed when the effect goes): a header (Bypass; a warning with
   Reactivate after NaN or infinity), then `EqualiserView` (the exact response
   curve, a handle per band: drag for frequency and gain, wheel for Q, double-click
-  to switch) with the selected band's controls, `CompressorView` (static curve
+  to switch; automated values follow and cannot be changed) with the selected
+  band's controls, `CompressorView` (static curve
   with the input level, gain-reduction bar and history; for the limiter only the
   reduction), and `GenericEffectEditor` rows made from `ParameterInfo` (sliders
   over 0..1 in the parameter's scale, menus, switches; automated ones follow and
@@ -484,9 +485,9 @@ ctest --preset debug            # run all tests
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
-  project and the Phase 3 recording project from
-  `python3 tools/make_listening_test_files.py` (into `build/listening-tests/`; add
-  `--long` for the hour-long streaming file).
+  project, the Phase 3 recording project and the Phase 4 effects and delay
+  compensation projects from `python3 tools/make_listening_test_files.py` (into
+  `build/listening-tests/`; add `--long` for the hour-long streaming file).
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
   `build/release/tests/daw_stream_bench` (streaming and recording) and
   `build/release/tests/daw_fx_bench` (effects); results in `docs/PERFORMANCE.md`.
@@ -701,7 +702,8 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 14. Desktop UI: inserts, sends, bus strips and master inserts in the mixer
 - [x] 15. Desktop UI: generic effect editor, EQ curve, compressor view
 - [x] 16. Desktop UI: automation lanes
-- [ ] 17. Listening tests and files for Phase 4 (`docs/LISTENING_TESTS.md`)
+- [x] 17. Listening tests and files for Phase 4 (`docs/LISTENING_TESTS.md`)
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 50 to 68) on macOS
 
 Phase 4 decisions (agreed before starting):
 
