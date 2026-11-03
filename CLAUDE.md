@@ -269,6 +269,14 @@ Modules with one-way dependencies:
   once); colours are palette names, hex or `mix`/`alpha` formulas, so derived
   colours show where they come from. `ThemeLibrary::builtIn()` lists them in menu
   order; unknown ids fall back to Neon Grid.
+- Contrast (Phase 5): `appearance::contrastProblems()` checks a theme against
+  `colourPairs()` (every text/background and graphic/background combination the UIs
+  draw: text 4.5:1, large text and graphics 3:1, WCAG 2 ratios), text on fills
+  (`textRoleOn()` picks text or textOnAccent, whichever reads better), clip names and
+  waveforms on every clip colour, the meter at every level, and status colours
+  (record, mute, solo, clip, automation) at least 10 apart in CIELAB L*. Decorative
+  lines, translucent overlays and disabled text are exempt. A UI that draws a new
+  combination adds it to `colourPairs()`; the tests run the check on every theme.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -556,7 +564,7 @@ into `phase-5`.
 - [x] 1. `appearance` module: theme data (colour roles, fonts, shapes, meter style,
       effects), the three themes as embedded JSON, loader; every theme defines every
       value
-- [ ] 2. Contrast and status colours: WCAG contrast for every text/background pair,
+- [x] 2. Contrast and status colours: WCAG contrast for every text/background pair,
       status colours apart in lightness, derived colours
 - [ ] 3. Animation settings: levels, per-effect switches, reduced/off rules, system
       reduce motion, costs and total load, user-setting persistence

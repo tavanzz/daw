@@ -12,6 +12,8 @@ juce_add_binary_data(daw_appearance_resources
 
 add_library(daw_appearance STATIC
     src/Colour.cpp
+    src/ColourMetrics.cpp
+    src/ContrastRules.cpp
     src/Theme.cpp
     src/ThemeFile.cpp
     src/ThemeLibrary.cpp)
