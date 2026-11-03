@@ -1,5 +1,8 @@
 #include "daw/engine/Mixer.h"
 
+#include "daw/engine/dsp/FaderLaw.h"
+#include "daw/engine/dsp/PanLaw.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -114,6 +117,7 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
         auto& gains = state.tracks[i];
         gains.left.reset(track.leftGain);
         gains.right.reset(track.rightGain);
+        gains.automationBlend.reset(track.automation.isActive() ? 1.0f : 0.0f);
 
         gains.outputDelay = meeting - gains.latency;
         gains.output.prepare(2, gains.outputDelay);
@@ -124,6 +128,7 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
         {
             auto& send = gains.sends[k];
             send.gain.reset(track.sends[k].gain);
+            send.automationBlend.reset(track.sends[k].levelCurve != nullptr ? 1.0f : 0.0f);
             const int bus = findBus(arrangement, track.sends[k].bus, track.sends[k].busIndex);
             send.delay = bus >= 0 ? state.buses[static_cast<std::size_t>(bus)].inputLatency -
                                         gains.latency
@@ -139,6 +144,7 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
         auto& gains = state.buses[i];
         gains.left.reset(bus.leftGain);
         gains.right.reset(bus.rightGain);
+        gains.automationBlend.reset(bus.automation.isActive() ? 1.0f : 0.0f);
         gains.outputDelay = meeting - gains.inputLatency - bus.inserts.getLatency();
         gains.output.prepare(2, gains.outputDelay);
         gains.output.setDelay(gains.outputDelay);
@@ -149,6 +155,7 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
                                 std::max(1, busBlockSize));
 
     state.master.reset(arrangement.masterGain);
+    state.masterAutomationBlend.reset(arrangement.masterCurve != nullptr ? 1.0f : 0.0f);
     return state;
 }
 
@@ -177,6 +184,7 @@ void MixState::continueFrom(MixState& previous, const Arrangement& previousArran
         gains.right = old.right;
         gains.timeline = old.timeline;
         gains.input = old.input;
+        gains.automationBlend = old.automationBlend;
         gains.left.setTarget(track.leftGain, rampLength);
         gains.right.setTarget(track.rightGain, rampLength);
         gains.output.adopt(old.output);
@@ -189,6 +197,7 @@ void MixState::continueFrom(MixState& previous, const Arrangement& previousArran
                 {
                     auto& send = gains.sends[k];
                     send.gain = old.sends[j].gain;
+                    send.automationBlend = old.sends[j].automationBlend;
                     send.gain.setTarget(track.sends[k].gain, rampLength);
                     send.line.adopt(old.sends[j].line);
                 }
@@ -206,6 +215,7 @@ void MixState::continueFrom(MixState& previous, const Arrangement& previousArran
                 auto& gains = buses[i];
                 gains.left = previous.buses[j].left;
                 gains.right = previous.buses[j].right;
+                gains.automationBlend = previous.buses[j].automationBlend;
                 gains.left.setTarget(bus.leftGain, rampLength);
                 gains.right.setTarget(bus.rightGain, rampLength);
                 gains.output.adopt(previous.buses[j].output);
@@ -215,6 +225,7 @@ void MixState::continueFrom(MixState& previous, const Arrangement& previousArran
 
     master = previous.master;
     master.setTarget(arrangement.masterGain, rampLength);
+    masterAutomationBlend = previous.masterAutomationBlend;
 }
 
 bool MixState::movesAudioFrom(const MixState& previous, const Arrangement& previousArrangement,
@@ -277,6 +288,13 @@ void Mixer::prepare(double sampleRate, int maximumBlockSize)
     oldClips.setSize(2, maximumBlockSize);
     sendScratch.setSize(2, maximumBlockSize);
     gainScratch.assign(static_cast<std::size_t>(maximumBlockSize), 0.0f);
+    leftGains.assign(static_cast<std::size_t>(maximumBlockSize), 0.0f);
+    rightGains.assign(static_cast<std::size_t>(maximumBlockSize), 0.0f);
+    curveScratch.assign(static_cast<std::size_t>(maximumBlockSize), 0.0f);
+    automationLanes.assign(static_cast<std::size_t>(fx::EffectScratch::maximumChangingParameters) *
+                               static_cast<std::size_t>(maximumBlockSize),
+                           0.0f);
+    automationPointers.assign(1024, nullptr);
     effectScratch.prepare(maximumBlockSize);
 }
 
@@ -309,6 +327,7 @@ void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 
         pieceContext.fade = context.fade.from(done);
         pieceContext.inputOffset = context.inputOffset + done;
         pieceContext.crossfadeDone = std::min(context.crossfadeLength, context.crossfadeDone + done);
+        pieceContext.stream = context.stream + done;
         const juce::int64 pieceStart = context.timelineRunning ? timelineStart + done : timelineStart;
 
         renderPiece(arrangement, state, pieceStart, mix, piece, pieceContext);
@@ -344,11 +363,12 @@ void Mixer::renderPiece(const Arrangement& arrangement, MixState& state, juce::i
     if (!arrangement.buses.empty())
         renderBuses(arrangement, state, timelineStart, mix, numSamples, context);
 
-    state.master.apply(mix, 2, numSamples);
+    applyAutomatedGain(arrangement.masterCurve.get(), state.master, state.masterAutomationBlend,
+                       mix, 2, numSamples, context, timelineStart, state.mixLatency);
 
     if (!arrangement.masterInserts.isEmpty())
         processChain(arrangement.masterInserts, arrangement, mix, numSamples, timelineStart,
-                     context);
+                     context, state.mixLatency);
 }
 
 void Mixer::renderVanishedTracks(const Arrangement& arrangement, MixState& state,
@@ -396,7 +416,8 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
                                (gains.timeline.isRamping() || gains.timeline.getTarget() > 0.0f);
     const bool playsInput = hasInput && (gains.input.isRamping() || gains.input.getTarget() > 0.0f);
 
-    const bool unheard = !gains.left.isRamping() && !gains.right.isRamping() &&
+    const bool unheard = !track.automation.isActive() && !gains.automationBlend.isRamping() &&
+                         !gains.left.isRamping() && !gains.right.isRamping() &&
                          juce::exactlyEqual(gains.left.getTarget(), 0.0f) &&
                          juce::exactlyEqual(gains.right.getTarget(), 0.0f);
     const bool hasEffects = !track.inserts.isEmpty();
@@ -411,7 +432,8 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
     for (std::size_t k = 0; k < track.sends.size(); ++k)
         sendsBeforeFader = sendsBeforeFader ||
                            (track.sends[k].preFader && (gains.sends[k].gain.isRamping() ||
-                                                        gains.sends[k].gain.getTarget() > 0.0f));
+                                                        gains.sends[k].gain.getTarget() > 0.0f ||
+                                                        track.sends[k].levelCurve != nullptr));
 
     // A silent track without effects reads nothing; its gains still move on, as if
     // it had played.
@@ -464,7 +486,7 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
     }
 
     if (hasEffects)
-        processChain(track.inserts, arrangement, channels, numSamples, timelineStart, context);
+        processChain(track.inserts, arrangement, channels, numSamples, timelineStart, context, 0);
 
     if (vanishing)
     {
@@ -476,7 +498,7 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
                                          fullLength);
     }
 
-    addSends(track, gains, true, numSamples, busOwner, busState);
+    addSends(track, gains, true, numSamples, busOwner, busState, context, timelineStart);
 
     if (unheard)
     {
@@ -488,10 +510,10 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
         return false;
     }
 
-    gains.left.apply(channels, 1, numSamples);
-    gains.right.apply(channels + 1, 1, numSamples);
+    applyPannedGains(track.automation, gains.left, gains.right, gains.automationBlend, channels,
+                     numSamples, context, timelineStart, gains.latency);
 
-    addSends(track, gains, false, numSamples, busOwner, busState);
+    addSends(track, gains, false, numSamples, busOwner, busState, context, timelineStart);
 
     if (track.meter != nullptr)
         track.meter->process(scratch, 0, numSamples);
@@ -503,7 +525,8 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
 }
 
 void Mixer::addSends(const ArrangementTrack& track, MixState::TrackGains& gains, bool preFader,
-                     int numSamples, const Arrangement& busOwner, MixState& busState) noexcept
+                     int numSamples, const Arrangement& busOwner, MixState& busState,
+                     const MixContext& context, juce::int64 timelineStart) noexcept
 {
     for (std::size_t k = 0; k < track.sends.size(); ++k)
     {
@@ -514,11 +537,13 @@ void Mixer::addSends(const ArrangementTrack& track, MixState::TrackGains& gains,
         auto& state = gains.sends[k];
         auto& ramp = state.gain;
         const int bus = findBus(busOwner, send.bus, send.busIndex);
-        const bool silent = !ramp.isRamping() && juce::exactlyEqual(ramp.getTarget(), 0.0f);
+        const bool silent = send.levelCurve == nullptr && !state.automationBlend.isRamping() &&
+                            !ramp.isRamping() && juce::exactlyEqual(ramp.getTarget(), 0.0f);
 
         if (bus < 0 || silent || busState.busInputs.getNumChannels() < 2 * (bus + 1))
         {
             ramp.skip(numSamples);
+            state.automationBlend.reset(0.0f);
             continue;
         }
 
@@ -527,7 +552,8 @@ void Mixer::addSends(const ArrangementTrack& track, MixState::TrackGains& gains,
         for (int channel = 0; channel < 2; ++channel)
             juce::FloatVectorOperations::copy(sent[channel], scratch.getReadPointer(channel),
                                               numSamples);
-        ramp.apply(sent, 2, numSamples);
+        applyAutomatedGain(send.levelCurve.get(), ramp, state.automationBlend, sent, 2, numSamples,
+                           context, timelineStart, gains.latency);
         if (state.delay > 0)
             state.line.process(sent, 2, numSamples);
 
@@ -549,10 +575,12 @@ void Mixer::renderBuses(const Arrangement& arrangement, MixState& state, juce::i
                                    state.busInputs.getWritePointer(channel + 1)};
 
         if (!bus.inserts.isEmpty())
-            processChain(bus.inserts, arrangement, channels, numSamples, timelineStart, context);
+            processChain(bus.inserts, arrangement, channels, numSamples, timelineStart, context,
+                         gains.inputLatency);
 
-        gains.left.apply(channels, 1, numSamples);
-        gains.right.apply(channels + 1, 1, numSamples);
+        applyPannedGains(bus.automation, gains.left, gains.right, gains.automationBlend, channels,
+                         numSamples, context, timelineStart,
+                         gains.inputLatency + bus.inserts.getLatency());
 
         if (bus.meter != nullptr)
         {
@@ -597,26 +625,207 @@ void Mixer::crossfadeClips(const ArrangementTrack* before, juce::int64 timelineS
 
 void Mixer::processChain(const EffectChain& chain, const Arrangement& arrangement,
                          float* const* channels, int numSamples, juce::int64 timelineStart,
-                         const MixContext& context) noexcept
+                         const MixContext& context, int latency) noexcept
 {
-    fx::SlotContext slotContext;
-    slotContext.time.tempo = arrangement.tempo;
-    slotContext.time.numerator = arrangement.numerator;
-    slotContext.time.denominator = arrangement.denominator;
-    slotContext.time.position = timelineStart;
-    slotContext.time.playing = context.timelineRunning;
-
     for (const auto& slot : chain.slots)
     {
         if (slot.instance == nullptr)
             continue;
+
+        // Where the audio reaching this effect is on the timeline: behind what is read
+        // by the latency of everything before it.
+        fx::SlotContext slotContext;
+        slotContext.time.tempo = arrangement.tempo;
+        slotContext.time.numerator = arrangement.numerator;
+        slotContext.time.denominator = arrangement.denominator;
+        bool first = true;
+        forEachPosition(context, timelineStart, latency, numSamples,
+                        [&](int, int, juce::int64 position, bool running) {
+                            if (first)
+                            {
+                                slotContext.time.position = position;
+                                slotContext.time.playing = running;
+                                first = false;
+                            }
+                        });
+
+        if (!slot.automation.empty())
+        {
+            const auto count = std::min(slot.automation.size(), automationPointers.size());
+            int lanes = 0;
+            for (std::size_t p = 0; p < count; ++p)
+            {
+                automationPointers[p] = nullptr;
+                const auto* curve = slot.automation[p].get();
+                if (curve == nullptr || lanes >= fx::EffectScratch::maximumChangingParameters)
+                    continue;
+
+                float* lane = automationLanes.data() + static_cast<std::size_t>(lanes++) *
+                                                           static_cast<std::size_t>(scratch.getNumSamples());
+                fillCurve(*curve, context, timelineStart, latency, numSamples, lane);
+                automationPointers[p] = lane;
+            }
+            slotContext.automation = std::span<const float* const>(automationPointers.data(), count);
+        }
 
         fx::SlotSettings settings;
         settings.parameters = slot.parameters;
         settings.enabled = slot.enabled;
         settings.revival = slot.revival;
         slot.instance->process(channels, numSamples, settings, slotContext, effectScratch);
+
+        latency += slot.instance->getLatency();
     }
+}
+
+template <typename Callback>
+void Mixer::forEachPosition(const MixContext& context, juce::int64 timelineStart, int latency,
+                            int numSamples, Callback&& callback) const noexcept
+{
+    if (context.history == nullptr)
+    {
+        callback(0, numSamples,
+                 context.timelineRunning ? timelineStart - latency : timelineStart,
+                 context.timelineRunning);
+        return;
+    }
+
+    context.history->forEach(context.stream - latency, numSamples,
+                             [&callback](int offset, int length,
+                                         const TimelineHistory::Stretch& stretch) {
+                                 callback(offset, length, stretch.position,
+                                          stretch.kind == TimelineHistory::Kind::playing);
+                             });
+}
+
+void Mixer::fillCurve(const AutomationCurve& curve, const MixContext& context,
+                      juce::int64 timelineStart, int latency, int numSamples,
+                      float* values) const noexcept
+{
+    forEachPosition(context, timelineStart, latency, numSamples,
+                    [&](int offset, int length, juce::int64 position, bool running) {
+                        if (running)
+                            curve.fill(position, length, values + offset);
+                        else
+                            std::fill(values + offset, values + offset + length,
+                                      curve.valueAt(position));
+                    });
+}
+
+void Mixer::applyPannedGains(const GainAutomation& automation, dsp::GainRamp& left,
+                             dsp::GainRamp& right, dsp::GainRamp& blend, float* const* channels,
+                             int numSamples, const MixContext& context, juce::int64 timelineStart,
+                             int latency) noexcept
+{
+    if (!automation.isActive())
+    {
+        blend.reset(0.0f);
+        left.apply(channels, 1, numSamples);
+        right.apply(channels + 1, 1, numSamples);
+        return;
+    }
+
+    float* const leftGain = leftGains.data();
+    float* const rightGain = rightGains.data();
+
+    if (automation.volumeCurve != nullptr)
+    {
+        fillCurve(*automation.volumeCurve, context, timelineStart, latency, numSamples, leftGain);
+        for (int i = 0; i < numSamples; ++i)
+            leftGain[i] = dsp::faderGain(leftGain[i]);
+    }
+    else
+    {
+        std::fill(leftGain, leftGain + numSamples, automation.volume);
+    }
+
+    if (automation.panCurve != nullptr)
+    {
+        float* const pans = curveScratch.data();
+        fillCurve(*automation.panCurve, context, timelineStart, latency, numSamples, pans);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto gains = dsp::panGains(2.0 * static_cast<double>(pans[i]) - 1.0);
+            rightGain[i] = leftGain[i] * gains.right;
+            leftGain[i] *= gains.left;
+        }
+    }
+    else
+    {
+        const auto gains = dsp::panGains(static_cast<double>(automation.pan));
+        for (int i = 0; i < numSamples; ++i)
+        {
+            rightGain[i] = leftGain[i] * gains.right;
+            leftGain[i] *= gains.left;
+        }
+    }
+
+    // Automation that starts (or comes back) is reached from the fixed gains, which
+    // go on moving meanwhile.
+    blend.setTarget(1.0f, gainRampLength);
+    const bool blending = blend.isRamping();
+    if (blending)
+    {
+        float* const amount = gainScratch.data();
+        float* const fixed = curveScratch.data();
+        blend.fill(amount, numSamples);
+        for (auto [ramp, gain] : {std::pair{&left, leftGain}, std::pair{&right, rightGain}})
+        {
+            ramp->fill(fixed, numSamples);
+            for (int i = 0; i < numSamples; ++i)
+                gain[i] = fixed[i] + (gain[i] - fixed[i]) * amount[i];
+        }
+    }
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        channels[0][i] *= leftGain[i];
+        channels[1][i] *= rightGain[i];
+    }
+
+    // When automation stops, the fixed gains ramp on from where it left them.
+    if (!blending)
+    {
+        left.reset(leftGain[numSamples - 1]);
+        right.reset(rightGain[numSamples - 1]);
+    }
+}
+
+void Mixer::applyAutomatedGain(const AutomationCurve* curve, dsp::GainRamp& gain,
+                               dsp::GainRamp& blend, float* const* channels, int numChannels,
+                               int numSamples, const MixContext& context,
+                               juce::int64 timelineStart, int latency) noexcept
+{
+    if (curve == nullptr)
+    {
+        blend.reset(0.0f);
+        gain.apply(channels, numChannels, numSamples);
+        return;
+    }
+
+    float* const gains = leftGains.data();
+    fillCurve(*curve, context, timelineStart, latency, numSamples, gains);
+    for (int i = 0; i < numSamples; ++i)
+        gains[i] = dsp::faderGain(gains[i]);
+
+    blend.setTarget(1.0f, gainRampLength);
+    const bool blending = blend.isRamping();
+    if (blending)
+    {
+        float* const amount = gainScratch.data();
+        float* const fixed = curveScratch.data();
+        blend.fill(amount, numSamples);
+        gain.fill(fixed, numSamples);
+        for (int i = 0; i < numSamples; ++i)
+            gains[i] = fixed[i] + (gains[i] - fixed[i]) * amount[i];
+    }
+
+    for (int channel = 0; channel < numChannels; ++channel)
+        for (int i = 0; i < numSamples; ++i)
+            channels[channel][i] *= gains[i];
+
+    if (!blending)
+        gain.reset(gains[numSamples - 1]);
 }
 
 void Mixer::readInput(const ArrangementTrack& track, const MixContext& context,

@@ -2,6 +2,7 @@
 
 #include "daw/engine/Arrangement.h"
 #include "daw/engine/Mixer.h"
+#include "daw/engine/TimelineHistory.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -40,6 +41,8 @@ public:
     [[nodiscard]] int getLatency() const noexcept { return state.latency; }
 
 private:
+    [[nodiscard]] MixContext contextAt() const noexcept;
+
     const Arrangement& arrangement;
     Mixer mixer;
     MixState state;
@@ -48,6 +51,7 @@ private:
     juce::int64 readPosition = 0; // of the next sample read: latency samples ahead
     bool started = false;
     juce::AudioBuffer<float> discarded;
+    TimelineHistory history; // read in a straight line: stream index = read position
 };
 
 } // namespace daw::engine

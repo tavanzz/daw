@@ -350,6 +350,8 @@ MixContext Engine::makeContext(int outputStart) const noexcept
     MixContext context;
     context.inputs = blockInputs;
     context.inputOffset = renderOffset + outputStart;
+    context.history = &history;
+    context.stream = streamPosition + renderOffset + outputStart;
     context.autoMonitorsInput = autoMonitorsAt(transport.getPosition());
     return context;
 }

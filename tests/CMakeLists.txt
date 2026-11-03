@@ -15,6 +15,7 @@ add_executable(daw_tests
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
     engine/AudioInputTests.cpp
+    engine/AutomationTests.cpp
     engine/AudioFileLoaderTests.cpp
     engine/BounceTests.cpp
     engine/BusTests.cpp

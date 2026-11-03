@@ -56,6 +56,7 @@ EffectInstance::EffectInstance(std::unique_ptr<Effect> effectToHost, const Proce
         lastValues.push_back(parameter.clamp(parameter.defaultValue));
     }
     ramps.resize(parameters.size());
+    blends.assign(parameters.size(), dsp::GainRamp(0.0f));
     lastNormalised.assign(parameters.size(), -1.0f);
     changing.assign(parameters.size(), nullptr);
 
@@ -87,13 +88,18 @@ float EffectInstance::targetOf(const SlotSettings& settings, std::size_t index) 
     return std::isfinite(target) ? std::clamp(target, 0.0f, 1.0f) : defaults[index];
 }
 
-void EffectInstance::start(const SlotSettings& settings) noexcept
+void EffectInstance::start(const SlotSettings& settings, const SlotContext& context) noexcept
 {
     started = true;
     revival = settings.revival;
 
+    // Automation that is there from the start applies from the first sample.
     for (std::size_t i = 0; i < ramps.size(); ++i)
+    {
         ramps[i].reset(targetOf(settings, i));
+        const bool automated = i < context.automation.size() && context.automation[i] != nullptr;
+        blends[i].reset(automated ? 1.0f : 0.0f);
+    }
 
     // An effect added while playing fades in; one that was there all along (a
     // project just opened, an export) is in from its first sample.
@@ -106,7 +112,7 @@ void EffectInstance::processPiece(float* const* channels, int numSamples,
                                   int offset, EffectScratch& scratch) noexcept
 {
     if (!started)
-        start(settings);
+        start(settings, context);
 
     if (settings.revival != revival)
     {
@@ -213,29 +219,52 @@ void EffectInstance::updateParameters(const SlotSettings& settings, const SlotCo
         auto& ramp = ramps[i];
         changing[i] = nullptr;
 
+        auto& blend = blends[i];
         const float* automated = i < context.automation.size() ? context.automation[i] : nullptr;
         if (automated != nullptr)
         {
             automated += offset;
-            const float last = automated[numSamples - 1];
+            blend.setTarget(1.0f, rampLength);
+            const bool blending = blend.isRamping() && !mapping.isChoice();
 
-            // Automation is exact: no ramp. When it stops, the ramp glides on from
-            // its last value to the user's.
-            ramp.reset(last);
+            float* values = nullptr;
+            if (lanesUsed < EffectScratch::maximumChangingParameters &&
+                (needValues || blending))
+                values = scratch.values.data() + static_cast<std::size_t>(lanesUsed++) *
+                                                     static_cast<std::size_t>(scratch.blockSize);
+
+            // Automation is exact: no ramp, once reached. When it stops, the ramp
+            // glides on from its last value to the user's.
+            float last = automated[numSamples - 1];
+            if (blending && values != nullptr)
+            {
+                float* const amount = scratch.gains.data();
+                blend.fill(amount, numSamples);
+                ramp.fill(values, numSamples);
+                for (int k = 0; k < numSamples; ++k)
+                    values[k] += (automated[k] - values[k]) * amount[k];
+                last = values[numSamples - 1];
+                for (int k = 0; k < numSamples; ++k)
+                    values[k] = mapping.toValue(values[k]);
+            }
+            else
+            {
+                blend.reset(1.0f);
+                if (values != nullptr)
+                    for (int k = 0; k < numSamples; ++k)
+                        values[k] = mapping.toValue(automated[k]);
+            }
+
+            // While blending the ramp goes on underneath (fill() moved it on).
+            if (!blending || values == nullptr)
+                ramp.reset(last);
             lastNormalised[i] = last;
             lastValues[i] = mapping.toValue(last);
-
-            if (needValues && lanesUsed < EffectScratch::maximumChangingParameters)
-            {
-                float* values = scratch.values.data() +
-                                static_cast<std::size_t>(lanesUsed++) *
-                                    static_cast<std::size_t>(scratch.blockSize);
-                for (int k = 0; k < numSamples; ++k)
-                    values[k] = mapping.toValue(automated[k]);
-                changing[i] = values;
-            }
+            changing[i] = needValues ? values : nullptr;
             continue;
         }
+
+        blend.reset(0.0f);
 
         const float target = targetOf(settings, i);
         if (mapping.isChoice())

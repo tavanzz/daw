@@ -25,11 +25,13 @@ void OfflineRenderer::render(juce::AudioBuffer<float>& output)
     {
         started = true;
         readPosition = position;
+        history.reset(readPosition, readPosition);
+        history.record({readPosition, readPosition, TimelineHistory::Kind::playing, false});
         discarded.setSize(std::max(2, output.getNumChannels()), maximumBlockSize);
         for (int done = 0; done < state.latency;)
         {
             const int length = std::min(maximumBlockSize, state.latency - done);
-            mixer.render(arrangement, state, readPosition, discarded, 0, length);
+            mixer.render(arrangement, state, readPosition, discarded, 0, length, contextAt());
             readPosition += length;
             done += length;
         }
@@ -38,10 +40,18 @@ void OfflineRenderer::render(juce::AudioBuffer<float>& output)
     for (int done = 0; done < output.getNumSamples(); done += maximumBlockSize)
     {
         const int length = std::min(maximumBlockSize, output.getNumSamples() - done);
-        mixer.render(arrangement, state, readPosition, output, done, length);
+        mixer.render(arrangement, state, readPosition, output, done, length, contextAt());
         readPosition += length;
         position += length;
     }
+}
+
+MixContext OfflineRenderer::contextAt() const noexcept
+{
+    MixContext context;
+    context.history = &history;
+    context.stream = readPosition;
+    return context;
 }
 
 } // namespace daw::engine

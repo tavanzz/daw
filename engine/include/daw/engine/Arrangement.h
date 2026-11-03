@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/engine/AudioSource.h"
+#include "daw/engine/AutomationCurve.h"
 #include "daw/engine/BeatGrid.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
 #include "daw/engine/fx/EffectInstance.h"
@@ -47,6 +48,26 @@ struct ChainSlot
     std::vector<float> parameters; ///< normalised values set by the user, one per parameter
     bool enabled = true;           ///< false: bypassed, or fading out before it is removed
     std::uint32_t revival = 0;     ///< see fx::SlotSettings
+
+    /** Per parameter, its automation (normalised values) or null; may be shorter
+        than the parameter list. */
+    std::vector<std::shared_ptr<const AutomationCurve>> automation;
+};
+
+/** A fader and pan that automation may move: the arrangement's fixed gains apply
+    unless a curve is given (positions on the fader, dsp::faderGain(); pan from 0
+    hard left to 1 hard right). Curves are only given where the result is heard. */
+struct GainAutomation
+{
+    float volume = 1.0f; ///< linear gain, used while only the pan is automated
+    float pan = 0.0f;    ///< -1 to 1, used while only the volume is automated
+    std::shared_ptr<const AutomationCurve> volumeCurve;
+    std::shared_ptr<const AutomationCurve> panCurve;
+
+    [[nodiscard]] bool isActive() const noexcept
+    {
+        return volumeCurve != nullptr || panCurve != nullptr;
+    }
 };
 
 /** Effects in series, processed in order. */
@@ -69,6 +90,9 @@ struct ArrangementSend
     int busIndex = -1;    ///< where that bus is in Arrangement::buses (checked against bus)
     float gain = 1.0f;    ///< the send level, 0 when the track is not heard
     bool preFader = false; ///< after the inserts and before volume and pan, or after both
+
+    /** The level's automation (positions on the fader), or null. */
+    std::shared_ptr<const AutomationCurve> levelCurve;
 };
 
 /** An aux bus: the sum of the sends it gets, through its effects and its fader,
@@ -78,6 +102,7 @@ struct ArrangementBus
     juce::int64 id = 0;
     float leftGain = 1.0f; ///< volume × pan law, 0 when muted
     float rightGain = 1.0f;
+    GainAutomation automation;
     EffectChain inserts; ///< before its fader
 
     /** Measures the bus after its fader, for the UI; may be null. */
@@ -90,6 +115,7 @@ struct ArrangementTrack
     juce::int64 id = 0;    ///< the model's track id: keeps gain ramps going across arrangements
     float leftGain = 1.0f; ///< volume × pan law, 0 when the track is not heard
     float rightGain = 1.0f;
+    GainAutomation automation;
     std::vector<ClipSegment> segments; ///< sorted by start, never overlapping
 
     /** Effects on the track, before its fader. */
@@ -124,6 +150,9 @@ struct Arrangement
     std::vector<ArrangementTrack> tracks;
     std::vector<ArrangementBus> buses;
     float masterGain = 1.0f;
+
+    /** The master volume's automation (positions on the fader), or null. */
+    std::shared_ptr<const AutomationCurve> masterCurve;
 
     /** Effects on the mix, after the master fader (so a limiter there holds its
         ceiling whatever the fader does). */

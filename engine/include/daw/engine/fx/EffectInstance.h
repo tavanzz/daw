@@ -67,7 +67,9 @@ struct SlotContext
     it, so that nothing an effect does or a user changes can click.
 
     - Parameters reach their new values over rampSeconds, in the normalised domain;
-      choices jump. Automated parameters take the automation's values exactly.
+      choices jump. Automated parameters take the automation's values exactly; when
+      automation starts it is reached over rampSeconds, when it stops the ramp goes
+      on from its last value.
     - Adding, removing and bypassing crossfade between the effect's output and the
       dry signal over fadeSeconds. A bypassed effect is not processed; switched back
       on, it starts from a clean state (no stale echoes).
@@ -124,7 +126,7 @@ public:
 private:
     void processPiece(float* const* channels, int numSamples, const SlotSettings& settings,
                       const SlotContext& context, int offset, EffectScratch& scratch) noexcept;
-    void start(const SlotSettings& settings) noexcept;
+    void start(const SlotSettings& settings, const SlotContext& context) noexcept;
     void updateParameters(const SlotSettings& settings, const SlotContext& context, int offset,
                           int numSamples, bool needValues, EffectScratch& scratch) noexcept;
     [[nodiscard]] float targetOf(const SlotSettings& settings, std::size_t index) const noexcept;
@@ -140,6 +142,7 @@ private:
     std::vector<ParameterMapping> mappings;
     std::vector<float> defaults;        // normalised
     std::vector<dsp::GainRamp> ramps;   // normalised values
+    std::vector<dsp::GainRamp> blends;  // from the ramp to automation, as it starts
     std::vector<float> lastValues;      // in units
     std::vector<float> lastNormalised;  // what lastValues was computed from
     std::vector<const float*> changing; // per-sample values for this piece, or null

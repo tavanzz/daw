@@ -3,6 +3,7 @@
 
 add_library(daw_engine STATIC
     src/Arrangement.cpp
+    src/AutomationCurve.cpp
     src/AudioSource.cpp
     src/BeatGrid.cpp
     src/Engine.cpp
@@ -12,6 +13,7 @@ add_library(daw_engine STATIC
     src/TimelineHistory.cpp
     src/Transport.cpp
     src/dsp/DelayLine.cpp
+    src/dsp/FaderLaw.cpp
     src/dsp/GainRamp.cpp
     src/dsp/InputMeters.cpp
     src/dsp/LatencyProbe.cpp

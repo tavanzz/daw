@@ -167,6 +167,17 @@ Modules with one-way dependencies:
   both arrangements have) while anything may be heard dips the output: 5 ms fade
   out, silence while the new delays fill, 5 ms fade in. Tracks with delays run on
   while stopped so the delayed audio still comes out.
+- Automation in the engine (Phase 4): `engine::AutomationCurve` (points in
+  samples with a normalised value and a bend; straight or bent segments, steps,
+  flat before the first and after the last point) is a pure function of the
+  position. Tracks and buses carry a `GainAutomation` (volume and pan curves),
+  sends a level curve, the arrangement a master curve, chain slots a curve per
+  parameter; volumes and send levels are fader positions (`dsp::faderGain()`, even
+  in dB from -60 to +6). The mixer reads each curve at the timeline position of the
+  audio where it applies (`MixContext::history`): a fader after effects of latency
+  L reads what was read L samples ago, through loops and seeks. Automation that
+  starts is reached over 20 ms from the fixed gains (or the parameter's ramp),
+  which keep moving underneath; when it stops they ramp on from its last value.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -591,7 +602,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 3. Aux buses and pre/post-fader sends, mute and solo rules
 - [x] 4. Plugin delay compensation: latencies, compensation delays, the heard
       position (playhead, metronome, count-in, recording), latency changes, export
-- [ ] 5. Automation in the engine: curves, per-sample values at the audio's position,
+- [x] 5. Automation in the engine: curves, per-sample values at the audio's position,
       volume, pan, sends and effect parameters
 - [ ] 6. Equaliser: SVF bands, Butterworth high/low-pass, response function
 - [ ] 7. Compressor and limiter, gain-reduction meters
