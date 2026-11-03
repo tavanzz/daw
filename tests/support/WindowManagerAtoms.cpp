@@ -3,6 +3,8 @@
 // Xlib's macros (None, Bool, True, ...) stay inside this file.
 #ifdef __linux__
  #include <X11/Xlib.h>
+
+ #include <initializer_list>
 #endif
 
 namespace daw::test
