@@ -429,7 +429,8 @@ apt.llvm.org.
   same branch cancels the run in progress.
 - Linux packages needed by JUCE are listed in the workflow and in the README; keep
   the two lists in sync. On Linux the tests run under `xvfb-run` (the UI tests need a
-  display).
+  display); with no window manager there, the UI tests first create the X11 atoms
+  JUCE only looks up (`tests/support/WindowManagerAtoms.h`).
 - When fixing a red CI job: at most 3 attempts on the same job. If it is still red
   after the third, stop pushing and explain the problem (what fails, suspected
   cause, what was tried) instead of trying again.

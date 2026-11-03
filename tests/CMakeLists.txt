@@ -51,6 +51,7 @@ daw_enable_warnings(daw_tests)
 # Linux CI, on a virtual display).
 add_executable(daw_ui_tests
     support/UiTestMain.cpp
+    support/WindowManagerAtoms.cpp
     ui/AnimationClockTests.cpp
     ui/PrerenderedImagesTests.cpp
     ui/ThemeManagerTests.cpp
@@ -60,6 +61,12 @@ target_include_directories(daw_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_ui_tests PRIVATE daw::ui_desktop daw::appearance daw::controller
     daw::engine daw::model daw::juce Catch2::Catch2)
 daw_enable_warnings(daw_ui_tests)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # The virtual display in CI has no window manager (see WindowManagerAtoms.h).
+    find_package(X11 REQUIRED)
+    target_link_libraries(daw_ui_tests PRIVATE X11::X11)
+endif()
 
 # Not tests: measure how many tracks fit in an audio callback, and how many stream
 # from disk and record at once (see the sources).
