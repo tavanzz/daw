@@ -71,7 +71,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends ninja-build \
             libasound2-dev libfreetype-dev libfontconfig1-dev \
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
-            libxinerama-dev libxrandr-dev libxrender-dev libxi-dev
+            libxinerama-dev libxrandr-dev libxrender-dev libxi-dev \
+            xvfb
 
       - name: Install Ninja (macOS)
         if: runner.os == 'macOS'
@@ -96,4 +97,11 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
 
       - name: Test
+        if: runner.os != 'Linux'
         run: ctest --preset ${{ matrix.preset }}
+
+      # The UI tests open (invisible) windows; Linux runners have no display, so a
+      # virtual one stands in.
+      - name: Test (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a ctest --preset ${{ matrix.preset }}

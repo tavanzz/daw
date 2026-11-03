@@ -47,6 +47,18 @@ target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::eng
     Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 
+# UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
+# Linux CI, on a virtual display).
+add_executable(daw_ui_tests
+    support/UiTestMain.cpp
+    ui/ThemeManagerTests.cpp
+    ui/ThemedLookAndFeelTests.cpp)
+
+target_include_directories(daw_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(daw_ui_tests PRIVATE daw::ui_desktop daw::appearance daw::controller
+    daw::engine daw::model daw::juce Catch2::Catch2)
+daw_enable_warnings(daw_ui_tests)
+
 # Not tests: measure how many tracks fit in an audio callback, and how many stream
 # from disk and record at once (see the sources).
 add_executable(daw_bench bench/MixBenchmark.cpp)
@@ -60,6 +72,7 @@ daw_enable_warnings(daw_stream_bench)
 # PRE_TEST: tests are listed when CTest runs, not at build time, so building
 # never needs to execute the test binary.
 catch_discover_tests(daw_tests DISCOVERY_MODE PRE_TEST)
+catch_discover_tests(daw_ui_tests DISCOVERY_MODE PRE_TEST)
 
 if(DAW_ENABLE_RTSAN)
     # Proves the sanitizer is really active: this hidden test calls malloc from

@@ -1,0 +1,47 @@
+#pragma once
+
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
+
+namespace daw::ui::desktop
+{
+
+// What each built-in theme draws beyond its data. Made by ThemedLookAndFeel::make().
+
+/** Neon Grid: neon gradients on progress and active elements. */
+class NeonGridLookAndFeel final : public ThemedLookAndFeel
+{
+public:
+    using ThemedLookAndFeel::ThemedLookAndFeel;
+
+    void drawProgressBar(juce::Graphics& g, juce::ProgressBar& bar, int width, int height,
+                         double progress, const juce::String& textToShow) override;
+};
+
+/** Acid Terminal: terminal-style headings ("[ MIXER ]"), progress as a row of blocks. */
+class AcidTerminalLookAndFeel final : public ThemedLookAndFeel
+{
+public:
+    using ThemedLookAndFeel::ThemedLookAndFeel;
+
+    void drawProgressBar(juce::Graphics& g, juce::ProgressBar& bar, int width, int height,
+                         double progress, const juce::String& textToShow) override;
+
+protected:
+    [[nodiscard]] juce::String labelText(appearance::FontRole role,
+                                         const juce::String& text) const override;
+};
+
+/** Synth Chrome: chrome gradients on buttons, a sunset gradient on progress. */
+class SynthChromeLookAndFeel final : public ThemedLookAndFeel
+{
+public:
+    using ThemedLookAndFeel::ThemedLookAndFeel;
+
+    void drawButtonBackground(juce::Graphics& g, juce::Button& button,
+                              const juce::Colour& backgroundColour, bool isMouseOverButton,
+                              bool isButtonDown) override;
+    void drawProgressBar(juce::Graphics& g, juce::ProgressBar& bar, int width, int height,
+                         double progress, const juce::String& textToShow) override;
+};
+
+} // namespace daw::ui::desktop

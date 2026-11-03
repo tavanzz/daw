@@ -48,6 +48,12 @@ MainWindow::~MainWindow()
     clearContentComponent();
 }
 
+void MainWindow::lookAndFeelChanged()
+{
+    DocumentWindow::lookAndFeelChanged();
+    setBackgroundColour(findColour(juce::ResizableWindow::backgroundColourId));
+}
+
 void MainWindow::closeButtonPressed()
 {
     juce::JUCEApplicationBase::getInstance()->systemRequestedQuit();

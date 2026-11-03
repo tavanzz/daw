@@ -8,6 +8,7 @@ namespace daw::app
 namespace
 {
 constexpr const char* deviceStateKey = "audioDevice";
+constexpr const char* appearanceKey = "appearance";
 constexpr int updateRateHz = 60;
 } // namespace
 
@@ -20,6 +21,16 @@ AppController::AppController(const juce::String& name)
     options.folderName = applicationName;
     options.osxLibrarySubFolder = "Application Support";
     settings.setStorageParameters(options);
+
+    // The theme applies before the first window opens, so nothing flashes in another.
+    themes = std::make_unique<ui::desktop::ThemeManager>(
+        appearance::AppearancePreferences::fromJson(
+            settings.getUserSettings()->getValue(appearanceKey)),
+        [this](const appearance::AppearancePreferences& preferences)
+        {
+            settings.getUserSettings()->setValue(appearanceKey, preferences.toJson());
+            settings.saveIfNeeded();
+        });
 
     // Inputs open at launch only if the user already allowed them: never a prompt.
     using engine::io::MicrophoneAccess;

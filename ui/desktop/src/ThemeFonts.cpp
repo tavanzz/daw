@@ -32,13 +32,15 @@ juce::Font ThemeFonts::font(const appearance::FontSpec& spec) const
 
 juce::Font ThemeFonts::font(const appearance::FontSpec& spec, float height) const
 {
-    auto options = juce::FontOptions().withHeight(height).withKerningFactor(spec.tracking);
-
     if (auto typeface = find(spec))
-        return juce::Font(options.withTypeface(typeface));
+        return juce::Font(
+            juce::FontOptions(typeface).withHeight(height).withKerningFactor(spec.tracking));
 
     const bool bold = spec.style.containsIgnoreCase("bold");
-    return juce::Font(options.withStyle(bold ? "Bold" : "Regular"));
+    return juce::Font(juce::FontOptions()
+                          .withHeight(height)
+                          .withKerningFactor(spec.tracking)
+                          .withStyle(bold ? "Bold" : "Regular"));
 }
 
 bool ThemeFonts::isLoaded(const appearance::FontSpec& spec) const

@@ -45,8 +45,12 @@ crash, and playback and recording streamed from disk. Project format version 3. 
   sudo apt install build-essential cmake ninja-build pkg-config \
       libasound2-dev libfreetype-dev libfontconfig1-dev \
       libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
-      libxinerama-dev libxrandr-dev libxrender-dev libxi-dev
+      libxinerama-dev libxrandr-dev libxrender-dev libxi-dev \
+      xvfb
   ```
+
+  `xvfb` is only needed to run the UI tests without a display:
+  `xvfb-run -a ctest --preset debug`.
 
 JUCE and Catch2 are downloaded automatically, at pinned versions verified by
 SHA-256, the first time you configure.

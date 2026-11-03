@@ -28,7 +28,7 @@ Modules with one-way dependencies:
 | `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
-| `tests/`      | unit tests for engine, model, controller and appearance           | appearance, controller, engine, model |
+| `tests/`      | unit tests for engine, model, controller and appearance; UI tests for ui/desktop | everything but app |
 
 - `engine` never depends on any UI. `engine` and `model` don't depend on each other
   nor on `controller`; `controller` maps the model onto the engine. `appearance`
@@ -291,6 +291,17 @@ Modules with one-way dependencies:
   typefaces once and gives the font for a theme's `FontSpec` (an unknown family falls
   back to the default sans-serif). The licences go into the app (`Licences/`) with
   `docs/THIRD_PARTY.md`, which lists every third-party component.
+- Theming the desktop UI (Phase 5): `ThemedLookAndFeel` (a `LookAndFeel_V4`) draws
+  JUCE's widgets from a theme: JUCE colour ids set from colour roles, fonts from font
+  roles (a Label's `fontRole` property picks its role), shapes in the theme's corner
+  style (`shapeOf()`), text on fills via `textColourOn()`. One subclass per built-in
+  theme (`src/ThemeLookAndFeels.h`) adds what the data cannot say; `make()` picks it.
+  Components ask `ThemedLookAndFeel::of(component)` for roles and never hold literal
+  colours or fonts. `ThemeManager` (owned by `AppController`, created before the
+  window and destroyed after it) owns the fonts and one look and feel per theme,
+  sets the current one as JUCE's default (JUCE then restyles every window, dialog,
+  menu and tooltip on screen), notifies its listeners and hands each preference
+  change to the app, which keeps it in the user settings under "appearance".
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -374,6 +385,8 @@ ctest --preset debug            # run all tests
   `linux-rtsan`, run in CI. Pass `-DCMAKE_CXX_COMPILER=clang++-NN` for a versioned Clang.
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
+- UI tests (themes, windows; JUCE's GUI running): `build/debug/tests/daw_ui_tests`. On
+  Linux without a display, run them (or `ctest`) under `xvfb-run -a`.
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
   project and the Phase 3 recording project from
@@ -398,7 +411,8 @@ apt.llvm.org.
   push finished steps, not every edit, to keep runs readable. A newer push to the
   same branch cancels the run in progress.
 - Linux packages needed by JUCE are listed in the workflow and in the README; keep
-  the two lists in sync.
+  the two lists in sync. On Linux the tests run under `xvfb-run` (the UI tests need a
+  display).
 - When fixing a red CI job: at most 3 attempts on the same job. If it is still red
   after the third, stop pushing and explain the problem (what fails, suspected
   cause, what was tried) instead of trying again.
@@ -583,7 +597,7 @@ into `phase-5`.
 - [x] 3. Animation settings: levels, per-effect switches, reduced/off rules, system
       reduce motion, costs and total load, user-setting persistence
 - [x] 4. Bundled fonts (OFL), `docs/THIRD_PARTY.md`, typeface loading
-- [ ] 5. LookAndFeel base and one per theme for JUCE widgets; live switching across
+- [x] 5. LookAndFeel base and one per theme for JUCE widgets; live switching across
       windows; theme stored in the user settings; UI test target
 - [ ] 6. Shared animation clock, window visibility, system reduce motion, cache of
       precomputed images

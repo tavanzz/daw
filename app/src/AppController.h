@@ -4,6 +4,7 @@
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/AudioDeviceHost.h"
 #include "daw/ui/desktop/MainWindow.h"
+#include "daw/ui/desktop/ThemeManager.h"
 
 #include <juce_data_structures/juce_data_structures.h>
 #include <juce_events/juce_events.h>
@@ -17,7 +18,8 @@ namespace daw::app
     Owns the engine, the audio device, the session and the window, and keeps them in
     step: tells the session when the device's sample rate and latencies change,
     drives the session's update() from a timer, keeps the window title current, and
-    remembers the audio device and its latency offset (per device pair and rate).
+    remembers the audio device and its latency offset (per device pair and rate) and
+    the appearance (theme and animations).
 
     Inputs: the device opens its inputs only with the microphone permission. The
     permission is asked for the first time a track needs an input (armed, or
@@ -59,6 +61,7 @@ private:
     engine::Engine engine;
     engine::io::AudioDeviceHost deviceHost{engine};
     controller::Session session{engine};
+    std::unique_ptr<ui::desktop::ThemeManager> themes; // the window draws with its looks
     std::unique_ptr<ui::desktop::MainWindow> window;
 
     juce::String shownTitle;

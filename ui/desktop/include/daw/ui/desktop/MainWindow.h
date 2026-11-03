@@ -22,6 +22,7 @@ public:
     [[nodiscard]] MainComponent& getMainComponent() noexcept { return *mainComponent; }
 
     void closeButtonPressed() override;
+    void lookAndFeelChanged() override;
 
     // juce::MenuBarModel
     juce::StringArray getMenuBarNames() override;
