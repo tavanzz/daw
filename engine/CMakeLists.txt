@@ -24,6 +24,7 @@ add_library(daw_engine STATIC
     src/dsp/Resampler.cpp
     src/dsp/WaveformPeaks.cpp
     src/fx/EffectInstance.cpp
+    src/fx/Equaliser.cpp
     src/fx/Parameter.cpp
     src/io/AudioDeviceHost.cpp
     src/io/AudioFileLoader.cpp

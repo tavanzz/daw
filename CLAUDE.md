@@ -178,6 +178,13 @@ Modules with one-way dependencies:
   L reads what was read L samples ago, through loops and seeks. Automation that
   starts is reached over 20 ms from the fixed gains (or the parameter's ramp),
   which keep moving underneath; when it stops they ramp on from its last value.
+- Built-in effects (Phase 4), in `engine/fx/`: `Equaliser` (eight bands: high-pass,
+  low shelf, four bells, high shelf, low-pass, and an output gain; trapezoidal SVF
+  sections in double, the Audio EQ Cookbook's bells and shelves and Butterworth
+  passes of 6 to 48 dB/oct; `magnitude()` is the exact response for the UI's curve;
+  band switches and slopes crossfade over 10 ms; silence in with filters at rest
+  skips the work). Tests run effects through `tests/support/EffectRunner.h` and
+  compare measured responses with formulas written independently of the code.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -604,7 +611,7 @@ comping, mobile UI, writing automation live (touch/latch).
       position (playhead, metronome, count-in, recording), latency changes, export
 - [x] 5. Automation in the engine: curves, per-sample values at the audio's position,
       volume, pan, sends and effect parameters
-- [ ] 6. Equaliser: SVF bands, Butterworth high/low-pass, response function
+- [x] 6. Equaliser: SVF bands, Butterworth high/low-pass, response function
 - [ ] 7. Compressor and limiter, gain-reduction meters
 - [ ] 8. Delay: tempo sync, ping-pong, filtered feedback
 - [ ] 9. Reverb: feedback delay network with an exact decay time

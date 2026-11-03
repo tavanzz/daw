@@ -23,6 +23,7 @@ add_executable(daw_tests
     engine/EffectChainTests.cpp
     engine/EffectHostTests.cpp
     engine/EngineTests.cpp
+    engine/EqualiserTests.cpp
     engine/LatencyCompensationTests.cpp
     engine/LatencyProbeTests.cpp
     engine/MeterTests.cpp
