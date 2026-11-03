@@ -27,9 +27,8 @@ bool isAudioFile(const juce::String& path)
 TrackLanes::TrackLanes(ArrangeState& sharedState)
     : state(sharedState)
 {
-    // Frames only while the theme draws something that moves (see updateAnimations()).
-    backgroundLink.setWantsFrames(false);
-    playheadLink.setWantsFrames(false);
+    // Frames only while the theme draws something that moves.
+    updateAnimations();
 }
 
 void TrackLanes::contentChanged()

@@ -62,6 +62,7 @@ daw_enable_warnings(daw_tests)
 # UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
 # Linux CI, on a virtual display).
 add_executable(daw_ui_tests
+    support/TestAudioFiles.cpp
     support/UiTestMain.cpp
     support/WindowManagerAtoms.cpp
     ui/AlertsTests.cpp
@@ -69,6 +70,7 @@ add_executable(daw_ui_tests
     ui/PanelsTests.cpp
     ui/PrerenderedImagesTests.cpp
     ui/ThemeManagerTests.cpp
+    ui/ThemeSwitchTests.cpp
     ui/ThemedLookAndFeelTests.cpp)
 
 target_include_directories(daw_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

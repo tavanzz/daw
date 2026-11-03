@@ -598,7 +598,12 @@ ctest --preset debug            # run all tests
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - UI tests (themes, windows; JUCE's GUI running): `build/debug/tests/daw_ui_tests`. On
-  Linux without a display, run them (or `ctest`) under `xvfb-run -a`.
+  Linux without a display, run them (or `ctest`) under `xvfb-run -a`. With
+  `DAW_UI_SNAPSHOTS=<folder>` they also write pictures of the panels, the window (with
+  and without automation), the effect editors and the export dialog in every theme.
+  They play a full project twice, once with the window switching themes and animation
+  levels between audio blocks, and require the same audio bit for bit, the same
+  project JSON, revision, undo state and export.
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
   project, the Phase 3 recording project and the Phase 4 effects and delay
@@ -922,7 +927,7 @@ into `phase-5`.
       panel transitions, theme crossfade)
 - [x] 11. View > Theme (Cmd+1/2/3), theme previews panel; View > Animations panel,
       Shift+Cmd+A
-- [ ] 12. UI tests: every theme paints every component; switching themes leaves the
+- [x] 12. UI tests: every theme paints every component; switching themes leaves the
       project and the audio unchanged; the clock stops when off or hidden
 - [ ] 13. Benchmark: UI frame time and CPU per theme and animation level with a large
       project (Release), `docs/PERFORMANCE.md`

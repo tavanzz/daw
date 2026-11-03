@@ -29,7 +29,9 @@ MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& ses
     setResizeLimits(1100, 560, 10000, 10000);
 
 #if JUCE_MAC
-    juce::MenuBarModel::setMacMainMenu(this);
+    // The macOS menu bar belongs to the application (none in the UI tests).
+    if (juce::JUCEApplicationBase::getInstance() != nullptr)
+        juce::MenuBarModel::setMacMainMenu(this);
 #else
     setMenuBar(this);
 #endif
@@ -47,7 +49,8 @@ MainWindow::~MainWindow()
     occlusion.reset();
 
 #if JUCE_MAC
-    juce::MenuBarModel::setMacMainMenu(nullptr);
+    if (juce::JUCEApplicationBase::getInstance() != nullptr)
+        juce::MenuBarModel::setMacMainMenu(nullptr);
 #else
     setMenuBar(nullptr);
 #endif

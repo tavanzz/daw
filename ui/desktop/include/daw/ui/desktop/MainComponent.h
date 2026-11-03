@@ -88,6 +88,8 @@ public:
     void paint(juce::Graphics& g) override;
     void lookAndFeelChanged() override;
 
+    [[nodiscard]] ArrangeView& getArrangeViewForTesting() noexcept { return arrangeView; }
+
     // juce::ApplicationCommandTarget
     juce::ApplicationCommandTarget* getNextCommandTarget() override;
     void getAllCommands(juce::Array<juce::CommandID>& commands) override;
