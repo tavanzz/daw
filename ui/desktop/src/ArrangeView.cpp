@@ -1,5 +1,7 @@
 #include "daw/ui/desktop/ArrangeView.h"
 
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
+
 #include <algorithm>
 
 namespace daw::ui::desktop
@@ -66,7 +68,7 @@ void ArrangeView::refresh()
 
         trackArea->headers.refresh();
         resized(); // the number of tracks may have changed
-        trackArea->lanes.repaint();
+        trackArea->lanes.contentChanged();
         ruler.repaint();
         updateScrollBar();
     }
@@ -77,12 +79,13 @@ void ArrangeView::refresh()
         state.viewport.keepInView(playhead))
         viewChanged();
 
-    trackArea->lanes.setPlayhead(playhead);
+    trackArea->lanes.setPlayhead(playhead,
+                                 session.getTransportState() == engine::TransportState::playing);
     ruler.setPlayhead(playhead);
 
     // Recordings grow on screen.
     if (session.isRecording())
-        trackArea->lanes.repaint();
+        trackArea->lanes.contentChanged();
 }
 
 void ArrangeView::updateMeters(double elapsedSeconds)
@@ -121,7 +124,7 @@ void ArrangeView::setShowingAutomation(bool show)
     state.showAutomation = show;
     trackArea->headers.refresh();
     resized();
-    trackArea->lanes.repaint();
+    trackArea->lanes.contentChanged();
 }
 
 model::Ticks ArrangeView::getInsertPosition() const
@@ -157,19 +160,21 @@ void ArrangeView::resized()
 
 void ArrangeView::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1b1b1b));
+    // The corner left of the ruler, above the track headers.
+    ThemedLookAndFeel::get(*this).drawPanel(g, getLocalBounds().toFloat(),
+                                            appearance::ColourRole::panelAlt, false);
 }
 
 void ArrangeView::scrollBarMoved(juce::ScrollBar*, double newRangeStart)
 {
     state.viewport.setStart(static_cast<model::Ticks>(newRangeStart));
-    trackArea->lanes.repaint();
+    trackArea->lanes.contentChanged();
     ruler.repaint();
 }
 
 void ArrangeView::viewChanged()
 {
-    trackArea->lanes.repaint();
+    trackArea->lanes.contentChanged();
     ruler.repaint();
     updateScrollBar();
 }

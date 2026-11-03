@@ -4,6 +4,7 @@
 #include "daw/engine/dsp/FaderLaw.h"
 #include "daw/engine/fx/BuiltInEffects.h"
 #include "daw/ui/desktop/EffectSlots.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <cmath>
 
@@ -200,15 +201,13 @@ double AutomationLanes::fixedValue(const controller::ChainOwner& owner,
 }
 
 void AutomationLanes::paintRow(juce::Graphics& g, juce::Rectangle<float> row,
-                               const controller::ChainOwner& owner) const
+                               const controller::ChainOwner& owner,
+                               const ThemedLookAndFeel& look) const
 {
     const auto target = state.targetOf(owner);
     const auto& viewport = state.viewport;
     const bool reads = state.session.getAutomation(owner).getMode() == model::AutomationMode::read;
-    const auto colour = reads ? juce::Colour(0xffffca28) : juce::Colour(0xff8a8a8a);
-
-    g.setColour(juce::Colour(0x30000000));
-    g.fillRect(row);
+    look.drawAutomationShade(g, row);
 
     const auto lane = laneOf(owner, target);
     if (!lane || lane->getNumPoints() == 0)
@@ -218,14 +217,10 @@ void AutomationLanes::paintRow(juce::Graphics& g, juce::Rectangle<float> row,
         juce::Path line;
         line.startNewSubPath(row.getX(), y);
         line.lineTo(row.getRight(), y);
-        juce::Path dashed;
-        const float dashes[] = {4.0f, 4.0f};
-        juce::PathStrokeType(1.0f).createDashedStroke(dashed, line, dashes, 2);
-        g.setColour(colour.withAlpha(0.6f));
-        g.fillPath(dashed);
-        g.setFont(juce::FontOptions(11.0f));
-        g.drawText(targetName(state.session, owner, target) + ": click to add points",
-                   row.reduced(8.0f, 4.0f), juce::Justification::topLeft);
+        look.drawAutomationLevel(g, line, reads);
+        look.drawAutomationLabel(g, targetName(state.session, owner, target) +
+                                               ": click to add points",
+                                        row.reduced(8.0f, 4.0f), false);
         return;
     }
 
@@ -242,8 +237,7 @@ void AutomationLanes::paintRow(juce::Graphics& g, juce::Rectangle<float> row,
             path.lineTo(static_cast<float>(x), y);
         started = true;
     }
-    g.setColour(colour);
-    g.strokePath(path, juce::PathStrokeType(1.8f));
+    look.drawAutomationCurve(g, path, reads);
 
     for (int i = 0; i < lane->getNumPoints(); ++i)
     {
@@ -251,22 +245,19 @@ void AutomationLanes::paintRow(juce::Graphics& g, juce::Rectangle<float> row,
         const auto x = static_cast<float>(viewport.ticksToX(point.position));
         if (x < row.getX() - pointRadius || x > row.getRight() + pointRadius)
             continue;
-        g.fillEllipse(juce::Rectangle<float>(2.0f * pointRadius, 2.0f * pointRadius)
-                          .withCentre({x, yOf(row, point.value)}));
+        look.drawAutomationPoint(g, {x, yOf(row, point.value)}, pointRadius, reads);
     }
 
-    g.setFont(juce::FontOptions(11.0f));
-    g.drawText(targetName(state.session, owner, target), row.reduced(8.0f, 4.0f),
-               juce::Justification::topLeft);
+    look.drawAutomationLabel(g, targetName(state.session, owner, target),
+                                    row.reduced(8.0f, 4.0f), true);
 
     if (drag && drag->owner == owner && drag->index >= 0 && drag->index < lane->getNumPoints())
     {
         const auto point = lane->getPoint(drag->index);
         const auto x = static_cast<float>(viewport.ticksToX(point.position));
-        g.setColour(juce::Colours::white);
-        g.drawText(valueText(state.session, target, point.value),
-                   juce::Rectangle<float>(x + 8.0f, yOf(row, point.value) - 16.0f, 90.0f, 14.0f),
-                   juce::Justification::centredLeft);
+        look.drawAutomationLabel(g, valueText(state.session, target, point.value),
+                                        {x + 8.0f, yOf(row, point.value) - 16.0f, 90.0f, 14.0f},
+                                        true);
     }
 }
 

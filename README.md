@@ -36,8 +36,13 @@ buses fed by pre- or post-fader sends; built-in equaliser, compressor, limiter,
 tempo-synced delay and reverb; delay compensation that keeps every path aligned to
 the sample; automation lanes for volume, pan, sends and every effect parameter;
 effect editors with the equaliser's response curve and the compressor's gain
-reduction; exports with the effects' tails. Project format version 4. See
-[CLAUDE.md](CLAUDE.md#status) for the steps.
+reduction; exports with the effects' tails. Project format version 4.
+
+Phase 5 (v0.5.0): themes and animations. Three themes for the whole interface
+(Neon Grid, Acid Terminal, Synth Chrome), switched live from View > Theme, with
+bundled fonts and readable contrast checked by the tests; animations at three levels
+with a switch per effect, following the system's "Reduce motion". The project
+format does not change. See [CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 
@@ -53,8 +58,12 @@ reduction; exports with the effects' tails. Project format version 4. See
   sudo apt install build-essential cmake ninja-build pkg-config \
       libasound2-dev libfreetype-dev libfontconfig1-dev \
       libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
-      libxinerama-dev libxrandr-dev libxrender-dev libxi-dev
+      libxinerama-dev libxrandr-dev libxrender-dev libxi-dev \
+      xvfb
   ```
+
+  `xvfb` is only needed to run the UI tests without a display:
+  `xvfb-run -a ctest --preset debug`.
 
 JUCE and Catch2 are downloaded automatically, at pinned versions verified by
 SHA-256, the first time you configure.
@@ -151,8 +160,17 @@ Effects, buses and automation:
 | Automation lanes on/off | A |
 | New aux bus | Shift+Cmd+T |
 | Audio settings | Cmd+, |
+| Theme: Neon Grid / Acid Terminal / Synth Chrome | Cmd+1 / Cmd+2 / Cmd+3 |
+| All animations off (again: back on) | Shift+Cmd+A |
 
 (Ctrl instead of Cmd on Windows and Linux.)
+
+Appearance: View > Theme chooses one of three themes (Neon Grid, the default; Acid
+Terminal; Synth Chrome), which applies at once to every window; Show Previews puts
+them side by side. View > Animations sets how much moves: Full, Reduced (no moving
+backgrounds, glitches or panel transitions) or Off, and each effect on its own; by
+default the app follows the system's "Reduce motion". Both are kept in the user
+settings, not in projects.
 
 Projects (`.dawproject`) are small JSON files that refer to the audio files; keep the
 audio next to the project (or in a subfolder) and the folder can be moved as a whole.
@@ -168,13 +186,14 @@ callback, stream from disk and record, and what each effect costs:
 | `engine/`     | audio engine; never depends on the user interface               |
 | `model/`      | project state, timeline time, grid, versioned project files     |
 | `controller/` | maps the project onto the engine; shared by every UI            |
+| `appearance/` | themes (colours, fonts, shapes) and animation settings; no GUI |
 | `ui/desktop/` | mouse and keyboard interface                                    |
 | `ui/mobile/`  | touch interface (placeholder)                                   |
 | `app/`        | application entry point                                         |
 | `tests/`      | unit tests; `tests/bench/` the benchmarks                       |
 | `cmake/`      | build helpers: dependencies, warnings, architecture checks      |
 | `tools/`      | development scripts (listening-test files)                      |
-| `docs/`       | manual test procedures, performance measurements               |
+| `docs/`       | manual test procedures, performance measurements, licences     |
 
 Architecture, audio-thread rules and coding conventions are described in
 [CLAUDE.md](CLAUDE.md).
@@ -185,4 +204,6 @@ Copyright © 2026. All rights reserved. No open-source licence has been chosen f
 this project's own code yet.
 
 Third-party components keep their own licences: JUCE (AGPLv3 or commercial, see
-the note at the top) and Catch2 (Boost Software License 1.0, tests only).
+the note at the top), Catch2 (Boost Software License 1.0, tests only) and the fonts
+built into the app (SIL Open Font License 1.1). See
+[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).

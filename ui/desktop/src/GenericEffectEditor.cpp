@@ -15,7 +15,6 @@ public:
         , info(parameterInfo)
     {
         label.setText(info.name, juce::dontSendNotification);
-        label.setFont(juce::FontOptions(12.0f));
         addAndMakeVisible(label);
 
         if (info.isChoice() && info.choices.size() == 2 && info.choices[0] == "Off")

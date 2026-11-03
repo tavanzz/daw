@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/ui/desktop/AnimationLink.h"
 #include "daw/ui/desktop/ArrangeState.h"
 #include "daw/ui/desktop/AutomationLanes.h"
 
@@ -29,9 +30,15 @@ class TrackLanes final : public juce::Component, public juce::FileDragAndDropTar
 public:
     explicit TrackLanes(ArrangeState& sharedState);
 
-    void setPlayhead(model::Ticks position);
+    void setPlayhead(model::Ticks position, bool isPlaying);
+
+    /** The project, the view or the selection changed: paint the lanes again (a plain
+        repaint() puts back the image of the last content). */
+    void contentChanged();
 
     void paint(juce::Graphics& g) override;
+    void resized() override;
+    void lookAndFeelChanged() override;
     void mouseMove(const juce::MouseEvent& event) override;
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
@@ -78,10 +85,27 @@ private:
     void drawRecordings(juce::Graphics& g) const;
 
     [[nodiscard]] juce::Rectangle<float> rowBounds(int row) const;
+    [[nodiscard]] juce::Rectangle<int> visibleArea() const;
+    void paintContent(juce::Graphics& g, bool translucent) const;
+    void repaintPlayhead();
+    void updateAnimations();
 
     ArrangeState& state;
     AutomationLanes automation{state};
     model::Ticks playhead = 0;
+    bool playing = false;
+
+    // The image of the lanes' content, for the visible area at the display's scale.
+    juce::Image cache;
+    juce::Rectangle<int> cacheArea;
+    float cacheScale = 0.0f;
+    bool cacheTranslucent = false;
+    bool contentValid = false;
+
+    AnimationLink backgroundLink{*this, appearance::AnimationEffect::movingBackgrounds,
+                                 [this](double) { repaint(visibleArea()); }};
+    AnimationLink playheadLink{*this, appearance::AnimationEffect::cursorGlow,
+                               [this](double) { repaintPlayhead(); }};
     std::optional<Drag> drag;
     std::optional<juce::Rectangle<float>> dropIndicator;
 

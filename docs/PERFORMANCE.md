@@ -1,8 +1,9 @@
 # Performance
 
 How many tracks the engine mixes within the time of one audio callback (Phase 2),
-how many stream from disk and record at once (Phase 3), and what effects cost and
-how many tracks with effects fit (Phase 4).
+how many stream from disk and record at once (Phase 3), what effects cost and how
+many tracks with effects fit (Phase 4), and what the interface costs in each theme
+and animation level (Phase 5).
 
 ```bash
 cmake --preset release && cmake --build --preset release
@@ -174,3 +175,74 @@ What this means:
   out lower per sample than 256; still 75 tracks fit in half the budget.
 - One core only: the mixer and the effects run on the audio thread. Spreading
   tracks over cores is the way to more.
+
+## The interface in each theme (Phase 5)
+
+```bash
+cmake --preset release && cmake --build --preset release
+"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI Bench.app/Contents/MacOS/DAW UI Bench"
+```
+
+`tests/bench/UiBenchmark.cpp` opens the desktop window, always on top, at 1600 x 1000
+with the mixer open, over a large project: 64 stereo tracks playing in a loop, each
+with an equaliser, a compressor, a send to one of 4 buses (two reverbs, two delays)
+and automation on its volume, an equaliser gain and the compressor's threshold. The
+audio runs on a real-time thread of its own, as a device's callback does: a
+512-sample block every 10.67 ms at 48 kHz. For each theme and animation level, after
+3 s to settle, 20 s are measured:
+
+- frames per second, and the time to paint each one, from the window's first
+  `paint()` to its last (macOS then composites the result: not included);
+- CPU: the message thread's (all of the interface: timers, painting, the system's
+  drawing on that thread) and the whole process's, as a percentage of one core;
+- the audio callback: median, 99th percentile and maximum time, and how many
+  callbacks overran their 10.67 ms.
+
+Apple M3 Pro, macOS 15.6.1, a Retina display (the window paints at twice its size
+in pixels), Release build, 2026-11-03, with the code of Phase 5 step 13.
+
+| Theme | Animations | Frames/s | Paint median | p95 | max | UI CPU | Process CPU | Audio median | p99 | max | Missed |
+|-------|------------|---------:|-------------:|----:|----:|-------:|------------:|-------------:|----:|----:|-------:|
+| Neon Grid     | Full    | 60.3 | 3.40 ms | 3.89 ms | 4.35 ms | 52.5 % | 100.9 % | 3.917 ms | 4.097 ms | 4.137 ms | 0 |
+| Neon Grid     | Reduced | 60.1 | 3.39 ms | 3.86 ms | 4.14 ms | 53.5 % | 100.8 % | 3.919 ms | 4.070 ms | 4.107 ms | 0 |
+| Neon Grid     | Off     | 54.6 | 3.00 ms | 3.40 ms | 3.75 ms | 50.7 % |  97.9 % | 3.921 ms | 4.106 ms | 4.164 ms | 0 |
+| Acid Terminal | Full    | 56.7 | 3.46 ms | 3.94 ms | 4.27 ms | 63.8 % | 110.3 % | 3.924 ms | 4.089 ms | 4.189 ms | 0 |
+| Acid Terminal | Reduced | 54.9 | 3.47 ms | 3.92 ms | 4.24 ms | 62.1 % | 108.0 % | 3.922 ms | 4.056 ms | 4.149 ms | 0 |
+| Acid Terminal | Off     | 53.5 | 3.47 ms | 3.91 ms | 4.12 ms | 60.6 % | 106.0 % | 3.918 ms | 4.078 ms | 4.169 ms | 0 |
+| Synth Chrome  | Full    | 59.3 | 3.46 ms | 3.91 ms | 4.49 ms | 55.2 % | 105.2 % | 3.917 ms | 4.070 ms | 4.120 ms | 0 |
+| Synth Chrome  | Reduced | 60.2 | 3.38 ms | 3.86 ms | 4.33 ms | 54.5 % | 102.5 % | 3.913 ms | 4.065 ms | 4.138 ms | 0 |
+| Synth Chrome  | Off     | 54.5 | 3.02 ms | 3.43 ms | 3.74 ms | 51.5 % |  99.0 % | 3.916 ms | 4.087 ms | 4.145 ms | 0 |
+
+What this means:
+
+- The interface never reached the audio: the callback took the same time in every
+  theme and level (median 3.91 to 3.92 ms, 99th percentile 4.06 to 4.11 ms, never more
+  than 4.19 ms of the 10.67 ms budget) and none of about 17,000 callbacks was late. The
+  audio thread shares nothing with the interface but the engine's lock-free queues
+  and atomics; themes and animations live entirely on the message thread.
+- A frame takes 3.0 to 3.5 ms to paint (95 % of frames under 4 ms, none over 4.5 ms)
+  for a refresh every 16.7 ms. The animations add at most 0.4 ms a frame: the glows
+  of Neon Grid and Synth Chrome (on the meters and the playhead, prerendered images
+  put on screen) are that 0.4 ms; moving backgrounds, glitches and transitions do
+  not show in the paint time, because the timeline keeps its clips and waveforms in
+  an image (`TrackLanes`) and the backgrounds draw over or under it. Acid Terminal has
+  no glow, so its three levels paint alike.
+- The message thread is busy about half of the time (51 to 64 % of a core), whatever
+  the level: the animations add at most 3 points. The rest is the interface's own
+  60 Hz refresh of a big project while it plays: dozens of meters, 64 faders and pan
+  knobs following their automation, the playhead and the time displays. A profile
+  (`sample`) shows a third of that thread's time in our painting and about as much
+  in macOS drawing the painted layers; the rest is the system's per-frame work. Acid
+  Terminal costs about 10 points more than the others in every level: its LED
+  meters fill a rectangle per segment. Meters now repaint only when what they show
+  changes, so a silent or stopped project costs much less than this.
+- The costs shown next to each effect in View > Animations follow these numbers:
+  meters' glow medium (Neon Grid, Synth Chrome), LED afterglow low; moving
+  backgrounds medium in Neon Grid and Synth Chrome (they repaint the whole timeline
+  30 times a second, which costs more on bigger windows and screens), low for Acid
+  Terminal's 6-pixel band; panel transitions low (they run for a fifth of a second);
+  cursor glow, record pulse and glitch low.
+- Not measured here: a window kept small or minimised (no frames at all: the
+  animation clock stops), Windows and Linux (their renderers differ), and the
+  functional refresh's own cost, which a later phase could cut (fewer repaints of
+  faders that do not move, meters at a lower rate when there are many).

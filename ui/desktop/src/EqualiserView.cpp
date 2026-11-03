@@ -1,5 +1,7 @@
 #include "daw/ui/desktop/EqualiserView.h"
 
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
+
 #include <cmath>
 
 namespace daw::ui::desktop
@@ -11,10 +13,6 @@ constexpr double lowest = 20.0;
 constexpr double highest = 20000.0;
 constexpr double range = 24.0; // dB above and below 0
 
-const std::array<juce::Colour, engine::fx::Equaliser::numBands> bandColours{
-    juce::Colour(0xff9e9e9e), juce::Colour(0xffef5350), juce::Colour(0xffffa726),
-    juce::Colour(0xffffee58), juce::Colour(0xff66bb6a), juce::Colour(0xff26c6da),
-    juce::Colour(0xff5c6bc0), juce::Colour(0xff9e9e9e)};
 } // namespace
 
 EqualiserView::EqualiserView(controller::Session& sessionToEdit, model::ObjectId effect)
@@ -108,29 +106,27 @@ int EqualiserView::bandAt(juce::Point<float> point) const
 void EqualiserView::paint(juce::Graphics& g)
 {
     const auto area = plot();
-    g.fillAll(juce::Colour(0xff161a1e));
+    const auto& look = ThemedLookAndFeel::get(*this);
+    look.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::panel, false);
+    look.drawGraphBackground(g, area);
 
     // Grid: decades and their halves, every 6 dB.
-    g.setFont(juce::FontOptions(10.0f));
     for (const double frequency : {50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0})
     {
         const float x = xOf(frequency);
-        g.setColour(juce::Colour(0xff2a3138));
-        g.drawVerticalLine(static_cast<int>(x), area.getY(), area.getBottom());
-        g.setColour(juce::Colour(0xff6f7a84));
-        g.drawText(frequency >= 1000.0 ? juce::String(frequency / 1000.0) + "k" : juce::String(frequency),
-                   juce::Rectangle<float>(x - 20.0f, area.getBottom() + 1.0f, 40.0f, 12.0f),
-                   juce::Justification::centred);
+        look.drawGraphLine(g, {x, area.getY(), x, area.getBottom()}, false);
+        look.drawGraphLabel(
+            g, frequency >= 1000.0 ? juce::String(frequency / 1000.0) + "k" : juce::String(frequency),
+            {x - 20.0f, area.getBottom() + 1.0f, 40.0f, 12.0f}, juce::Justification::centred);
     }
     for (double decibels = -range; decibels <= range; decibels += 6.0)
     {
         const float y = yOf(decibels);
-        g.setColour(juce::exactlyEqual(decibels, 0.0) ? juce::Colour(0xff46505a) : juce::Colour(0xff2a3138));
-        g.drawHorizontalLine(static_cast<int>(y), area.getX(), area.getRight());
-        g.setColour(juce::Colour(0xff6f7a84));
-        g.drawText(juce::String(static_cast<int>(decibels)),
-                   juce::Rectangle<float>(0.0f, y - 6.0f, area.getX() - 4.0f, 12.0f),
-                   juce::Justification::centredRight);
+        look.drawGraphLine(g, {area.getX(), y, area.getRight(), y},
+                                  juce::exactlyEqual(decibels, 0.0));
+        look.drawGraphLabel(g, juce::String(static_cast<int>(decibels)),
+                                   {0.0f, y - 6.0f, area.getX() - 4.0f, 12.0f},
+                                   juce::Justification::centredRight);
     }
 
     if (values.empty())
@@ -153,31 +149,21 @@ void EqualiserView::paint(juce::Graphics& g)
     };
 
     // The selected band alone, faint; then the whole response.
-    g.setColour(bandColours[static_cast<std::size_t>(selected)].withAlpha(0.35f));
-    g.strokePath(curve([&](double f) {
-                     return engine::fx::Equaliser::bandMagnitude(values, selected, f, sampleRate);
-                 }),
-                 juce::PathStrokeType(1.5f));
-    g.setColour(juce::Colours::white);
-    g.strokePath(curve([&](double f) { return engine::fx::Equaliser::magnitude(values, f, sampleRate); }),
-                 juce::PathStrokeType(2.0f));
+    look.drawSeriesCurve(g, curve([&](double f) {
+                                    return engine::fx::Equaliser::bandMagnitude(values, selected, f,
+                                                                                sampleRate);
+                                }),
+                                selected);
+    look.drawCurve(
+        g, curve([&](double f) { return engine::fx::Equaliser::magnitude(values, f, sampleRate); }),
+        yOf(0.0), true);
 
     for (int band = 0; band < engine::fx::Equaliser::numBands; ++band)
     {
         const auto parameters = engine::fx::Equaliser::parametersOf(band);
         const bool on = valueOf(parameters.on) >= 0.5f;
-        const auto centre = handleOf(band);
-        const auto colour = bandColours[static_cast<std::size_t>(band)];
-        g.setColour(on ? colour : colour.withAlpha(0.3f));
-        g.fillEllipse(juce::Rectangle<float>(14.0f, 14.0f).withCentre(centre));
-        if (band == selected)
-        {
-            g.setColour(juce::Colours::white);
-            g.drawEllipse(juce::Rectangle<float>(18.0f, 18.0f).withCentre(centre), 1.5f);
-        }
-        g.setColour(juce::Colours::black);
-        g.drawText(juce::String(band + 1), juce::Rectangle<float>(14.0f, 14.0f).withCentre(centre),
-                   juce::Justification::centred);
+        look.drawCurveHandle(g, handleOf(band), band, on, band == selected,
+                                    juce::String(band + 1));
     }
 }
 

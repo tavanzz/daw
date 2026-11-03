@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/SendSlots.h"
 
 #include "daw/engine/dsp/FaderLaw.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -62,8 +63,8 @@ int SendSlots::rowAt(float y) const noexcept
 
 void SendSlots::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1b1b1b));
-    g.setFont(juce::FontOptions(11.0f));
+    const auto& look = ThemedLookAndFeel::get(*this);
+    look.drawSlotList(g, getLocalBounds().toFloat());
 
     const int count = static_cast<int>(rows.size());
     for (int index = 0; index <= count && (index + 1) * rowHeight <= getHeight(); ++index)
@@ -71,20 +72,14 @@ void SendSlots::paint(juce::Graphics& g)
         const auto area = juce::Rectangle<int>(0, index * rowHeight, getWidth(), rowHeight).reduced(1);
         if (index == count)
         {
-            g.setColour(juce::Colour(0xff6c6c6c));
-            g.drawText("+ Send", area.reduced(4, 0), juce::Justification::centredLeft, true);
+            look.drawEmptySlot(g, area.toFloat(), "+ Send");
             break;
         }
 
         const auto& row = rows[static_cast<std::size_t>(index)];
-        g.setColour(juce::Colour(0xff2a2a2a));
-        g.fillRoundedRectangle(area.toFloat(), 2.0f);
-        const auto fill = static_cast<float>(engine::dsp::faderPosition(row.level));
-        g.setColour(row.automated ? juce::Colour(0xff6a5a2a) : juce::Colour(0xff2f5a46));
-        g.fillRoundedRectangle(area.toFloat().withWidth(static_cast<float>(area.getWidth()) * fill), 2.0f);
-        g.setColour(juce::Colours::white);
-        g.drawText(row.bus + (row.preFader ? " (pre)" : ""), area.reduced(4, 0),
-                   juce::Justification::centredLeft, true);
+        look.drawSendSlot(g, area.toFloat(), row.bus + (row.preFader ? " (pre)" : ""),
+                                 static_cast<float>(engine::dsp::faderPosition(row.level)),
+                                 row.automated);
     }
 }
 

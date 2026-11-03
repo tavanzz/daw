@@ -20,13 +20,16 @@ namespace daw::ui::desktop
       and off. While off, the lane is drawn dim.
     - Without points, the lane shows the target's own value as a dashed line.
 */
+class ThemedLookAndFeel;
+
 class AutomationLanes
 {
 public:
     explicit AutomationLanes(ArrangeState& sharedState);
 
     void paintRow(juce::Graphics& g, juce::Rectangle<float> row,
-                  const controller::ChainOwner& owner) const;
+                  const controller::ChainOwner& owner,
+                  const ThemedLookAndFeel& look) const;
 
     void mouseDown(const juce::MouseEvent& event, juce::Rectangle<float> row,
                    const controller::ChainOwner& owner);

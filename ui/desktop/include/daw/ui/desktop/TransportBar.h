@@ -1,6 +1,8 @@
 #pragma once
 
 #include "daw/controller/Session.h"
+#include "daw/ui/desktop/AnimationLink.h"
+#include "daw/ui/desktop/Logo.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -9,9 +11,9 @@
 namespace daw::ui::desktop
 {
 
-/** Transport buttons, the playhead in time and in bars, tempo and metre (double-click
-    to edit), snap and grid; record, metronome, count-in and punch, with a line saying
-    how the recording goes. Everything goes through the Session. */
+/** The logo, transport buttons, the playhead in time and in bars, tempo and metre
+    (double-click to edit), snap and grid; record, metronome, count-in and punch.
+    Everything goes through the Session; how a recording goes is in the StatusBar. */
 class TransportBar final : public juce::Component
 {
 public:
@@ -20,13 +22,13 @@ public:
     /** Shows the session's current state; call it from the UI's refresh timer. */
     void refresh();
 
-    /** Shows a warning in the status line for a few seconds. */
-    void showWarning(const juce::String& text);
-
     /** What the record button does (it may ask to save the project first). */
     std::function<void()> onRecord;
 
     void resized() override;
+    void paint(juce::Graphics& g) override;
+
+    static constexpr int height = 44;
 
 private:
     /** A toggle with a menu of options on right-click. */
@@ -46,10 +48,10 @@ private:
     };
 
     void showTempoAndMetre();
-    void showRecordingStatus();
 
     controller::Session& session;
 
+    Logo logo;
     juce::TextButton playButton{"Play"};
     juce::TextButton pauseButton{"Pause"};
     juce::TextButton stopButton{"Stop"};
@@ -65,11 +67,13 @@ private:
     OptionButton metronomeButton{"Click"};
     OptionButton countInButton{"Count"};
     juce::TextButton punchButton{"Punch"};
-    juce::Label recordingStatus;
-    juce::String warning;
-    juce::uint32 warningUntil = 0;
 
     juce::uint64 shownRevision = 0;
+
+    // The Rec button pulses while recording.
+    AnimationLink recordPulse{*this, appearance::AnimationEffect::recordPulse,
+                              [this](double seconds) { showPulse(seconds); }};
+    void showPulse(double seconds);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TransportBar)
 };

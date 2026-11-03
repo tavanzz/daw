@@ -3,6 +3,7 @@
 #include "daw/ui/desktop/ArrangeState.h"
 #include "daw/ui/desktop/AutomationLanes.h"
 #include "daw/ui/desktop/LevelMeter.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
 #include "daw/ui/desktop/TrackInputControls.h"
 
 namespace daw::ui::desktop
@@ -27,7 +28,7 @@ public:
         };
         mode.setTooltip("Read: the automation moves its targets; Off: it is ignored");
         mode.setClickingTogglesState(false);
-        mode.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff8d6e00));
+        ThemedLookAndFeel::setColourRole(mode, appearance::ColourRole::automation);
         mode.onClick = [this] {
             const bool reads = state.session.getAutomation(owner).getMode() == model::AutomationMode::read;
             state.session.setAutomationMode(owner, reads ? model::AutomationMode::off
@@ -80,7 +81,7 @@ public:
         : owner(chainOwner)
         , controls(sharedState, chainOwner)
     {
-        name.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+        ThemedLookAndFeel::setFontRole(name, appearance::FontRole::heading);
         name.setInterceptsMouseClicks(false, false);
         addAndMakeVisible(name);
         controls.addTo(*this);
@@ -105,9 +106,8 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff27303a));
-        g.setColour(juce::Colour(0xff1a1a1a));
-        g.drawHorizontalLine(getHeight() - 1, 0.0f, static_cast<float>(getWidth()));
+        ThemedLookAndFeel::get(*this).drawPanel(g, getLocalBounds().toFloat(),
+                                                appearance::ColourRole::panelAlt, true);
     }
 
 private:
@@ -133,7 +133,7 @@ public:
         addAndMakeVisible(inputMeter);
 
         name.setEditable(false, true, false);
-        name.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+        ThemedLookAndFeel::setFontRole(name, appearance::FontRole::heading);
         name.setTooltip("Double-click to rename");
         name.onTextChange = [this] { session.renameTrack(trackId, name.getText()); };
         name.setInterceptsMouseClicks(false, false);
@@ -141,8 +141,8 @@ public:
 
         mute.setTooltip("Mute");
         solo.setTooltip("Solo: only soloed tracks are heard");
-        mute.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffc62828));
-        solo.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xfff9a825));
+        ThemedLookAndFeel::setColourRole(mute, appearance::ColourRole::mute);
+        ThemedLookAndFeel::setColourRole(solo, appearance::ColourRole::solo);
         for (auto* button : {&mute, &solo})
         {
             button->setWantsKeyboardFocus(false);
@@ -162,8 +162,8 @@ public:
         mute.setToggleState(track.isMuted(), juce::dontSendNotification);
         solo.setToggleState(track.isSoloed(), juce::dontSendNotification);
         recording.show(track);
-        name.setColour(juce::Label::textColourId,
-                       audible ? juce::Colours::white : juce::Colours::grey);
+        ThemedLookAndFeel::setColourRole(name, audible ? appearance::ColourRole::text
+                                                       : appearance::ColourRole::textSecondary);
 
         // The automation view swaps the recording controls for the automation's.
         const bool automated = state.showAutomation;
@@ -209,9 +209,7 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff2b2b2b));
-        g.setColour(juce::Colour(0xff1a1a1a));
-        g.drawHorizontalLine(getHeight() - 1, 0.0f, static_cast<float>(getWidth()));
+        ThemedLookAndFeel::get(*this).drawTrackHeader(g, getLocalBounds().toFloat());
     }
 
     void mouseDown(const juce::MouseEvent& event) override
@@ -325,7 +323,8 @@ void TrackHeaderList::resized()
 
 void TrackHeaderList::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff232323));
+    ThemedLookAndFeel::get(*this).drawPanel(g, getLocalBounds().toFloat(),
+                                            appearance::ColourRole::window, false);
 }
 
 } // namespace daw::ui::desktop

@@ -24,19 +24,23 @@ Modules with one-way dependencies:
 | `engine/`     | audio engine: processing graph, transport, mixer, DSP, audio I/O  | non-GUI JUCE modules             |
 | `model/`      | project state (tracks, clips, parameters), versioned project files | non-GUI JUCE modules            |
 | `controller/` | maps the model onto the engine: session, undo, loading, export, timeline view math | engine, model, non-GUI JUCE |
+| `appearance/` | theme values (colours, fonts, shapes, meter styles, effects) and animation settings, for every UI | non-GUI JUCE modules |
 | `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
-| `tests/`      | unit tests for engine, model and controller                       | controller, engine, model        |
+| `tests/`      | unit tests for engine, model, controller and appearance; UI tests for ui/desktop | everything but app |
 
 - `engine` never depends on any UI. `engine` and `model` don't depend on each other
-  nor on `controller`; `controller` maps the model onto the engine.
+  nor on `controller`; `controller` maps the model onto the engine. `appearance`
+  depends on no other module, and only the UIs (and `app`) use it.
 - Enforced by the CMake target graph and by the `architecture.*` CTest tests
-  (`cmake/CheckArchitecture.cmake`): they fail if `engine/`, `model/` or
-  `controller/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, or if
-  `engine/` and `model/` include each other or `controller/`.
+  (`cmake/CheckArchitecture.cmake`): they fail if `engine/`, `model/`, `controller/`
+  or `appearance/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, if
+  `engine/` and `model/` include each other or `controller/`, or if `appearance/`
+  includes another module or is included by `engine/`, `model/` or `controller/`.
 - Every module has public headers in `include/daw/<module>/` and private code in
-  `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`, `daw::ui::desktop`.
+  `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`,
+  `daw::appearance`, `daw::ui::desktop`.
 - JUCE is compiled once into the internal static library `daw::juce`
   (`cmake/JuceLibrary.cmake`), with JUCE's own flags. Include JUCE module headers
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
@@ -396,6 +400,109 @@ Modules with one-way dependencies:
   `NSMicrophoneUsageDescription` (JUCE's `MICROPHONE_PERMISSION_*`). The app also
   passes the device's reported latencies to the session and keeps the manual offset
   in the user settings per input/output device pair and sample rate.
+- Themes (Phase 5): `appearance::Theme` holds everything a UI needs to draw in one
+  theme: a colour per `ColourRole` (components ask for roles, never literal colours),
+  a font per `FontRole` (family, style, size, tracking, capitals), the shape (corner
+  style and sizes, borders, glow, label, status-bar and pan styles), the meter
+  (gradient or LED segments, colour stops from the loudest down), the clip colours
+  and the animated effects it draws with their cost. The built-in themes are JSON
+  files in `appearance/themes/`, embedded with `juce_add_binary_data` and read by
+  `readTheme()`, which refuses missing, unknown or invalid values (all reported at
+  once); colours are palette names, hex or `mix`/`alpha` formulas, so derived
+  colours show where they come from. `ThemeLibrary::builtIn()` lists them in menu
+  order; unknown ids fall back to Neon Grid.
+- Contrast (Phase 5): `appearance::contrastProblems()` checks a theme against
+  `colourPairs()` (every text/background and graphic/background combination the UIs
+  draw: text 4.5:1, large text and graphics 3:1, WCAG 2 ratios), text on fills
+  (`textRoleOn()` picks text or textOnAccent, whichever reads better), clip names and
+  waveforms on every clip colour, the meter at every level, and status colours
+  (record, mute, solo, clip, automation) at least 10 apart in CIELAB L*. Decorative
+  lines, translucent overlays and disabled text are exempt. A UI that draws a new
+  combination adds it to `colourPairs()`; the tests run the check on every theme.
+- Animation settings (Phase 5): `appearance::AnimationSettings` (level full /
+  reduced / off, a switch per `AnimationEffect`, the level to go back to after
+  "switch all off", following the system's reduce motion). An effect runs when the
+  theme draws it, its switch is on and the effective level allows it: reduced drops
+  moving backgrounds, glitch and panel transitions; a system asking to reduce motion
+  caps full at reduced. `animationLoad()` adds up the running effects' costs (low 1,
+  medium 2, high 3; rated low up to 4, medium up to 7). `AppearancePreferences` (theme
+  id and animations) goes to the user settings as JSON; reading it never fails.
+- Fonts (Phase 5): six OFL families as static TTF files in `appearance/fonts/`
+  (two weights at most each), embedded with the themes; `appearance::bundledFonts()`
+  lists them by family and style. `ui::desktop::ThemeFonts` loads them as JUCE
+  typefaces once and gives the font for a theme's `FontSpec` (an unknown family falls
+  back to the default sans-serif). The licences go into the app (`Licences/`) with
+  `docs/THIRD_PARTY.md`, which lists every third-party component.
+- Theming the desktop UI (Phase 5): `ThemedLookAndFeel` (a `LookAndFeel_V4`) draws
+  JUCE's widgets from a theme: JUCE colour ids set from colour roles, fonts from font
+  roles (a Label's `fontRole` property picks its role), shapes in the theme's corner
+  style (`shapeOf()`), text on fills via `textColourOn()`. One subclass per built-in
+  theme (`src/ThemeLookAndFeels.h`) adds what the data cannot say; `make()` picks it.
+  Components ask `ThemedLookAndFeel::of(component)` for roles and never hold literal
+  colours or fonts. `ThemeManager` (owned by `AppController`, created before the
+  window and destroyed after it) owns the fonts and one look and feel per theme,
+  sets the current one as JUCE's default (JUCE then restyles every window, dialog,
+  menu and tooltip on screen), notifies its listeners and hands each preference
+  change to the app, which keeps it in the user settings under "appearance".
+- Themed components (Phase 5): components state what they are with
+  `ThemedLookAndFeel::setFontRole()`, `setColourRole()` (a label's text, a toggle's
+  fill when on: record, mute, solo, monitor, automation) and `setSurface()` (a
+  display on an inset), and paint through `ThemedLookAndFeel::get(*this)`: lanes,
+  grid, loop, playhead (`playheadReach()` is what a move repaints), clips
+  (`clipStyle()` for the track's clip colour, its header strip and readable name),
+  ruler, meters (gradient or LED segments from the theme's meter), track headers, the
+  `Logo` and the `StatusBar` (recording state, warnings, rate and format; a shell
+  prompt in Acid Terminal), which replaced the transport's status line. The mixer
+  (`drawMixerStrip()`, effect and send slots), the effect editors (graph background,
+  grid, labels, response curves with their fill, EQ band handles in series colours
+  taken from the clip colours, the compressor's curve, level dot and gain reduction)
+  and the automation lanes (shade over the clips, curve, dashed level, points,
+  labels) draw the same way; `AutomationLanes::paintRow()` takes the look and feel of
+  the lanes it paints on.
+  Dialogs (export, audio settings, latency measurement, recovery, alerts) use the
+  look and feel too; `ThemeManager` gives every open window the new background
+  colour when the theme changes, since JUCE windows keep the one they opened with.
+  File choosers, the macOS menu bar and the title bars stay native.
+- Animation clock (Phase 5): `AnimationClock` (owned by `ThemeManager`) is the one
+  timer behind every decorative animation, at 30 Hz. Animated components subscribe
+  for the `AnimationEffect` they draw, say when they want frames, and repaint only
+  what changes. It runs only while a subscriber of an active effect wants frames and
+  the main window can be seen (`MainWindow` reports minimised, hidden and, on macOS,
+  fully covered via `detail::WindowOcclusion`); otherwise no timer runs. The 60 Hz
+  functional refresh in `MainComponent` (meter levels, playhead, status) is separate.
+  `ThemeManager::isEffectActive()` combines the theme, the switches, the level and
+  `SystemMotion` (macOS NSWorkspace, Windows SPI_GETCLIENTAREAANIMATION, GNOME's
+  enable-animations via gsettings on a background thread), read at start and when
+  the window becomes active. Platform code lives in `src/SystemQueries_apple.mm` and
+  `src/SystemQueries.cpp`.
+- Animations (Phase 5): components get frames through `AnimationLink` (an RAII
+  subscription to the clock of their look and feel) and ask it whether the effect is
+  active; each theme's look and feel draws the effect (`drawTimelineBackground()`,
+  `drawPlayhead()` with a `PlayheadLook`, `drawLogo()` with the clock's time,
+  `drawHazardBand()`, `drawRecordPulse()`, `drawMeterBar()` with a `MeterAnimation`).
+  `TrackLanes` paints its content (lanes, grid, loop, clips, automation) into an image
+  of the visible area, redrawn only on `contentChanged()` (edits, view, selection,
+  theme, size); frames put the image back and draw the background (under translucent
+  lanes in Synth Chrome, over them in Neon Grid) and the playhead on it. Meters
+  animate with the functional refresh, not the clock. Panel transitions: the mixer
+  slides (`MainComponent::showMixer()`), and on a theme change a snapshot of the old
+  look fades out (`ThemeCrossfade`, after `ThemeManager::Listener::
+  themeAboutToChange()`); switching transitions off mid-way ends them at once.
+- Theme and animation menus (Phase 5): View > Theme lists the library's themes as
+  commands `MainComponent::firstTheme + index` (Cmd+1, Cmd+2, ...; ticked when in
+  use) and Show Previews (`ThemePreviewsPanel`: a card per theme drawn with that
+  theme's own look and feel, `ThemeManager::getLookAndFeelFor()`, with its fonts,
+  shapes and meters; clicking one uses it). View > Animations opens `AnimationsPanel`
+  (levels, a switch per effect with its cost and the theme's description, disabled
+  when the level turns it off, the load, following the system), and All Animations
+  Off (Shift+Cmd+A) toggles off and back. Panels are non-modal `PanelWindow`s that
+  fade in with panel transitions. UI tests can write pictures of panels into the
+  folder named by `DAW_UI_SNAPSHOTS`.
+- Prerendered images (Phase 5): `PrerenderedImages` keeps images costly to paint
+  (glows, background tiles) by key and size, painted once, least recently used
+  dropped beyond 96; each look and feel has its own set, emptied when its theme
+  leaves. Glows (`ThemedLookAndFeel::drawGlow()`, themes with `shape.glow` > 0) are
+  painted this way.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -467,6 +574,13 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
   94704314+tavanzz@users.noreply.github.com` (otherwise GitHub authors it with the
   account's email), then an annotated tag `vX.Y.0` on that merge commit.
 - Comments explain why, not what.
+- Desktop UI components hold no literal colours or fonts (`juce::Colour(...)`,
+  `Colours::...`, `FontOptions`, `juce::Font(...)`): they use theme roles through
+  `ThemedLookAndFeel`. Checked by `architecture.ui_literals`
+  (`cmake/CheckUiLiterals.cmake`); only the look and feel files are exempt.
+- Message boxes go through `showAlert()` (`Alerts.h`), JUCE's alert window in the
+  theme, never `NativeMessageBox`; it reports button indices as `NativeMessageBox`
+  does.
 
 ## Commands
 
@@ -483,16 +597,31 @@ ctest --preset debug            # run all tests
   `linux-rtsan`, run in CI. Pass `-DCMAKE_CXX_COMPILER=clang++-NN` for a versioned Clang.
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
+- UI tests (themes, windows; JUCE's GUI running): `build/debug/tests/daw_ui_tests`. On
+  Linux without a display, run them (or `ctest`) under `xvfb-run -a`. With
+  `DAW_UI_SNAPSHOTS=<folder>` they also write pictures of the panels, the window (with
+  and without automation), the effect editors and the export dialog in every theme.
+  They play a full project twice, once with the window switching themes and animation
+  levels between audio blocks, and require the same audio bit for bit, the same
+  project JSON, revision, undo state and export.
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
   project, the Phase 3 recording project and the Phase 4 effects and delay
   compensation projects from `python3 tools/make_listening_test_files.py` (into
   `build/listening-tests/`; add `--long` for the hour-long streaming file).
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
-  `build/release/tests/daw_stream_bench` (streaming and recording) and
-  `build/release/tests/daw_fx_bench` (effects); results in `docs/PERFORMANCE.md`.
+  `build/release/tests/daw_stream_bench` (streaming and recording),
+  `build/release/tests/daw_fx_bench` (effects) and the interface's cost per theme and
+  animation level, `"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI
+  Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
+  four minutes); results in `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
-  (`screencapture -l <window number>`), never the whole screen.
+  (`screencapture -l <window number>`), never the whole screen. The app's
+  `--show=previews,animations,mixer,editors` option opens the theme previews, the
+  animation settings, the mixer and the first track's effect editors, so they can be
+  captured without clicking. The theme and the animations come from the user settings ("appearance" in
+  `DAW.settings`, JSON): back the file up before changing them for screenshots and
+  put it back afterwards.
 
 ## CI
 
@@ -507,7 +636,9 @@ apt.llvm.org.
   push finished steps, not every edit, to keep runs readable. A newer push to the
   same branch cancels the run in progress.
 - Linux packages needed by JUCE are listed in the workflow and in the README; keep
-  the two lists in sync.
+  the two lists in sync. On Linux the tests run under `xvfb-run` (the UI tests need a
+  display); with no window manager there, the UI tests first create the X11 atoms
+  JUCE only looks up (`tests/support/WindowManagerAtoms.h`).
 - When fixing a red CI job: at most 3 attempts on the same job. If it is still red
   after the third, stop pushing and explain the problem (what fails, suspected
   cause, what was tried) instead of trying again.
@@ -764,3 +895,113 @@ Phase 4 decisions (agreed before starting):
 - Effects are saved as type, bypass and parameters by id in real units (Hz, dB,
   ms), plus optional opaque data for future plugins. A device sample-rate change
   recreates the effects.
+
+Phase 5 (done, released as v0.5.0): themes and animations. Three cyberpunk
+themes (Neon Grid, Acid Terminal, Synth Chrome) applied to the whole interface:
+transport, tracks, timeline, clips, ruler, mixer, meters, automation lanes, effect
+editors (EQ curve and compressor gain reduction included), dialogs, menus and
+alerts; switched live, without a restart; the choice is a user setting, not part of
+the project (default Neon Grid). Animations at three levels (Full / Reduced / Off)
+with a switch per effect, following the system's "reduce motion" setting. Theme
+values live in a GUI-free data module the mobile UI can reuse; one LookAndFeel per
+theme in `ui/desktop`; bundled OFL fonts; one shared animation timer; UI frame time
+measured in Release. The project format does not change. Out of scope: a custom
+theme editor, a light theme, interface scaling, the mobile UI, MIDI.
+
+Steps 7 and later restyle the Phase 4 components (inserts, effect editors,
+automation lanes), so they started once Phase 4 was in `main` (v0.4.0) and merged
+into `phase-5`.
+
+- [x] 0. Plan (this list) and draft pull request
+- [x] 1. `appearance` module: theme data (colour roles, fonts, shapes, meter style,
+      effects), the three themes as embedded JSON, loader; every theme defines every
+      value
+- [x] 2. Contrast and status colours: WCAG contrast for every text/background pair,
+      status colours apart in lightness, derived colours
+- [x] 3. Animation settings: levels, per-effect switches, reduced/off rules, system
+      reduce motion, costs and total load, user-setting persistence
+- [x] 4. Bundled fonts (OFL), `docs/THIRD_PARTY.md`, typeface loading
+- [x] 5. LookAndFeel base and one per theme for JUCE widgets; live switching across
+      windows; theme stored in the user settings; UI test target
+- [x] 6. Shared animation clock, window visibility, system reduce motion, cache of
+      precomputed images
+- [x] 7. Arrange view themed: transport bar with logo, bottom status bar, track
+      headers, input controls, ruler, lanes, clips, waveforms, playhead, loop, meters
+- [x] 8. Mixer (strips, faders, pan, inserts, sends, buses), effect editors (generic,
+      EQ curve, compressor gain reduction), automation lanes themed
+- [x] 9. Dialogs and alerts themed (export, audio settings, latency, recovery,
+      themed alert windows); no colour or font literals outside the LookAndFeels
+- [x] 10. Animations: each theme's own and the shared ones (meters, record pulse,
+      panel transitions, theme crossfade)
+- [x] 11. View > Theme (Cmd+1/2/3), theme previews panel; View > Animations panel,
+      Shift+Cmd+A
+- [x] 12. UI tests: every theme paints every component; switching themes leaves the
+      project and the audio unchanged; the clock stops when off or hidden
+- [x] 13. Benchmark: UI frame time and CPU per theme and animation level with a large
+      project (Release), `docs/PERFORMANCE.md`
+- [x] 14. Screenshots and visual checks in `docs/LISTENING_TESTS.md`; version 0.5.0
+- [x] Visual checks (`docs/LISTENING_TESTS.md`): all 15 passed on macOS, 2026-11-03
+
+Phase 5 decisions (agreed before starting):
+
+- Neon Grid: background #07060B, panels #0E0C17 and #0A0912, lines #221E36, text
+  #E9E6FF, secondary #8F8AAE; accents cyan #00F0FF, magenta #FF2BD6, yellow
+  #F8F32B, violet #9D7BFF. Chakra Petch (interface), JetBrains Mono (numbers and
+  times). Rounded corners 3 to 6 px, neon glows on active elements. Meters a
+  cyan-yellow-magenta gradient. Own animations: scrolling scanlines, flickering
+  logo, pulsing playhead.
+- Acid Terminal: background #0B0D08, panels #12150E, lines #2A3020, text #EDEFE6,
+  secondary #949A80; accents acid yellow #D4FF00, red #FF3B30, light blue #7CE0FF.
+  Space Grotesk (titles), IBM Plex Mono (everything else). Sharp corners, 2 px
+  borders, terminal-style labels, a prompt-style status bar. LED segment meters.
+  Own animations: scrolling hazard stripes, logo glitch, blinking status-bar cursor.
+- Synth Chrome: background #0F0820, panels #140B2A, #180E30 and #241645, lines
+  #2E2050, text #F2EAFF, secondary #A397C4; accents orange #FF8A33, violet #B07CFF,
+  pink #FF3D7F, turquoise #5CE1E6. Michroma (titles and displays), Rajdhani
+  (interface). Corners cut at 45 degrees, arc pots for pan. Meters a
+  violet-orange-pink gradient. Own animations: perspective grid scrolling under the
+  timeline, playhead trail, chrome sweep on the logo.
+- Data: a new module `appearance/` (`daw::appearance`, juce_core only, no GUI): the
+  themes as embedded JSON read into typed values, contrast maths, animation settings
+  and their rules, preference serialisation. Components draw only through their
+  theme's LookAndFeel; no colour or font literals in components (checked by a test).
+- Colours the palettes lack (text on accents, control borders, disabled text, status
+  variants) are derived from the palette (lighter or darker mixes) and documented.
+  Grid lines and separators are decorative and exempt from the 3:1 rule, as in WCAG;
+  so are disabled controls.
+- Contrast: text at least 4.5:1 on its background; large text and graphic elements
+  at least 3:1. Status colours (record, mute, solo, clip, active automation): every
+  pair at least 10 apart in CIELAB lightness (L*), each at least 3:1 on its
+  background.
+- Shortcuts: Cmd+1/2/3 select the themes; Shift+Cmd+A switches animations off, and
+  again back to the previous level. The previews and animation panels have no
+  shortcut.
+- Effects and their switches: moving backgrounds = scanlines (Neon), a hazard-stripe
+  band under the transport, faster and red while recording (Acid), perspective grid
+  (Synth); glitch = the logo's flicker, glitch or chrome sweep; cursor glow = pulsing
+  playhead (Neon), blinking status-bar cursor (Acid), playhead trail (Synth);
+  animated meters = a glow on the level (Neon, Synth), LED afterglow (Acid) (off:
+  meters still show level and peak, whose fall is the meter's own ballistics); record pulse = the Rec button and recording clips;
+  panel transitions = the mixer sliding, panels fading, a crossfade on theme change.
+  "Reduced" turns off moving backgrounds, glitch and transitions.
+- One animation timer at 30 Hz, stopped when nothing animates, at level Off, or when
+  the window is minimised, invisible or (macOS) fully covered; the functional 60 Hz
+  refresh (meters, playhead, status) stays separate. Only changed areas repaint;
+  glows and backgrounds are images rebuilt on theme or size changes only.
+- System "reduce motion" (macOS, Windows, GNOME on Linux), followed by default,
+  caps the level at Reduced.
+- Themed: context menus, the menu bar on Windows and Linux, alerts and dialogs
+  (native message boxes become themed alert windows). Native: the macOS menu bar,
+  file choosers and the title bar.
+- Layout: a status bar at the bottom in every theme (the transport's status line
+  moves there; a prompt in Acid Terminal); a "DAW" logo at the left of the transport
+  in the theme's title font.
+- Fonts: static TTF files in the repository (at most two weights per family), from
+  google/fonts and the upstream releases of JetBrains Mono and Space Grotesk; OFL
+  texts next to them, in `docs/THIRD_PARTY.md` and in the app bundle.
+- UI tests: a `daw_ui_tests` target in CTest on all five jobs (under `xvfb-run` on
+  Linux if a display is needed).
+- Benchmark project: 64 tracks and 4 buses, an EQ, a compressor and a send on every
+  track, automation on volume and two parameters; a 1600x1000 window with the mixer
+  open, playing; 20 s per combination.
+- Screenshots are not committed (`build/screenshots/phase5/`).

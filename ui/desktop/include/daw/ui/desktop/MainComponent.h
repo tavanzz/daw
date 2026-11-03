@@ -3,8 +3,12 @@
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
 #include "daw/ui/desktop/EffectEditorWindow.h"
+#include "daw/ui/desktop/HazardBand.h"
 #include "daw/ui/desktop/LevelMeter.h"
 #include "daw/ui/desktop/MixerView.h"
+#include "daw/ui/desktop/PanelWindow.h"
+#include "daw/ui/desktop/StatusBar.h"
+#include "daw/ui/desktop/ThemeManager.h"
 #include "daw/ui/desktop/TransportBar.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -17,8 +21,8 @@ namespace daw::ui::desktop
 {
 
 /**
-    Content of the main window: transport bar, arrange view, master meter and the
-    mixer (shown or hidden with X).
+    Content of the main window: transport bar, arrange view, master meter, the mixer
+    (shown or hidden with X) and the status bar.
 
     Edits go to the Session; the commands (menus and shortcuts) are handled here.
     It refreshes from the session and the engine on a timer.
@@ -26,7 +30,8 @@ namespace daw::ui::desktop
 class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
                             public juce::FileDragAndDropTarget,
-                            private juce::Timer
+                            private juce::Timer,
+                            private ThemeManager::Listener
 {
 public:
     enum CommandIds
@@ -56,15 +61,27 @@ public:
         toggleCountIn,
         togglePunch,
         newBus,
-        toggleAutomation
+        toggleAutomation,
+        showThemePreviews,
+        showAnimations,
+        toggleAllAnimations,
+        // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
+        firstTheme = 0x2100,
+        lastTheme = firstTheme + 8
     };
 
     MainComponent(controller::Session& sessionToShow, juce::AudioDeviceManager& audioDeviceManager,
-                  juce::ApplicationCommandManager& applicationCommandManager);
+                  juce::ApplicationCommandManager& applicationCommandManager,
+                  ThemeManager& themeManager);
     ~MainComponent() override;
 
     /** Opens a project or imports an audio file (e.g. given on the command line). */
     void openFile(const juce::File& file);
+
+    /** Opens windows for a review of the interface (the app's --show option):
+        "previews" (the themes), "animations" (their settings), "mixer", "editors" (those
+        of the first track with effects). */
+    void showForReview(const juce::StringArray& what);
 
     void showError(const juce::String& title, const juce::String& message);
 
@@ -74,6 +91,9 @@ public:
 
     void resized() override;
     void paint(juce::Graphics& g) override;
+    void lookAndFeelChanged() override;
+
+    [[nodiscard]] ArrangeView& getArrangeViewForTesting() noexcept { return arrangeView; }
 
     // juce::ApplicationCommandTarget
     juce::ApplicationCommandTarget* getNextCommandTarget() override;
@@ -88,6 +108,13 @@ public:
 
 private:
     void timerCallback() override;
+    void themeAboutToChange() override;
+    void animationSettingsChanged() override;
+    void showMixer(bool shouldShow);
+    void themeChanged() override;
+    void showPanel(std::unique_ptr<PanelWindow>& window, const juce::String& title,
+                   const std::function<std::unique_ptr<juce::Component>()>& makeContent);
+    void mixerFrame(double seconds);
     void togglePlayPause();
     void openProjectFile(const juce::File& file);
     void offerRecovery();
@@ -104,12 +131,23 @@ private:
     controller::Session& session;
     juce::AudioDeviceManager& deviceManager;
     juce::ApplicationCommandManager& commandManager;
+    ThemeManager& themes;
 
     TransportBar transportBar;
+    HazardBand hazardBand;
     ArrangeView arrangeView;
     LevelMeter masterMeter;
     MixerView mixerView;
     bool mixerVisible = true;
+    float mixerAmount = 1.0f; // how much of the mixer shows, while it slides
+    float mixerFrom = 1.0f;
+    double mixerSlideStart = -1.0;
+    AnimationLink mixerSlide{*this, appearance::AnimationEffect::panelTransitions,
+                             [this](double seconds) { mixerFrame(seconds); }};
+    std::unique_ptr<ThemeCrossfade> crossfade;
+    std::unique_ptr<PanelWindow> previewsWindow;
+    std::unique_ptr<PanelWindow> animationsWindow;
+    StatusBar statusBar{session};
     EffectEditors effectEditors{session};
     juce::TooltipWindow tooltipWindow{this};
 

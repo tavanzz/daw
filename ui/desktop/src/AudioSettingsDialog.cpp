@@ -1,5 +1,7 @@
 #include "daw/ui/desktop/AudioSettingsDialog.h"
 
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
+
 namespace daw::ui::desktop
 {
 
@@ -14,10 +16,8 @@ void launch(std::unique_ptr<juce::Component> content, const juce::String& title,
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(content.release());
     options.dialogTitle = title;
-    options.dialogBackgroundColour =
-        parent != nullptr
-            ? parent->getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId)
-            : juce::Colours::darkgrey;
+    options.dialogBackgroundColour = juce::LookAndFeel::getDefaultLookAndFeel().findColour(
+        juce::ResizableWindow::backgroundColourId);
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;
@@ -46,7 +46,7 @@ AudioSettingsDialog::AudioSettingsDialog(controller::Session& sessionToEdit,
 
     addAndMakeVisible(selector);
 
-    recordingHeading.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+    ThemedLookAndFeel::setFontRole(recordingHeading, appearance::FontRole::heading);
     addAndMakeVisible(recordingHeading);
 
     formatBox.addItem("WAV 16-bit", 1);
@@ -79,7 +79,7 @@ AudioSettingsDialog::AudioSettingsDialog(controller::Session& sessionToEdit,
     for (auto* label : {&formatLabel, &offsetLabel})
         label->setJustificationType(juce::Justification::centredRight);
     for (auto* label : {&reportedLabel, &totalLabel})
-        label->setFont(juce::FontOptions(13.0f));
+        ThemedLookAndFeel::setFontRole(*label, appearance::FontRole::numeric);
 
     for (auto* component : std::initializer_list<juce::Component*>{
              &formatLabel, &formatBox, &reportedLabel, &offsetLabel, &offsetSlider, &totalLabel,

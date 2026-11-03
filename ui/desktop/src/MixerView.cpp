@@ -3,6 +3,7 @@
 #include "daw/engine/dsp/FaderLaw.h"
 #include "daw/ui/desktop/EffectSlots.h"
 #include "daw/ui/desktop/SendSlots.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
 #include "daw/ui/desktop/TrackInputControls.h"
 
 #include <cmath>
@@ -58,7 +59,7 @@ public:
         const bool isBus = owner.kind == controller::ChainOwner::Kind::bus;
 
         name.setJustificationType(juce::Justification::centred);
-        name.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+        ThemedLookAndFeel::setFontRole(name, appearance::FontRole::heading);
         if (isBus)
         {
             name.setEditable(false, true, false);
@@ -133,7 +134,7 @@ public:
         pan.updateText();
         addAndMakeVisible(pan);
 
-        mute.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffc62828));
+        ThemedLookAndFeel::setColourRole(mute, appearance::ColourRole::mute);
         mute.setWantsKeyboardFocus(false);
         addAndMakeVisible(mute);
         mute.onClick = [this] {
@@ -146,7 +147,7 @@ public:
         if (!isTrack)
             return;
 
-        solo.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xfff9a825));
+        ThemedLookAndFeel::setColourRole(solo, appearance::ColourRole::solo);
         solo.setWantsKeyboardFocus(false);
         addAndMakeVisible(solo);
         solo.onClick = [this] { session.setTrackSoloed(owner.id, !solo.getToggleState()); };
@@ -267,14 +268,12 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        const auto colour = owner.kind == controller::ChainOwner::Kind::track
-                                ? juce::Colour(0xff262626)
-                                : (owner.kind == controller::ChainOwner::Kind::bus
-                                       ? juce::Colour(0xff222a33)
-                                       : juce::Colour(0xff2e2a24));
-        g.fillAll(colour);
-        g.setColour(juce::Colour(0xff1a1a1a));
-        g.drawVerticalLine(getWidth() - 1, 0.0f, static_cast<float>(getHeight()));
+        using Kind = ThemedLookAndFeel::StripKind;
+        ThemedLookAndFeel::get(*this).drawMixerStrip(
+            g, getLocalBounds().toFloat(),
+            owner.kind == controller::ChainOwner::Kind::track ? Kind::track
+            : owner.kind == controller::ChainOwner::Kind::bus ? Kind::bus
+                                                              : Kind::master);
     }
 
 private:
@@ -381,7 +380,8 @@ void MixerView::resized()
 
 void MixerView::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1e1e1e));
+    ThemedLookAndFeel::get(*this).drawPanel(g, getLocalBounds().toFloat(),
+                                            appearance::ColourRole::panelAlt, false);
 }
 
 } // namespace daw::ui::desktop

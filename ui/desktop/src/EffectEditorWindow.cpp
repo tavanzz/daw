@@ -8,6 +8,7 @@
 #include "daw/ui/desktop/EffectSlots.h"
 #include "daw/ui/desktop/EqualiserView.h"
 #include "daw/ui/desktop/GenericEffectEditor.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <numeric>
 
@@ -53,17 +54,17 @@ public:
             description = described->getDescription();
 
         bypass.setClickingTogglesState(false);
-        bypass.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff8d6e00));
+        ThemedLookAndFeel::setColourRole(bypass, appearance::ColourRole::warning);
         bypass.onClick = [this] { session.setEffectBypassed(effectId, !bypass.getToggleState()); };
         addAndMakeVisible(bypass);
 
         reactivate.onClick = [this] { session.reviveEffect(effectId); };
         addChildComponent(reactivate);
-        warning.setColour(juce::Label::textColourId, juce::Colour(0xffef9a9a));
+        ThemedLookAndFeel::setColourRole(warning, appearance::ColourRole::error);
         warning.setText("Silenced: it produced invalid output.", juce::dontSendNotification);
         addChildComponent(warning);
 
-        title.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+        ThemedLookAndFeel::setFontRole(title, appearance::FontRole::heading);
         addAndMakeVisible(title);
 
         if (type == engine::fx::Equaliser::typeId)
@@ -142,7 +143,11 @@ public:
             controls->setBounds(area);
     }
 
-    void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xff222222)); }
+    void paint(juce::Graphics& g) override
+    {
+        ThemedLookAndFeel::get(*this).drawPanel(g, getLocalBounds().toFloat(),
+                                                appearance::ColourRole::panel, false);
+    }
 
 private:
     [[nodiscard]] int preferredHeight() const
@@ -186,7 +191,10 @@ private:
 };
 
 EffectEditorWindow::EffectEditorWindow(controller::Session& session, model::ObjectId effect)
-    : juce::DocumentWindow("Effect", juce::Colour(0xff222222), juce::DocumentWindow::closeButton)
+    : juce::DocumentWindow("Effect",
+                           juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
+                               juce::ResizableWindow::backgroundColourId),
+                           juce::DocumentWindow::closeButton)
     , effectId(effect)
 {
     auto owned = std::make_unique<Content>(session, effect);

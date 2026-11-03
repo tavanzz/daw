@@ -1,16 +1,20 @@
 #include "daw/ui/desktop/MainWindow.h"
 
+#include "SystemQueries.h"
+
 namespace daw::ui::desktop
 {
 
 MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& session,
-                       juce::AudioDeviceManager& deviceManager)
+                       juce::AudioDeviceManager& deviceManager, ThemeManager& themeManager)
     : DocumentWindow(windowTitle,
                      juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
                          juce::ResizableWindow::backgroundColourId),
                      DocumentWindow::allButtons)
+    , themes(themeManager)
 {
-    auto content = std::make_unique<MainComponent>(session, deviceManager, commandManager);
+    auto content =
+        std::make_unique<MainComponent>(session, deviceManager, commandManager, themeManager);
     mainComponent = content.get();
 
     commandManager.registerAllCommandsForTarget(mainComponent);
@@ -25,19 +29,28 @@ MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& ses
     setResizeLimits(1100, 560, 10000, 10000);
 
 #if JUCE_MAC
-    juce::MenuBarModel::setMacMainMenu(this);
+    // The macOS menu bar belongs to the application (none in the UI tests).
+    if (juce::JUCEApplicationBase::getInstance() != nullptr)
+        juce::MenuBarModel::setMacMainMenu(this);
 #else
     setMenuBar(this);
 #endif
 
     centreWithSize(getWidth(), getHeight());
     setVisible(true);
+
+    occlusion = std::make_unique<detail::WindowOcclusion>(*this, [this]
+                                                          { updateAnimationVisibility(); });
+    updateAnimationVisibility();
 }
 
 MainWindow::~MainWindow()
 {
+    occlusion.reset();
+
 #if JUCE_MAC
-    juce::MenuBarModel::setMacMainMenu(nullptr);
+    if (juce::JUCEApplicationBase::getInstance() != nullptr)
+        juce::MenuBarModel::setMacMainMenu(nullptr);
 #else
     setMenuBar(nullptr);
 #endif
@@ -46,6 +59,33 @@ MainWindow::~MainWindow()
     setApplicationCommandManagerToWatch(nullptr);
     removeKeyListener(commandManager.getKeyMappings());
     clearContentComponent();
+}
+
+void MainWindow::minimisationStateChanged(bool isNowMinimised)
+{
+    DocumentWindow::minimisationStateChanged(isNowMinimised);
+    updateAnimationVisibility();
+}
+
+void MainWindow::visibilityChanged()
+{
+    DocumentWindow::visibilityChanged();
+    updateAnimationVisibility();
+}
+
+void MainWindow::activeWindowStatusChanged()
+{
+    DocumentWindow::activeWindowStatusChanged();
+
+    // The user may have changed the system's reduce motion while away.
+    if (isActiveWindow())
+        themes.refreshSystemMotion();
+}
+
+void MainWindow::updateAnimationVisibility()
+{
+    const bool covered = occlusion != nullptr && occlusion->isCovered();
+    themes.getAnimationClock().setHostVisible(isShowing() && !isMinimised() && !covered);
 }
 
 void MainWindow::closeButtonPressed()
@@ -112,6 +152,21 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         menu.addSeparator();
         add(MainComponent::toggleMixer);
         add(MainComponent::toggleAutomation);
+        menu.addSeparator();
+        {
+            juce::PopupMenu themeMenu;
+            const auto numThemes =
+                static_cast<int>(themes.getLibrary().getThemes().size());
+            for (int index = 0; index < numThemes &&
+                                MainComponent::firstTheme + index <= MainComponent::lastTheme;
+                 ++index)
+                themeMenu.addCommandItem(&commandManager, MainComponent::firstTheme + index);
+            themeMenu.addSeparator();
+            themeMenu.addCommandItem(&commandManager, MainComponent::showThemePreviews);
+            menu.addSubMenu("Theme", themeMenu);
+        }
+        add(MainComponent::showAnimations);
+        add(MainComponent::toggleAllAnimations);
         break;
     default:
         break;

@@ -1,5 +1,8 @@
 #include "daw/ui/desktop/TrackInputControls.h"
 
+#include "daw/ui/desktop/Alerts.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
+
 namespace daw::ui::desktop
 {
 
@@ -51,14 +54,14 @@ TrackInputControls::TrackInputControls(controller::Session& sessionToEdit, model
                           "input. Off: never. (Click to change)");
     input.setTooltip("The device input this track records and monitors");
 
-    arm.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffd32f2f));
-    monitoring.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffef6c00));
+    ThemedLookAndFeel::setColourRole(arm, appearance::ColourRole::record);
+    ThemedLookAndFeel::setColourRole(monitoring, appearance::ColourRole::monitor);
 
     arm.onClick = [this]
     {
         const bool armed = !arm.getToggleState();
         if (!session.setTrackArmed(trackId, armed))
-            juce::NativeMessageBox::showAsync(juce::MessageBoxOptions::makeOptionsOk(
+            showAlert(juce::MessageBoxOptions::makeOptionsOk(
                                                   juce::MessageBoxIconType::WarningIcon,
                                                   "Microphone access is off",
                                                   controller::microphoneDeniedMessage, "OK", &arm),

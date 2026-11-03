@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/TransportBar.h"
 
 #include "daw/controller/TimelineViewport.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <cmath>
 #include <initializer_list>
@@ -16,12 +17,12 @@ constexpr model::GridDivision gridChoices[] = {
     model::GridDivision::quarter,   model::GridDivision::eighth,    model::GridDivision::sixteenth,
     model::GridDivision::thirtySecond};
 
-void styleDisplay(juce::Label& label, float height)
+// A read-out on the theme's inset surface.
+void styleDisplay(juce::Label& label, appearance::FontRole role)
 {
-    label.setFont(juce::FontOptions(height));
+    ThemedLookAndFeel::setFontRole(label, role);
+    ThemedLookAndFeel::setSurface(label, appearance::ColourRole::inset);
     label.setJustificationType(juce::Justification::centred);
-    label.setColour(juce::Label::backgroundColourId, juce::Colour(0xff1e1e1e));
-    label.setColour(juce::Label::outlineColourId, juce::Colour(0xff3a3a3a));
 }
 
 } // namespace
@@ -29,6 +30,9 @@ void styleDisplay(juce::Label& label, float height)
 TransportBar::TransportBar(controller::Session& sessionToControl)
     : session(sessionToControl)
 {
+    recordPulse.setWantsFrames(false);
+    addAndMakeVisible(logo);
+
     for (auto* button : std::initializer_list<juce::Button*>{
              &playButton, &pauseButton, &stopButton, &loopButton, &snapButton, &recordButton,
              &metronomeButton, &countInButton, &punchButton})
@@ -45,10 +49,7 @@ TransportBar::TransportBar(controller::Session& sessionToControl)
     snapButton.setTooltip("Snap clips and edits to the grid (N); hold Cmd while dragging to "
                           "ignore it");
 
-    for (auto* button : std::initializer_list<juce::TextButton*>{
-             &loopButton, &snapButton, &metronomeButton, &countInButton, &punchButton})
-        button->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2e7d32));
-    recordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffd32f2f));
+    ThemedLookAndFeel::setColourRole(recordButton, appearance::ColourRole::record);
 
     recordButton.setTooltip("Record the armed tracks from the playhead; again: stop (R)");
     metronomeButton.setTooltip("Metronome while playing and recording (K); right-click for "
@@ -101,18 +102,14 @@ TransportBar::TransportBar(controller::Session& sessionToControl)
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&countInButton));
     };
 
-    recordingStatus.setFont(juce::FontOptions(13.0f));
-    recordingStatus.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(recordingStatus);
-
     playButton.onClick = [this] { session.play(); };
     pauseButton.onClick = [this] { session.pause(); };
     stopButton.onClick = [this] { session.stop(); };
     loopButton.onClick = [this] { session.setLoopEnabled(!session.getProject().isLoopEnabled()); };
     snapButton.onClick = [this] { session.setSnapEnabled(!session.getProject().isSnapEnabled()); };
 
-    styleDisplay(timeLabel, 18.0f);
-    styleDisplay(barsLabel, 18.0f);
+    styleDisplay(timeLabel, appearance::FontRole::display);
+    styleDisplay(barsLabel, appearance::FontRole::display);
     timeLabel.setTooltip("Playhead position (minutes:seconds)");
     barsLabel.setTooltip("Playhead position (bar.beat.sixteenth)");
     addAndMakeVisible(timeLabel);
@@ -120,7 +117,7 @@ TransportBar::TransportBar(controller::Session& sessionToControl)
 
     for (auto* label : {&tempoLabel, &metreLabel})
     {
-        styleDisplay(*label, 15.0f);
+        styleDisplay(*label, appearance::FontRole::numeric);
         label->setEditable(false, true, false);
         addAndMakeVisible(*label);
     }
@@ -175,7 +172,9 @@ void TransportBar::refresh()
     pauseButton.setEnabled(playing);
     stopButton.setEnabled(state != engine::TransportState::stopped || playhead > 0 || recording);
     recordButton.setToggleState(recording, juce::dontSendNotification);
-    showRecordingStatus();
+    recordPulse.setWantsFrames(recording);
+    if (!recording || !recordPulse.isActive())
+        showPulse(-1.0);
 
     timeLabel.setText(controller::formatTime(playhead), juce::dontSendNotification);
     barsLabel.setText(session.getProject().getTempoMap().formatBarsBeats(playhead),
@@ -201,63 +200,16 @@ void TransportBar::refresh()
     }
 }
 
-void TransportBar::showWarning(const juce::String& text)
+void TransportBar::showPulse(double seconds)
 {
-    warning = text;
-    warningUntil = juce::Time::getMillisecondCounter() + 4000;
-}
+    const auto pulse = seconds < 0.0 ? 0.0f : ThemedLookAndFeel::pulseAt(seconds);
+    const auto shown =
+        static_cast<float>(recordButton.getProperties()[ThemedLookAndFeel::pulseProperty]);
+    if (juce::exactlyEqual(shown, pulse))
+        return;
 
-void TransportBar::showRecordingStatus()
-{
-    using State = controller::RecordingController::State;
-    const auto& recording = session.getRecording();
-    juce::String text;
-    auto colour = juce::Colours::lightgrey;
-
-    const auto minutesLeft = [&recording]
-    {
-        const auto seconds = recording.getSecondsLeft();
-        if (seconds < 0.0)
-            return juce::String();
-        const auto minutes = static_cast<int>(seconds / 60.0);
-        if (minutes >= 120)
-            return juce::String(minutes / 60) + " h of disk left";
-        if (minutes >= 2)
-            return juce::String(minutes) + " min of disk left";
-        return juce::String(static_cast<int>(seconds)) + " s of disk left";
-    };
-
-    switch (recording.getState())
-    {
-    case State::countingIn:
-        text = "Count-in...";
-        colour = juce::Colour(0xffffb74d);
-        break;
-    case State::recording:
-        text = "Recording";
-        if (const auto left = minutesLeft(); left.isNotEmpty())
-            text << "  -  " << left;
-        colour = recording.getSecondsLeft() >= 0.0 &&
-                         recording.getSecondsLeft() <
-                             controller::RecordingController::lowSpaceWarningSeconds
-                     ? juce::Colour(0xffffb74d)
-                     : juce::Colour(0xffef5350);
-        break;
-    case State::finishing:
-        text = "Saving the recording...";
-        break;
-    case State::idle:
-        if (juce::Time::getMillisecondCounter() < warningUntil)
-        {
-            text = warning;
-            colour = juce::Colour(0xffffb74d);
-        }
-        break;
-    }
-
-    if (recordingStatus.getText() != text)
-        recordingStatus.setText(text, juce::dontSendNotification);
-    recordingStatus.setColour(juce::Label::textColourId, colour);
+    recordButton.getProperties().set(ThemedLookAndFeel::pulseProperty, pulse);
+    recordButton.repaint();
 }
 
 void TransportBar::showTempoAndMetre()
@@ -270,10 +222,19 @@ void TransportBar::showTempoAndMetre()
                        juce::dontSendNotification);
 }
 
+void TransportBar::paint(juce::Graphics& g)
+{
+    ThemedLookAndFeel::get(*this).drawPanel(g, getLocalBounds().toFloat(),
+                                            appearance::ColourRole::panel, true);
+}
+
 void TransportBar::resized()
 {
-    auto area = getLocalBounds();
+    auto area = getLocalBounds().reduced(8, 7);
     const int gap = 6;
+
+    logo.setBounds(area.removeFromLeft(86));
+    area.removeFromLeft(2 * gap);
 
     for (auto* button : {&playButton, &pauseButton, &stopButton, &recordButton, &loopButton})
     {
@@ -301,8 +262,6 @@ void TransportBar::resized()
         area.removeFromRight(gap);
     }
 
-    area.removeFromLeft(gap);
-    recordingStatus.setBounds(area);
 }
 
 } // namespace daw::ui::desktop

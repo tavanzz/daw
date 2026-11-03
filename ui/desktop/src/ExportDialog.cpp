@@ -1,5 +1,7 @@
 #include "daw/ui/desktop/ExportDialog.h"
 
+#include "daw/ui/desktop/Alerts.h"
+
 #include <cmath>
 
 namespace daw::ui::desktop
@@ -70,7 +72,7 @@ public:
             }
         }
 
-        juce::NativeMessageBox::showAsync(
+        showAlert(
             juce::MessageBoxOptions::makeOptionsOk(icon, title, text), nullptr);
         delete this; // launched with new, owns itself
     }
@@ -138,8 +140,8 @@ void ExportDialog::show(controller::Session& session, juce::Component* parent)
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(new ExportDialog(session));
     options.dialogTitle = "Export Mix";
-    options.dialogBackgroundColour =
-        parent->getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+    options.dialogBackgroundColour = juce::LookAndFeel::getDefaultLookAndFeel().findColour(
+        juce::ResizableWindow::backgroundColourId);
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
     options.resizable = false;

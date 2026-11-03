@@ -37,17 +37,32 @@ public:
     }
 
 private:
+    // A project or audio file to open; --show=previews,animations,mixer,editors opens
+    // those too, for reviewing the interface (see docs/LISTENING_TESTS.md).
     void openFromCommandLine(const juce::String& commandLine)
     {
+        juce::StringArray show;
+        bool opened = false;
+
         for (const auto& argument : juce::StringArray::fromTokens(commandLine, true))
         {
-            const juce::File file(argument.unquoted());
-            if (juce::File::isAbsolutePath(argument.unquoted()) && file.existsAsFile())
+            const auto text = argument.unquoted();
+            if (text.startsWith("--show="))
+            {
+                show.addTokens(text.fromFirstOccurrenceOf("=", false, false), ",", {});
+                continue;
+            }
+
+            const juce::File file(text);
+            if (!opened && juce::File::isAbsolutePath(text) && file.existsAsFile())
             {
                 controller->openFile(file);
-                return;
+                opened = true;
             }
         }
+
+        if (!show.isEmpty())
+            controller->showForReview(show);
     }
 
     std::unique_ptr<daw::app::AppController> controller;

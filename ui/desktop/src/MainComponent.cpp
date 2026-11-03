@@ -1,8 +1,11 @@
 #include "daw/ui/desktop/MainComponent.h"
 
 #include "daw/model/ProjectFile.h"
+#include "daw/ui/desktop/Alerts.h"
+#include "daw/ui/desktop/AnimationsPanel.h"
 #include "daw/ui/desktop/AudioSettingsDialog.h"
 #include "daw/ui/desktop/ExportDialog.h"
+#include "daw/ui/desktop/ThemePreviewsPanel.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
@@ -23,10 +26,12 @@ bool isProjectFile(const juce::File& file)
 
 MainComponent::MainComponent(controller::Session& sessionToShow,
                              juce::AudioDeviceManager& audioDeviceManager,
-                             juce::ApplicationCommandManager& applicationCommandManager)
+                             juce::ApplicationCommandManager& applicationCommandManager,
+                             ThemeManager& themeManager)
     : session(sessionToShow)
     , deviceManager(audioDeviceManager)
     , commandManager(applicationCommandManager)
+    , themes(themeManager)
     , transportBar(sessionToShow)
     , arrangeView(sessionToShow)
     , mixerView(sessionToShow)
@@ -36,11 +41,16 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
         toggleRecording();
     };
     addAndMakeVisible(transportBar);
+    addAndMakeVisible(hazardBand);
     addAndMakeVisible(arrangeView);
     masterMeter.setTooltip("Master output level (click to clear the clip indicators)");
     addAndMakeVisible(masterMeter);
     mixerView.openEffect = [this](model::ObjectId effectId) { effectEditors.open(effectId); };
     addAndMakeVisible(mixerView);
+    addAndMakeVisible(statusBar);
+
+    mixerSlide.setWantsFrames(false);
+    themes.addListener(*this);
 
     setSize(1280, 900);
     lastRefreshSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
@@ -49,6 +59,7 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
 
 MainComponent::~MainComponent()
 {
+    themes.removeListener(*this);
     stopTimer();
 }
 
@@ -60,9 +71,33 @@ void MainComponent::openFile(const juce::File& file)
         session.importAudio({file}, arrangeView.getInsertPosition());
 }
 
+void MainComponent::showForReview(const juce::StringArray& what)
+{
+    if (what.contains("previews"))
+        perform(InvocationInfo(showThemePreviews));
+    if (what.contains("animations"))
+        perform(InvocationInfo(showAnimations));
+    if (what.contains("mixer"))
+        showMixer(true);
+
+    if (what.contains("editors"))
+    {
+        const auto& project = session.getProject();
+        for (int index = 0; index < project.getNumTracks(); ++index)
+        {
+            const auto effects =
+                session.getEffects(controller::ChainOwner::track(project.getTrack(index).getId()));
+            for (int effect = 0; effect < effects.getNumEffects(); ++effect)
+                effectEditors.open(effects.getEffect(effect).getId());
+            if (effects.getNumEffects() > 0)
+                break;
+        }
+    }
+}
+
 void MainComponent::showError(const juce::String& title, const juce::String& message)
 {
-    juce::NativeMessageBox::showAsync(
+    showAlert(
         juce::MessageBoxOptions::makeOptionsOk(juce::MessageBoxIconType::WarningIcon, title,
                                                message, "OK", this),
         [](int) {});
@@ -88,7 +123,7 @@ void MainComponent::askToSaveChanges(std::function<void()> next)
                              .withButton("Cancel")
                              .withAssociatedComponent(this);
 
-    juce::NativeMessageBox::showAsync(options, [this, next = std::move(next)](int button) {
+    showAlert(options, [this, next = std::move(next)](int button) {
         if (button == 0)
             saveThen(next);
         else if (button == 1)
@@ -112,16 +147,20 @@ void MainComponent::saveThen(std::function<void()> afterSaving)
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced(8);
+    auto area = getLocalBounds();
+    transportBar.setBounds(area.removeFromTop(TransportBar::height));
+    hazardBand.setBounds(area.removeFromTop(ThemedLookAndFeel::get(*this).hazardBandHeight()));
+    statusBar.setBounds(area.removeFromBottom(StatusBar::height));
+    area.reduce(8, 8);
 
-    transportBar.setBounds(area.removeFromTop(30));
-    area.removeFromTop(8);
-
-    mixerView.setVisible(mixerVisible);
-    if (mixerVisible)
+    // While it slides in or out, the mixer takes part of its height.
+    const int mixerHeight = juce::roundToInt(static_cast<float>(MixerView::preferredHeight + 8) *
+                                             mixerAmount);
+    mixerView.setVisible(mixerHeight > 0);
+    if (mixerHeight > 0)
     {
-        mixerView.setBounds(area.removeFromBottom(MixerView::preferredHeight));
-        area.removeFromBottom(8);
+        auto mixerArea = area.removeFromBottom(mixerHeight);
+        mixerView.setBounds(mixerArea.withTrimmedTop(8).withHeight(MixerView::preferredHeight));
     }
 
     masterMeter.setBounds(area.removeFromRight(40));
@@ -141,6 +180,8 @@ void MainComponent::timerCallback()
     lastRefreshSeconds = now;
 
     transportBar.refresh();
+    statusBar.refresh();
+    hazardBand.setRecording(session.isRecording());
     arrangeView.refresh();
 
     // The input peaks are taken once per refresh too; the track headers read them.
@@ -150,7 +191,7 @@ void MainComponent::timerCallback()
     if (const auto problem = session.takeRecordingProblem(); problem.isNotEmpty())
         showError("Recording stopped", problem);
     if (session.takeDropouts() > 0)
-        transportBar.showWarning("The disk is too slow: some audio was missing");
+        statusBar.showWarning("The disk is too slow: some audio was missing");
 
     // The output peaks can be taken once: both master meters get the same reading.
     auto& engine = session.getEngine();
@@ -174,6 +215,84 @@ void MainComponent::timerCallback()
         lastRecording = recording;
         commandManager.commandStatusChanged();
     }
+}
+
+void MainComponent::lookAndFeelChanged()
+{
+    resized(); // the band under the transport is the theme's
+}
+
+void MainComponent::themeChanged()
+{
+    commandManager.commandStatusChanged(); // the menu's tick moves
+}
+
+void MainComponent::themeAboutToChange()
+{
+    // The old look fades out over the new one, if panel transitions are on.
+    if (!mixerSlide.isActive() || !isShowing())
+        return;
+
+    crossfade = std::make_unique<ThemeCrossfade>(
+        createComponentSnapshot(getLocalBounds(), true,
+                                juce::Component::getApproximateScaleFactorForComponent(this)),
+        [this] { crossfade.reset(); });
+    crossfade->setBounds(getLocalBounds());
+    addAndMakeVisible(*crossfade);
+}
+
+void MainComponent::animationSettingsChanged()
+{
+    commandManager.commandStatusChanged();
+
+    // Effects switched on or off: everything draws again, with or without them.
+    repaint();
+
+    // Transitions switched off mid-way end at once.
+    if (!mixerSlide.isActive())
+    {
+        crossfade.reset();
+        mixerSlide.setWantsFrames(false);
+        mixerAmount = mixerVisible ? 1.0f : 0.0f;
+        resized();
+    }
+}
+
+void MainComponent::showMixer(bool shouldShow)
+{
+    mixerVisible = shouldShow;
+
+    if (!mixerSlide.isActive())
+    {
+        mixerAmount = mixerVisible ? 1.0f : 0.0f;
+        resized();
+        return;
+    }
+
+    mixerFrom = mixerAmount;
+    mixerSlideStart = -1.0;
+    mixerSlide.setWantsFrames(true);
+}
+
+void MainComponent::mixerFrame(double seconds)
+{
+    constexpr double slideSeconds = 0.18;
+    if (mixerSlideStart < 0.0)
+        mixerSlideStart = seconds;
+
+    const auto progress =
+        static_cast<float>(std::min(1.0, (seconds - mixerSlideStart) / slideSeconds));
+    const float eased = 1.0f - (1.0f - progress) * (1.0f - progress);
+    const float target = mixerVisible ? 1.0f : 0.0f;
+    mixerAmount = mixerFrom + (target - mixerFrom) * eased;
+
+    if (progress >= 1.0f)
+    {
+        mixerAmount = target;
+        mixerSlide.setWantsFrames(false);
+    }
+
+    resized();
 }
 
 void MainComponent::togglePlayPause()
@@ -217,7 +336,7 @@ void MainComponent::offerRecovery()
             .withButton("Not Now")
             .withAssociatedComponent(this);
 
-    juce::NativeMessageBox::showAsync(options, [this](int button) {
+    showAlert(options, [this](int button) {
         if (button == 0)
         {
             if (const auto recovered = session.recoverRecordings(); recovered.failed())
@@ -291,7 +410,7 @@ void MainComponent::confirmDiscardRecording()
                              .withButton("Keep Recording")
                              .withAssociatedComponent(this);
 
-    juce::NativeMessageBox::showAsync(options,
+    showAlert(options,
                                       [this](int button)
                                       {
                                           if (button == 0)
@@ -338,7 +457,12 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        deleteSelection,  playPause,       stop,          toggleLoop,    toggleSnap,
                        zoomIn,           zoomOut,         zoomToFit,     toggleMixer,   record,
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
-                       newBus,           toggleAutomation});
+                       newBus,           toggleAutomation, showThemePreviews, showAnimations,
+                       toggleAllAnimations});
+
+    const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
+    for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
+        commands.add(firstTheme + index);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationCommandInfo& result)
@@ -482,7 +606,33 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.addDefaultKeypress('p', 0);
         result.setTicked(project.isPunchEnabled());
         break;
+    case showThemePreviews:
+        result.setInfo("Show Previews...", "Shows every theme side by side", "View", 0);
+        break;
+    case showAnimations:
+        result.setInfo("Animations...", "Chooses which animations play, for every theme", "View",
+                       0);
+        break;
+    case toggleAllAnimations:
+        result.setInfo("All Animations Off", "Switches every animation off, and again back on",
+                       "View", 0);
+        result.addDefaultKeypress('a', shiftCommand);
+        result.setTicked(themes.getPreferences().animations.level ==
+                         appearance::AnimationLevel::off);
+        break;
     default:
+        if (commandId >= firstTheme && commandId <= lastTheme)
+        {
+            const auto& library = themes.getLibrary().getThemes();
+            const auto index = static_cast<std::size_t>(commandId - firstTheme);
+            if (index < library.size())
+            {
+                const auto& theme = library[index];
+                result.setInfo(theme.name, "Uses the " + theme.name + " theme", "View", 0);
+                result.addDefaultKeypress(static_cast<juce::juce_wchar>('1' + index), command);
+                result.setTicked(themes.getTheme().id == theme.id);
+            }
+        }
         break;
     }
 
@@ -578,8 +728,7 @@ bool MainComponent::perform(const InvocationInfo& info)
         arrangeView.zoomToFit();
         break;
     case toggleMixer:
-        mixerVisible = !mixerVisible;
-        resized();
+        showMixer(!mixerVisible);
         commandManager.commandStatusChanged();
         break;
     case record:
@@ -597,11 +746,54 @@ bool MainComponent::perform(const InvocationInfo& info)
     case togglePunch:
         session.setPunchEnabled(!session.getProject().isPunchEnabled());
         break;
+    case showThemePreviews:
+        showPanel(previewsWindow, "Themes",
+                  [this] { return std::make_unique<ThemePreviewsPanel>(themes); });
+        break;
+    case showAnimations:
+        showPanel(animationsWindow, "Animations",
+                  [this] { return std::make_unique<AnimationsPanel>(themes); });
+        break;
+    case toggleAllAnimations:
+    {
+        auto settings = themes.getPreferences().animations;
+        settings.toggleAllOff();
+        themes.setAnimationSettings(settings);
+        commandManager.commandStatusChanged();
+        break;
+    }
     default:
-        return false;
+    {
+        const auto& library = themes.getLibrary().getThemes();
+        const auto index = static_cast<std::size_t>(info.commandID - firstTheme);
+        if (info.commandID < firstTheme || info.commandID > lastTheme || index >= library.size())
+            return false;
+
+        themes.setTheme(library[index].id);
+        break;
+    }
     }
 
     return true;
+}
+
+void MainComponent::showPanel(std::unique_ptr<PanelWindow>& window, const juce::String& title,
+                              const std::function<std::unique_ptr<juce::Component>()>& makeContent)
+{
+    if (window != nullptr)
+    {
+        window->toFront(true);
+        return;
+    }
+
+    window = std::make_unique<PanelWindow>(title, makeContent(), this,
+                                           [&window]
+                                           {
+                                               // Closing from the window's own button: not
+                                               // from inside its callback.
+                                               juce::MessageManager::callAsync(
+                                                   [&window] { window.reset(); });
+                                           });
 }
 
 bool MainComponent::isInterestedInFileDrag(const juce::StringArray& files)
