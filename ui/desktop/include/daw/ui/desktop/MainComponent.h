@@ -53,7 +53,8 @@ public:
         discardRecording,
         toggleMetronome,
         toggleCountIn,
-        togglePunch
+        togglePunch,
+        newBus
     };
 
     MainComponent(controller::Session& sessionToShow, juce::AudioDeviceManager& audioDeviceManager,

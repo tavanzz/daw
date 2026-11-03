@@ -41,7 +41,7 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
     addAndMakeVisible(masterMeter);
     addAndMakeVisible(mixerView);
 
-    setSize(1280, 760);
+    setSize(1280, 900);
     lastRefreshSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
     startTimerHz(refreshRateHz);
 }
@@ -335,7 +335,8 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        exportMix,        audioSettings,   undo,          redo,          newTrack,
                        deleteSelection,  playPause,       stop,          toggleLoop,    toggleSnap,
                        zoomIn,           zoomOut,         zoomToFit,     toggleMixer,   record,
-                       discardRecording, toggleMetronome, toggleCountIn, togglePunch});
+                       discardRecording, toggleMetronome, toggleCountIn, togglePunch,
+                       newBus});
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationCommandInfo& result)
@@ -396,6 +397,11 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setInfo("New Track", "Adds an empty track", "Track", 0);
         result.addDefaultKeypress('t', command);
         break;
+    case newBus:
+        result.setInfo("New Bus", "Adds an aux bus for tracks to send to", "Track", 0);
+        result.addDefaultKeypress('t', shiftCommand);
+        break;
+
     case deleteSelection:
         result.setInfo("Delete", "Deletes the selected clips", "Edit", 0);
         result.addDefaultKeypress(juce::KeyPress::backspaceKey, 0);
@@ -486,6 +492,7 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
     case undo:
     case redo:
     case newTrack:
+    case newBus:
     case deleteSelection:
         if (recording)
             result.setActive(false);
@@ -529,6 +536,12 @@ bool MainComponent::perform(const InvocationInfo& info)
     case newTrack:
         session.addTrack();
         break;
+    case newBus:
+        session.addBus();
+        if (!mixerVisible)
+            perform(InvocationInfo(toggleMixer));
+        break;
+
     case deleteSelection:
         arrangeView.deleteSelection();
         break;

@@ -90,6 +90,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         break;
     case 2:
         add(MainComponent::newTrack);
+        add(MainComponent::newBus);
         break;
     case 3:
         add(MainComponent::playPause);

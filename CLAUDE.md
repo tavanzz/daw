@@ -342,6 +342,14 @@ Modules with one-way dependencies:
   changes first (`MainComponent::askToSaveChanges()`). Views redraw when
   `Session::getRevision()` changes. Peak meters have one reader each: the output
   peaks are taken once per tick and fed to both master meters.
+- Desktop mixer (Phase 4): `MixerView` has a strip per track, then per aux bus
+  (bluish; double-click the name to rename, right-click to delete), then the
+  master. Every strip has its inserts (`EffectSlots`: click to open the editor,
+  right-click to bypass, move, remove or reactivate; "+ Effect" adds one); track
+  strips their sends (`SendSlots`: drag along a row for the level, double-click for
+  0 dB, right-click for pre-fader or remove; "+ Send" to a bus or a new one).
+  Faders and knobs whose automation reads follow it and are disabled. Shift+Cmd+T
+  adds a bus.
 - Desktop recording UI (Phase 3): `TrackInputControls` (arm, monitoring cycling
   off/auto/on, the input menu of the device's channels, mono and stereo pairs) sits
   in each track header, with an input meter, and in each mixer strip. The transport
@@ -673,7 +681,7 @@ comping, mobile UI, writing automation live (touch/latch).
       arrangement building with latencies, NaN reports
 - [x] 12. Controller: automation editing and undo, values for the UI, export with tail
 - [x] 13. Benchmark: cost of each effect, tracks with a typical chain per budget
-- [ ] 14. Desktop UI: inserts, sends, bus strips and master inserts in the mixer
+- [x] 14. Desktop UI: inserts, sends, bus strips and master inserts in the mixer
 - [ ] 15. Desktop UI: generic effect editor, EQ curve, compressor view
 - [ ] 16. Desktop UI: automation lanes
 - [ ] 17. Listening tests and files for Phase 4 (`docs/LISTENING_TESTS.md`)
