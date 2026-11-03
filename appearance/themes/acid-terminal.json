@@ -1,0 +1,107 @@
+{
+    "id": "acid-terminal",
+    "name": "Acid Terminal",
+    "palette": {
+        "background": "#0B0D08",
+        "panel": "#12150E",
+        "line": "#2A3020",
+        "text": "#EDEFE6",
+        "secondary": "#949A80",
+        "acid": "#D4FF00",
+        "red": "#FF3B30",
+        "blue": "#7CE0FF"
+    },
+    "colours": {
+        "window": "background",
+        "panel": "panel",
+        "panelAlt": { "mix": ["panel", "background", 0.5] },
+        "raised": { "mix": ["panel", "line", 0.5] },
+        "inset": "background",
+        "lane": "background",
+        "laneAlt": { "mix": ["background", "panel", 0.6] },
+        "separator": "line",
+        "gridBar": { "mix": ["line", "secondary", 0.2] },
+        "gridBeat": { "mix": ["line", "background", 0.45] },
+        "outline": { "mix": ["line", "secondary", 0.6] },
+        "text": "text",
+        "textSecondary": "secondary",
+        "textDisabled": { "mix": ["secondary", "panel", 0.45] },
+        "textOnAccent": "background",
+        "accent": "acid",
+        "accentAlt": "blue",
+        "highlight": "blue",
+        "focus": "acid",
+        "selection": "text",
+        "playhead": "acid",
+        "loop": "blue",
+        "loopShade": { "alpha": ["blue", 0.08] },
+        "record": "red",
+        "mute": "acid",
+        "solo": { "mix": ["blue", "background", 0.05] },
+        "clip": { "mix": ["red", "acid", 0.45] },
+        "automation": { "mix": ["blue", "background", 0.55] },
+        "monitor": "blue",
+        "warning": "acid",
+        "error": "red",
+        "meterTrack": "background",
+        "peakHold": "text",
+        "curve": "acid",
+        "curveFill": { "alpha": ["acid", 0.12] },
+        "gainReduction": "red",
+        "shadow": { "alpha": ["#000000", 0.6] }
+    },
+    "clips": {
+        "colours": [
+            "acid",
+            "blue",
+            "red",
+            { "mix": ["acid", "blue", 0.5] },
+            "secondary",
+            { "mix": ["red", "acid", 0.5] }
+        ],
+        "bodyAlpha": 0.14,
+        "headerAlpha": 0.95
+    },
+    "fonts": {
+        "title": { "family": "Space Grotesk", "style": "Bold", "size": 15, "tracking": 0.06, "uppercase": true },
+        "heading": { "family": "Space Grotesk", "style": "Medium", "size": 14, "tracking": 0.02, "uppercase": false },
+        "label": { "family": "IBM Plex Mono", "style": "Regular", "size": 12, "tracking": 0.0, "uppercase": false },
+        "caption": { "family": "IBM Plex Mono", "style": "Regular", "size": 11, "tracking": 0.0, "uppercase": true },
+        "numeric": { "family": "IBM Plex Mono", "style": "Regular", "size": 12, "tracking": 0.0, "uppercase": false },
+        "display": { "family": "IBM Plex Mono", "style": "SemiBold", "size": 19, "tracking": 0.0, "uppercase": false }
+    },
+    "shape": {
+        "corners": "sharp",
+        "cornerSmall": 0,
+        "cornerMedium": 0,
+        "cornerLarge": 0,
+        "border": 2,
+        "focus": 2,
+        "glow": 0,
+        "labels": "terminal",
+        "statusBar": "prompt",
+        "pan": "knob"
+    },
+    "meter": {
+        "style": "segments",
+        "stops": [
+            { "db": 0, "colour": "red" },
+            { "db": -6, "colour": { "mix": ["red", "acid", 0.5] } },
+            { "db": -18, "colour": "acid" }
+        ],
+        "segmentHeight": 3,
+        "segmentGap": 1
+    },
+    "effects": {
+        "animatedMeters": { "available": true, "cost": "medium", "description": "LED segments fade out and the peak hold falls smoothly" },
+        "cursorGlow": { "available": true, "cost": "low", "description": "The status bar's cursor blinks" },
+        "recordPulse": { "available": true, "cost": "low", "description": "The Rec button and recording clips pulse" },
+        "movingBackgrounds": { "available": true, "cost": "medium", "description": "Hazard stripes scroll under the transport, red while recording" },
+        "glitch": { "available": true, "cost": "low", "description": "The logo glitches" },
+        "panelTransitions": { "available": true, "cost": "medium", "description": "The mixer slides, panels fade, themes crossfade" }
+    },
+    "summary": {
+        "shapes": "Sharp corners, 2 px borders, terminal labels, a prompt status bar",
+        "meters": "LED segments: acid, orange, red"
+    }
+}

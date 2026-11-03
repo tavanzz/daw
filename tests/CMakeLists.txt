@@ -6,6 +6,9 @@ add_executable(daw_tests
     support/SimulatedDevice.cpp
     support/TestMain.cpp
     support/TestAudioFiles.cpp
+    appearance/ColourTests.cpp
+    appearance/ThemeFileTests.cpp
+    appearance/ThemeLibraryTests.cpp
     controller/ArrangementBuilderTests.cpp
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
@@ -37,7 +40,8 @@ add_executable(daw_tests
     model/TimelineTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(daw_tests PRIVATE daw::controller daw::engine daw::model Catch2::Catch2)
+target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::engine daw::model
+    Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 
 # Not tests: measure how many tracks fit in an audio callback, and how many stream
@@ -86,3 +90,13 @@ add_test(NAME architecture.detects_gui_include_in_controller
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_gui_include_in_controller PROPERTIES
     PASS_REGULAR_EXPRESSION "controller/src/UsesGui\\.cpp: <juce_gui_basics/juce_gui_basics\\.h>")
+
+add_test(NAME architecture.detects_gui_include_in_appearance
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_gui_include_in_appearance PROPERTIES
+    PASS_REGULAR_EXPRESSION "appearance/src/UsesGui\\.cpp: <juce_graphics/juce_graphics\\.h>")
+
+add_test(NAME architecture.detects_appearance_include_in_engine
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_appearance_include_in_engine PROPERTIES
+    PASS_REGULAR_EXPRESSION "engine/src/UsesAppearance\\.cpp: <daw/appearance/Theme\\.h>")

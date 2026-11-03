@@ -24,19 +24,23 @@ Modules with one-way dependencies:
 | `engine/`     | audio engine: processing graph, transport, mixer, DSP, audio I/O  | non-GUI JUCE modules             |
 | `model/`      | project state (tracks, clips, parameters), versioned project files | non-GUI JUCE modules            |
 | `controller/` | maps the model onto the engine: session, undo, loading, export, timeline view math | engine, model, non-GUI JUCE |
+| `appearance/` | theme values (colours, fonts, shapes, meter styles, effects) and animation settings, for every UI | non-GUI JUCE modules |
 | `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
-| `tests/`      | unit tests for engine, model and controller                       | controller, engine, model        |
+| `tests/`      | unit tests for engine, model, controller and appearance           | appearance, controller, engine, model |
 
 - `engine` never depends on any UI. `engine` and `model` don't depend on each other
-  nor on `controller`; `controller` maps the model onto the engine.
+  nor on `controller`; `controller` maps the model onto the engine. `appearance`
+  depends on no other module, and only the UIs (and `app`) use it.
 - Enforced by the CMake target graph and by the `architecture.*` CTest tests
-  (`cmake/CheckArchitecture.cmake`): they fail if `engine/`, `model/` or
-  `controller/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, or if
-  `engine/` and `model/` include each other or `controller/`.
+  (`cmake/CheckArchitecture.cmake`): they fail if `engine/`, `model/`, `controller/`
+  or `appearance/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, if
+  `engine/` and `model/` include each other or `controller/`, or if `appearance/`
+  includes another module or is included by `engine/`, `model/` or `controller/`.
 - Every module has public headers in `include/daw/<module>/` and private code in
-  `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`, `daw::ui::desktop`.
+  `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`,
+  `daw::appearance`, `daw::ui::desktop`.
 - JUCE is compiled once into the internal static library `daw::juce`
   (`cmake/JuceLibrary.cmake`), with JUCE's own flags. Include JUCE module headers
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
@@ -254,6 +258,17 @@ Modules with one-way dependencies:
   `NSMicrophoneUsageDescription` (JUCE's `MICROPHONE_PERMISSION_*`). The app also
   passes the device's reported latencies to the session and keeps the manual offset
   in the user settings per input/output device pair and sample rate.
+- Themes (Phase 5): `appearance::Theme` holds everything a UI needs to draw in one
+  theme: a colour per `ColourRole` (components ask for roles, never literal colours),
+  a font per `FontRole` (family, style, size, tracking, capitals), the shape (corner
+  style and sizes, borders, glow, label, status-bar and pan styles), the meter
+  (gradient or LED segments, colour stops from the loudest down), the clip colours
+  and the animated effects it draws with their cost. The built-in themes are JSON
+  files in `appearance/themes/`, embedded with `juce_add_binary_data` and read by
+  `readTheme()`, which refuses missing, unknown or invalid values (all reported at
+  once); colours are palette names, hex or `mix`/`alpha` formulas, so derived
+  colours show where they come from. `ThemeLibrary::builtIn()` lists them in menu
+  order; unknown ids fall back to Neon Grid.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -538,7 +553,7 @@ automation lanes), so they start only once Phase 4 is in `main` (v0.4.0), merged
 into `phase-5`.
 
 - [x] 0. Plan (this list) and draft pull request
-- [ ] 1. `appearance` module: theme data (colour roles, fonts, shapes, meter style,
+- [x] 1. `appearance` module: theme data (colour roles, fonts, shapes, meter style,
       effects), the three themes as embedded JSON, loader; every theme defines every
       value
 - [ ] 2. Contrast and status colours: WCAG contrast for every text/background pair,

@@ -1,0 +1,107 @@
+{
+    "id": "neon-grid",
+    "name": "Neon Grid",
+    "palette": {
+        "background": "#07060B",
+        "panel": "#0E0C17",
+        "panelDeep": "#0A0912",
+        "line": "#221E36",
+        "text": "#E9E6FF",
+        "secondary": "#8F8AAE",
+        "cyan": "#00F0FF",
+        "magenta": "#FF2BD6",
+        "yellow": "#F8F32B",
+        "violet": "#9D7BFF"
+    },
+    "colours": {
+        "window": "background",
+        "panel": "panel",
+        "panelAlt": "panelDeep",
+        "raised": { "mix": ["panel", "line", 0.6] },
+        "inset": "background",
+        "lane": "background",
+        "laneAlt": "panelDeep",
+        "separator": "line",
+        "gridBar": { "mix": ["line", "secondary", 0.2] },
+        "gridBeat": { "mix": ["line", "background", 0.45] },
+        "outline": { "mix": ["line", "secondary", 0.66] },
+        "text": "text",
+        "textSecondary": "secondary",
+        "textDisabled": { "mix": ["secondary", "panel", 0.45] },
+        "textOnAccent": "background",
+        "accent": "cyan",
+        "accentAlt": "magenta",
+        "highlight": "yellow",
+        "focus": "cyan",
+        "selection": "text",
+        "playhead": "cyan",
+        "loop": "violet",
+        "loopShade": { "alpha": ["violet", 0.1] },
+        "record": "magenta",
+        "mute": "yellow",
+        "solo": { "mix": ["cyan", "background", 0.07] },
+        "clip": { "mix": ["magenta", "yellow", 0.5] },
+        "automation": { "mix": ["violet", "background", 0.33] },
+        "monitor": "violet",
+        "warning": "yellow",
+        "error": { "mix": ["magenta", "yellow", 0.5] },
+        "meterTrack": "background",
+        "peakHold": "text",
+        "curve": "cyan",
+        "curveFill": { "alpha": ["cyan", 0.14] },
+        "gainReduction": "yellow",
+        "shadow": { "alpha": ["#000000", 0.6] }
+    },
+    "clips": {
+        "colours": [
+            "cyan",
+            "magenta",
+            "yellow",
+            "violet",
+            { "mix": ["cyan", "violet", 0.5] },
+            { "mix": ["magenta", "yellow", 0.5] }
+        ],
+        "bodyAlpha": 0.16,
+        "headerAlpha": 0.95
+    },
+    "fonts": {
+        "title": { "family": "Chakra Petch", "style": "SemiBold", "size": 16, "tracking": 0.08, "uppercase": true },
+        "heading": { "family": "Chakra Petch", "style": "SemiBold", "size": 14, "tracking": 0.04, "uppercase": false },
+        "label": { "family": "Chakra Petch", "style": "Regular", "size": 13, "tracking": 0.0, "uppercase": false },
+        "caption": { "family": "Chakra Petch", "style": "Regular", "size": 11, "tracking": 0.02, "uppercase": false },
+        "numeric": { "family": "JetBrains Mono", "style": "Regular", "size": 12, "tracking": 0.0, "uppercase": false },
+        "display": { "family": "JetBrains Mono", "style": "Bold", "size": 20, "tracking": 0.02, "uppercase": false }
+    },
+    "shape": {
+        "corners": "rounded",
+        "cornerSmall": 3,
+        "cornerMedium": 4,
+        "cornerLarge": 6,
+        "border": 1,
+        "focus": 2,
+        "glow": 10,
+        "labels": "plain",
+        "statusBar": "plain",
+        "pan": "knob"
+    },
+    "meter": {
+        "style": "gradient",
+        "stops": [
+            { "db": 0, "colour": "magenta" },
+            { "db": -9, "colour": "yellow" },
+            { "db": -30, "colour": "cyan" }
+        ]
+    },
+    "effects": {
+        "animatedMeters": { "available": true, "cost": "medium", "description": "A neon glow above the level and a smooth peak-hold fall" },
+        "cursorGlow": { "available": true, "cost": "low", "description": "The playhead pulses" },
+        "recordPulse": { "available": true, "cost": "low", "description": "The Rec button and recording clips pulse" },
+        "movingBackgrounds": { "available": true, "cost": "high", "description": "Scanlines scroll over the timeline" },
+        "glitch": { "available": true, "cost": "low", "description": "The logo flickers" },
+        "panelTransitions": { "available": true, "cost": "medium", "description": "The mixer slides, panels fade, themes crossfade" }
+    },
+    "summary": {
+        "shapes": "Rounded corners (3 to 6 px), neon glow on active elements",
+        "meters": "Gradient: cyan, yellow, magenta"
+    }
+}

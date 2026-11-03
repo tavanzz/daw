@@ -1,0 +1,108 @@
+{
+    "id": "synth-chrome",
+    "name": "Synth Chrome",
+    "palette": {
+        "background": "#0F0820",
+        "panel": "#140B2A",
+        "panelMid": "#180E30",
+        "panelHigh": "#241645",
+        "line": "#2E2050",
+        "text": "#F2EAFF",
+        "secondary": "#A397C4",
+        "orange": "#FF8A33",
+        "violet": "#B07CFF",
+        "pink": "#FF3D7F",
+        "turquoise": "#5CE1E6"
+    },
+    "colours": {
+        "window": "background",
+        "panel": "panel",
+        "panelAlt": "panelMid",
+        "raised": "panelHigh",
+        "inset": "background",
+        "lane": "background",
+        "laneAlt": "panel",
+        "separator": "line",
+        "gridBar": { "mix": ["line", "secondary", 0.2] },
+        "gridBeat": { "mix": ["line", "background", 0.4] },
+        "outline": { "mix": ["line", "secondary", 0.6] },
+        "text": "text",
+        "textSecondary": "secondary",
+        "textDisabled": { "mix": ["secondary", "panel", 0.45] },
+        "textOnAccent": "background",
+        "accent": "orange",
+        "accentAlt": "violet",
+        "highlight": "turquoise",
+        "focus": "turquoise",
+        "selection": "text",
+        "playhead": "orange",
+        "loop": "turquoise",
+        "loopShade": { "alpha": ["turquoise", 0.08] },
+        "record": "pink",
+        "mute": "orange",
+        "solo": "turquoise",
+        "clip": { "mix": ["pink", "#FFFFFF", 0.88] },
+        "automation": { "mix": ["violet", "background", 0.35] },
+        "monitor": "violet",
+        "warning": "orange",
+        "error": "pink",
+        "meterTrack": "background",
+        "peakHold": "text",
+        "curve": "turquoise",
+        "curveFill": { "alpha": ["turquoise", 0.12] },
+        "gainReduction": "pink",
+        "shadow": { "alpha": ["#000000", 0.55] }
+    },
+    "clips": {
+        "colours": [
+            "orange",
+            "violet",
+            "pink",
+            "turquoise",
+            { "mix": ["violet", "pink", 0.5] },
+            { "mix": ["orange", "pink", 0.5] }
+        ],
+        "bodyAlpha": 0.16,
+        "headerAlpha": 0.95
+    },
+    "fonts": {
+        "title": { "family": "Michroma", "style": "Regular", "size": 13, "tracking": 0.12, "uppercase": true },
+        "heading": { "family": "Michroma", "style": "Regular", "size": 11, "tracking": 0.08, "uppercase": true },
+        "label": { "family": "Rajdhani", "style": "SemiBold", "size": 15, "tracking": 0.02, "uppercase": false },
+        "caption": { "family": "Rajdhani", "style": "Medium", "size": 13, "tracking": 0.03, "uppercase": false },
+        "numeric": { "family": "Rajdhani", "style": "SemiBold", "size": 14, "tracking": 0.0, "uppercase": false },
+        "display": { "family": "Michroma", "style": "Regular", "size": 17, "tracking": 0.06, "uppercase": false }
+    },
+    "shape": {
+        "corners": "cut",
+        "cornerSmall": 4,
+        "cornerMedium": 6,
+        "cornerLarge": 10,
+        "border": 1,
+        "focus": 2,
+        "glow": 6,
+        "labels": "plain",
+        "statusBar": "plain",
+        "pan": "arc"
+    },
+    "meter": {
+        "style": "gradient",
+        "stops": [
+            { "db": 0, "colour": "pink" },
+            { "db": -9, "colour": "orange" },
+            { "db": -30, "colour": "violet" }
+        ]
+    },
+    "effects": {
+        "animatedMeters": { "available": true, "cost": "medium", "description": "A chrome sheen over the level and a smooth peak-hold fall" },
+        "cursorGlow": { "available": true, "cost": "low", "description": "The playhead leaves a fading trail" },
+        "recordPulse": { "available": true, "cost": "low", "description": "The Rec button and recording clips pulse" },
+        "movingBackgrounds": { "available": true, "cost": "high", "description": "A perspective grid scrolls under the timeline" },
+        "glitch": { "available": true, "cost": "low", "description": "A chrome reflection sweeps across the logo" },
+        "panelTransitions": { "available": true, "cost": "medium", "description": "The mixer slides, panels fade, themes crossfade" }
+    },
+    "summary": {
+        "shapes": "Corners cut at 45 degrees, arc pots for pan",
+        "meters": "Gradient: violet, orange, pink"
+    }
+}

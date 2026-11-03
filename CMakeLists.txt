@@ -37,6 +37,7 @@ include(JuceLibrary)
 add_subdirectory(engine)
 add_subdirectory(model)
 add_subdirectory(controller)
+add_subdirectory(appearance)
 add_subdirectory(ui/desktop)
 add_subdirectory(app)
 

@@ -133,6 +133,7 @@ callback, stream from disk and record: [docs/PERFORMANCE.md](docs/PERFORMANCE.md
 | `engine/`     | audio engine; never depends on the user interface               |
 | `model/`      | project state, timeline time, grid, versioned project files     |
 | `controller/` | maps the project onto the engine; shared by every UI            |
+| `appearance/` | themes (colours, fonts, shapes) and animation settings; no GUI |
 | `ui/desktop/` | mouse and keyboard interface                                    |
 | `ui/mobile/`  | touch interface (placeholder)                                   |
 | `app/`        | application entry point                                         |
