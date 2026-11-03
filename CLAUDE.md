@@ -152,6 +152,21 @@ Modules with one-way dependencies:
   send and bus gains ramp like faders and carry over by id (`MixState`, which also
   holds the buses' summing buffer; longer stretches are mixed in pieces). A track
   with only a pre-fader send is rendered even with its fader down.
+- Latency compensation (Phase 4): `MixState::startingAt()` works out each track's
+  insert latency L(t), what each bus aligns its sends to (its slowest sender,
+  A(b)), and where all tracks and buses meet (M); sends are delayed by A(b) - L(t),
+  tracks by M - L(t), buses by M - A(b) - L(b), through `dsp::DelayLine`s carried
+  over by id (`adopt()` swaps their memory, no allocation). The output lags the
+  timeline read by `latency` = M + the master's insert latency. Bypassed effects
+  keep their latency. A `TimelineHistory` records what the engine read at each
+  stream index, so what is heard is known: the playhead shows it, the metronome and
+  the count-in click on it, recordings add the latency to their own, and
+  `OfflineRenderer` reads that far ahead and drops what comes out first (export
+  sample k is timeline position start + k). A change that moves audio in time
+  (`MixState::movesAudioFrom()`: the total latency, or a latency or delay of a path
+  both arrangements have) while anything may be heard dips the output: 5 ms fade
+  out, silence while the new delays fill, 5 ms fade in. Tracks with delays run on
+  while stopped so the delayed audio still comes out.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -574,7 +589,7 @@ comping, mobile UI, writing automation live (touch/latch).
       snapshots, per-track clip crossfade, tails after stop; bit-identical to Phase 3
       with empty or bypassed chains
 - [x] 3. Aux buses and pre/post-fader sends, mute and solo rules
-- [ ] 4. Plugin delay compensation: latencies, compensation delays, the heard
+- [x] 4. Plugin delay compensation: latencies, compensation delays, the heard
       position (playhead, metronome, count-in, recording), latency changes, export
 - [ ] 5. Automation in the engine: curves, per-sample values at the audio's position,
       volume, pan, sends and effect parameters

@@ -32,6 +32,18 @@ void DelayLine::clear() noexcept
     writePosition = 0;
 }
 
+void DelayLine::adopt(DelayLine& previous) noexcept
+{
+    if (previous.buffers.size() != buffers.size() || previous.maximumDelay < delay)
+        return;
+
+    std::swap(buffers, previous.buffers);
+    std::swap(mask, previous.mask);
+    std::swap(writePosition, previous.writePosition);
+    std::swap(maximumDelay, previous.maximumDelay);
+    previous.delay = std::min(previous.delay, previous.maximumDelay);
+}
+
 void DelayLine::process(float* const* channels, int numChannels, int numSamples) noexcept
 {
     process(channels, channels, numChannels, numSamples);

@@ -3,6 +3,7 @@
 #include "daw/engine/Arrangement.h"
 #include "daw/engine/AudioInputs.h"
 #include "daw/engine/TimelineFade.h"
+#include "daw/engine/dsp/DelayLine.h"
 #include "daw/engine/dsp/GainRamp.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -13,9 +14,17 @@ namespace daw::engine
 {
 
 /** The gains the mixer is moving for one arrangement: per track, send, bus and for
-    the master; and where the buses sum their sends. Allocated with the arrangement
-    on the message thread; only the thread that renders that arrangement touches it
-    afterwards. */
+    the master; where the buses sum their sends; and the delays that keep every path
+    aligned (latency compensation). Allocated with the arrangement on the message
+    thread; only the thread that renders that arrangement touches it afterwards.
+
+    Latency compensation: a track's inserts delay it by their latency L(t). A bus
+    gets its sends aligned to the slowest track sending to it, A(b), and its own
+    inserts add L(b). Every track and bus reaches the master aligned to the slowest
+    of them all, M; the master's inserts add their latency. So each send is delayed
+    by A(b) - L(t), each track by M - L(t) and each bus by M - A(b) - L(b), and the
+    output lags the timeline read by latency = M + L(master).
+*/
 struct MixState
 {
     /** How many samples the buses can sum at once unless asked otherwise; the mixer
@@ -32,13 +41,27 @@ struct MixState
         dsp::GainRamp timeline;
         dsp::GainRamp input{0.0f};
 
-        std::vector<dsp::GainRamp> sends; ///< one per send, same order
+        struct Send
+        {
+            dsp::GainRamp gain;
+            int delay = 0;
+            dsp::DelayLine line;
+        };
+        std::vector<Send> sends; ///< one per send, same order
+
+        int latency = 0;     ///< of the inserts
+        int outputDelay = 0; ///< to reach the master aligned
+        dsp::DelayLine output;
     };
 
     struct BusGains
     {
         dsp::GainRamp left;
         dsp::GainRamp right;
+
+        int inputLatency = 0; ///< what its sends are aligned to: A(b)
+        int outputDelay = 0;
+        dsp::DelayLine output;
     };
 
     std::vector<TrackGains> tracks; ///< one per track of the arrangement, same order
@@ -48,17 +71,29 @@ struct MixState
     /** Two channels per bus: what its sends add up to in the stretch being mixed. */
     juce::AudioBuffer<float> busInputs;
 
+    int mixLatency = 0; ///< M: where tracks and buses meet at the master
+    int latency = 0;    ///< how far the output lags the timeline read
+
     /** Message thread. Gains already at the arrangement's targets (no ramps); buses
         sum up to busBlockSize samples at once. */
     [[nodiscard]] static MixState startingAt(const Arrangement& arrangement,
                                              int busBlockSize = defaultBusBlockSize);
 
-    /** Rendering thread. Takes over the gains of the tracks, sends and buses that
-        previous also had (matched by id) and ramps them to arrangement's targets
-        over rampLength samples, so that a change of arrangement never makes a gain
-        jump. New ones start at their targets. Allocates nothing. */
-    void continueFrom(const MixState& previous, const Arrangement& previousArrangement,
+    /** Rendering thread. Takes over the gains and delay lines of the tracks, sends
+        and buses that previous also had (matched by id) and ramps the gains to
+        arrangement's targets over rampLength samples, so that a change of
+        arrangement never makes a gain jump or loses delayed audio. New ones start
+        at their targets. Allocates nothing. */
+    void continueFrom(MixState& previous, const Arrangement& previousArrangement,
                       const Arrangement& arrangement, int rampLength) noexcept;
+
+    /** Any thread. Whether going from previous to this state moves audio in time:
+        the total latency, or the latency or a delay of a track, send or bus that
+        both have, differs. (New paths start from silence; paths that are gone just
+        end.) */
+    [[nodiscard]] bool movesAudioFrom(const MixState& previous,
+                                      const Arrangement& previousArrangement,
+                                      const Arrangement& arrangement) const noexcept;
 
     /** True while any track plays some of its input. */
     [[nodiscard]] bool isHearingInput() const noexcept;

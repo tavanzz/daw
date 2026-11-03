@@ -84,6 +84,29 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
 {
     MixState state;
     state.tracks.resize(arrangement.tracks.size());
+    state.buses.resize(arrangement.buses.size());
+
+    // Latencies: of each track's inserts, then what each bus is aligned to (its
+    // slowest sender), then where everything meets (see the class description).
+    for (std::size_t i = 0; i < arrangement.tracks.size(); ++i)
+        state.tracks[i].latency = arrangement.tracks[i].inserts.getLatency();
+
+    for (std::size_t i = 0; i < arrangement.tracks.size(); ++i)
+        for (const auto& send : arrangement.tracks[i].sends)
+            if (const int bus = findBus(arrangement, send.bus, send.busIndex); bus >= 0)
+                state.buses[static_cast<std::size_t>(bus)].inputLatency =
+                    std::max(state.buses[static_cast<std::size_t>(bus)].inputLatency,
+                             state.tracks[i].latency);
+
+    int meeting = 0;
+    for (const auto& track : state.tracks)
+        meeting = std::max(meeting, track.latency);
+    for (std::size_t i = 0; i < arrangement.buses.size(); ++i)
+        meeting = std::max(meeting, state.buses[i].inputLatency +
+                                        arrangement.buses[i].inserts.getLatency());
+    state.mixLatency = meeting;
+    state.latency = meeting + arrangement.masterInserts.getLatency();
+
 
     for (std::size_t i = 0; i < arrangement.tracks.size(); ++i)
     {
@@ -92,16 +115,33 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
         gains.left.reset(track.leftGain);
         gains.right.reset(track.rightGain);
 
+        gains.outputDelay = meeting - gains.latency;
+        gains.output.prepare(2, gains.outputDelay);
+        gains.output.setDelay(gains.outputDelay);
+
         gains.sends.resize(track.sends.size());
         for (std::size_t k = 0; k < track.sends.size(); ++k)
-            gains.sends[k].reset(track.sends[k].gain);
+        {
+            auto& send = gains.sends[k];
+            send.gain.reset(track.sends[k].gain);
+            const int bus = findBus(arrangement, track.sends[k].bus, track.sends[k].busIndex);
+            send.delay = bus >= 0 ? state.buses[static_cast<std::size_t>(bus)].inputLatency -
+                                        gains.latency
+                                  : 0;
+            send.line.prepare(2, send.delay);
+            send.line.setDelay(send.delay);
+        }
     }
 
-    state.buses.resize(arrangement.buses.size());
     for (std::size_t i = 0; i < arrangement.buses.size(); ++i)
     {
-        state.buses[i].left.reset(arrangement.buses[i].leftGain);
-        state.buses[i].right.reset(arrangement.buses[i].rightGain);
+        const auto& bus = arrangement.buses[i];
+        auto& gains = state.buses[i];
+        gains.left.reset(bus.leftGain);
+        gains.right.reset(bus.rightGain);
+        gains.outputDelay = meeting - gains.inputLatency - bus.inserts.getLatency();
+        gains.output.prepare(2, gains.outputDelay);
+        gains.output.setDelay(gains.outputDelay);
     }
 
     if (!arrangement.buses.empty())
@@ -112,7 +152,7 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
     return state;
 }
 
-void MixState::continueFrom(const MixState& previous, const Arrangement& previousArrangement,
+void MixState::continueFrom(MixState& previous, const Arrangement& previousArrangement,
                             const Arrangement& arrangement, int rampLength) noexcept
 {
     jassert(tracks.size() == arrangement.tracks.size());
@@ -128,17 +168,18 @@ void MixState::continueFrom(const MixState& previous, const Arrangement& previou
             continue;
 
         const auto match = static_cast<std::size_t>(previousTrack - before.data());
-        const auto& old = previous.tracks[match];
+        auto& old = previous.tracks[match];
         auto& gains = tracks[i];
 
         // Member by member: assigning the whole struct would copy (allocate) the
-        // vector of sends.
+        // sends and the delay lines.
         gains.left = old.left;
         gains.right = old.right;
         gains.timeline = old.timeline;
         gains.input = old.input;
         gains.left.setTarget(track.leftGain, rampLength);
         gains.right.setTarget(track.rightGain, rampLength);
+        gains.output.adopt(old.output);
 
         for (std::size_t k = 0; k < track.sends.size(); ++k)
         {
@@ -146,8 +187,10 @@ void MixState::continueFrom(const MixState& previous, const Arrangement& previou
             {
                 if (previousTrack->sends[j].id == track.sends[k].id)
                 {
-                    gains.sends[k] = old.sends[j];
-                    gains.sends[k].setTarget(track.sends[k].gain, rampLength);
+                    auto& send = gains.sends[k];
+                    send.gain = old.sends[j].gain;
+                    send.gain.setTarget(track.sends[k].gain, rampLength);
+                    send.line.adopt(old.sends[j].line);
                 }
             }
         }
@@ -160,15 +203,60 @@ void MixState::continueFrom(const MixState& previous, const Arrangement& previou
         {
             if (previousArrangement.buses[j].id == bus.id)
             {
-                buses[i] = previous.buses[j];
-                buses[i].left.setTarget(bus.leftGain, rampLength);
-                buses[i].right.setTarget(bus.rightGain, rampLength);
+                auto& gains = buses[i];
+                gains.left = previous.buses[j].left;
+                gains.right = previous.buses[j].right;
+                gains.left.setTarget(bus.leftGain, rampLength);
+                gains.right.setTarget(bus.rightGain, rampLength);
+                gains.output.adopt(previous.buses[j].output);
             }
         }
     }
 
     master = previous.master;
     master.setTarget(arrangement.masterGain, rampLength);
+}
+
+bool MixState::movesAudioFrom(const MixState& previous, const Arrangement& previousArrangement,
+                              const Arrangement& arrangement) const noexcept
+{
+    if (latency != previous.latency)
+        return true;
+
+    for (std::size_t i = 0; i < arrangement.tracks.size(); ++i)
+    {
+        const auto& track = arrangement.tracks[i];
+        const auto* before = findTrack(previousArrangement, track.id, i);
+        if (before == nullptr)
+            continue;
+
+        const auto& now = tracks[i];
+        const auto& old = previous.tracks[static_cast<std::size_t>(before -
+                                                                   previousArrangement.tracks.data())];
+        if (now.latency != old.latency || now.outputDelay != old.outputDelay)
+            return true;
+
+        for (std::size_t k = 0; k < track.sends.size(); ++k)
+            for (std::size_t j = 0; j < before->sends.size(); ++j)
+                if (before->sends[j].id == track.sends[k].id &&
+                    now.sends[k].delay != old.sends[j].delay)
+                    return true;
+    }
+
+    for (std::size_t i = 0; i < arrangement.buses.size(); ++i)
+    {
+        const int match = findBus(previousArrangement, arrangement.buses[i].id, static_cast<int>(i));
+        if (match < 0)
+            continue;
+
+        const auto& old = previous.buses[static_cast<std::size_t>(match)];
+        if (buses[i].inputLatency != old.inputLatency || buses[i].outputDelay != old.outputDelay ||
+            arrangement.buses[i].inserts.getLatency() !=
+                previousArrangement.buses[static_cast<std::size_t>(match)].inserts.getLatency())
+            return true;
+    }
+
+    return false;
 }
 
 bool MixState::isHearingInput() const noexcept
@@ -313,20 +401,26 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
                          juce::exactlyEqual(gains.right.getTarget(), 0.0f);
     const bool hasEffects = !track.inserts.isEmpty();
 
+    // Effects may still be ringing, and delayed audio must still come out: such a
+    // track runs on even when nothing new goes in.
+    bool runsOn = hasEffects || gains.outputDelay > 0;
+    for (const auto& send : gains.sends)
+        runsOn = runsOn || send.delay > 0;
+
     bool sendsBeforeFader = false;
     for (std::size_t k = 0; k < track.sends.size(); ++k)
         sendsBeforeFader = sendsBeforeFader ||
-                           (track.sends[k].preFader &&
-                            (gains.sends[k].isRamping() || gains.sends[k].getTarget() > 0.0f));
+                           (track.sends[k].preFader && (gains.sends[k].gain.isRamping() ||
+                                                        gains.sends[k].gain.getTarget() > 0.0f));
 
     // A silent track without effects reads nothing; its gains still move on, as if
-    // it had played. With effects it runs on: they may still be ringing.
-    if (!hasEffects && ((unheard && !sendsBeforeFader) || (!playsTimeline && !playsInput)))
+    // it had played.
+    if (!runsOn && ((unheard && !sendsBeforeFader) || (!playsTimeline && !playsInput)))
     {
         for (auto* ramp : {&gains.left, &gains.right, &gains.timeline, &gains.input})
             ramp->skip(numSamples);
         for (auto& send : gains.sends)
-            send.skip(numSamples);
+            send.gain.skip(numSamples);
         return false;
     }
 
@@ -390,7 +484,7 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
         gains.right.skip(numSamples);
         for (std::size_t k = 0; k < track.sends.size(); ++k)
             if (!track.sends[k].preFader)
-                gains.sends[k].skip(numSamples);
+                gains.sends[k].gain.skip(numSamples);
         return false;
     }
 
@@ -401,6 +495,9 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
 
     if (track.meter != nullptr)
         track.meter->process(scratch, 0, numSamples);
+
+    if (gains.outputDelay > 0)
+        gains.output.process(channels, 2, numSamples);
 
     return true;
 }
@@ -414,7 +511,8 @@ void Mixer::addSends(const ArrangementTrack& track, MixState::TrackGains& gains,
         if (send.preFader != preFader)
             continue;
 
-        auto& ramp = gains.sends[k];
+        auto& state = gains.sends[k];
+        auto& ramp = state.gain;
         const int bus = findBus(busOwner, send.bus, send.busIndex);
         const bool silent = !ramp.isRamping() && juce::exactlyEqual(ramp.getTarget(), 0.0f);
 
@@ -430,6 +528,8 @@ void Mixer::addSends(const ArrangementTrack& track, MixState::TrackGains& gains,
             juce::FloatVectorOperations::copy(sent[channel], scratch.getReadPointer(channel),
                                               numSamples);
         ramp.apply(sent, 2, numSamples);
+        if (state.delay > 0)
+            state.line.process(sent, 2, numSamples);
 
         for (int channel = 0; channel < 2; ++channel)
             juce::FloatVectorOperations::add(busState.busInputs.getWritePointer(2 * bus + channel),
@@ -460,6 +560,9 @@ void Mixer::renderBuses(const Arrangement& arrangement, MixState& state, juce::i
             const juce::AudioBuffer<float> busOutput(channels, 2, numSamples);
             bus.meter->process(busOutput, 0, numSamples);
         }
+
+        if (gains.outputDelay > 0)
+            gains.output.process(channels, 2, numSamples);
 
         juce::FloatVectorOperations::add(mix[0], channels[0], numSamples);
         juce::FloatVectorOperations::add(mix[1], channels[1], numSamples);

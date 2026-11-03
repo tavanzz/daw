@@ -14,6 +14,10 @@ namespace daw::engine
     the transport's fades when it starts, stops or jumps).
 
     Renders the timeline in order from a start position; any thread, one at a time.
+
+    Effects with latency delay the mix by that much (see MixState): the renderer reads
+    that far ahead and drops what comes out first, so that output sample k is
+    timeline position start + k, as heard in playback.
 */
 class OfflineRenderer
 {
@@ -27,16 +31,23 @@ public:
         samples of the timeline, starting where the previous call ended. */
     void render(juce::AudioBuffer<float>& output);
 
-    /** The timeline position the next render() starts at. */
+    /** The timeline position the next render() starts at. Set it before the first
+        render(). */
     [[nodiscard]] juce::int64 getPosition() const noexcept { return position; }
     void setPosition(juce::int64 newPosition) noexcept { position = newPosition; }
+
+    /** How far the mix lags the timeline: what render() makes up for. */
+    [[nodiscard]] int getLatency() const noexcept { return state.latency; }
 
 private:
     const Arrangement& arrangement;
     Mixer mixer;
     MixState state;
     int maximumBlockSize;
-    juce::int64 position = 0;
+    juce::int64 position = 0;     // of the next sample out
+    juce::int64 readPosition = 0; // of the next sample read: latency samples ahead
+    bool started = false;
+    juce::AudioBuffer<float> discarded;
 };
 
 } // namespace daw::engine

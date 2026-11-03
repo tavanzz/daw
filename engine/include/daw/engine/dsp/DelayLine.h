@@ -28,6 +28,12 @@ public:
     /** Silence, as if just prepared. */
     void clear() noexcept;
 
+    /** Takes over what previous holds (they swap their memory), keeping this line's
+        delay, if previous has the same channels and room for that delay; otherwise
+        does nothing. Real-time safe: the same line, carried from one mix state to
+        the next, goes on without a gap. */
+    void adopt(DelayLine& previous) noexcept;
+
     /** Delays numSamples samples of each channel in place. */
     void process(float* const* channels, int numChannels, int numSamples) noexcept;
 

@@ -5,6 +5,7 @@
 #include "daw/engine/Mixer.h"
 #include "daw/engine/Recorder.h"
 #include "daw/engine/RenderClock.h"
+#include "daw/engine/TimelineHistory.h"
 #include "daw/engine/Transport.h"
 #include "daw/engine/dsp/InputMeters.h"
 #include "daw/engine/dsp/Metronome.h"
@@ -83,6 +84,13 @@ struct EngineSnapshot
 
     Recording (see Recorder) plays from a start position, after an optional count-in,
     and captures the targets' inputs aligned to the sample with what was played.
+
+    Effects that delay their audio are compensated on every other path, so the
+    output lags the timeline read by getLatency() samples. The playhead, the
+    metronome, the count-in and recordings follow what is heard, through a history
+    of what was read when (TimelineHistory). A change of latency while anything may
+    be heard dips the output: it fades out, stays silent while the new delays fill
+    and fades in again.
     While it runs the transport goes straight on: loop and the end of the timeline
     do not apply, seeks are ignored, pause stops.
 */
@@ -177,6 +185,11 @@ public:
     [[nodiscard]] juce::int64 getLoopEnd() const noexcept;
     [[nodiscard]] bool isCountingIn() const noexcept;
 
+    /** How many samples what is heard lags behind what is read: the latency of the
+        effects, compensated on every other path (see MixState). The playhead, the
+        metronome and recordings follow what is heard. */
+    [[nodiscard]] int getLatency() const noexcept;
+
     /** True while playback waits for streamed audio to load (it reports playing). */
     [[nodiscard]] bool isWaitingForData() const noexcept;
 
@@ -204,8 +217,12 @@ private:
                        int numSamples) noexcept;
     void renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
                      int outputStart, int numSamples, const MixContext& context) noexcept;
-    void finishPiece(juce::AudioBuffer<float>& output, int outputStart, int numSamples,
-                     juce::int64 timelineStart, bool newClicks) noexcept;
+    void recordRead(int outputStart, TimelineHistory::Kind kind, juce::int64 position,
+                    bool clicks) noexcept;
+    void finishPiece(juce::AudioBuffer<float>& output, int outputStart, int numSamples) noexcept;
+    [[nodiscard]] int getCurrentLatency() const noexcept;
+    [[nodiscard]] bool mayBeHeard() const noexcept;
+    void applyLatencySwitch(juce::AudioBuffer<float>& output) noexcept;
     [[nodiscard]] MixContext makeContext(int outputStart) const noexcept;
     void startPendingRecording() noexcept;
     bool runLatencyTest(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept;
@@ -217,7 +234,8 @@ private:
 
     void send(Command command);
     void apply(const Command& command) noexcept;
-    void adoptPendingSnapshot() noexcept;
+    void takeNewSnapshot() noexcept;
+    void adopt(Snapshot* incoming) noexcept;
     void finishCrossfade() noexcept;
     [[nodiscard]] static bool hasEveryTrackOf(const Arrangement& arrangement,
                                               const Arrangement& other) noexcept;
@@ -252,6 +270,23 @@ private:
     int crossfadeDone = 0;
     Arrangement silentArrangement; // what an arrangement at another rate sounds like
     MixState silentMix;
+    Snapshot* held = nullptr; // taken from the message thread, waiting to be adopted
+
+    // A change of latency: fade out, stay silent while the delays fill, fade in.
+    enum class LatencySwitch : std::uint8_t
+    {
+        none,
+        fadingOut,
+        silent, ///< faded out, waiting to adopt the new arrangement
+        filling,
+        fadingIn
+    };
+    LatencySwitch latencySwitch = LatencySwitch::none;
+    int switchLevel = 1; // the output gain is switchLevel / crossfadeLength
+    juce::int64 fillRemaining = 0;
+
+    TimelineHistory history; // what was read when, for what is heard now
+    juce::int64 recordingLatency = 0;
     juce::AudioBuffer<float> stereoBuffer; // for devices with fewer than two outputs
 
     // The current block's inputs, and where the buffer being rendered starts in it
@@ -278,6 +313,7 @@ private:
     std::atomic<bool> publishedLooping{false};
     std::atomic<bool> publishedCountingIn{false};
     std::atomic<bool> publishedWaiting{false};
+    std::atomic<int> publishedLatency{0};
     std::atomic<juce::int64> publishedLoopStart{0};
     std::atomic<juce::int64> publishedLoopEnd{0};
     dsp::PeakLevelMeter outputMeter;

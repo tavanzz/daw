@@ -9,6 +9,7 @@ add_library(daw_engine STATIC
     src/Mixer.cpp
     src/OfflineRenderer.cpp
     src/Recorder.cpp
+    src/TimelineHistory.cpp
     src/Transport.cpp
     src/dsp/DelayLine.cpp
     src/dsp/GainRamp.cpp
