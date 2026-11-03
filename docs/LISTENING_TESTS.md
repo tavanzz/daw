@@ -13,7 +13,8 @@ open build/release/app/daw_app_artefacts/Release/DAW.app
 ```
 
 The reference files are written to `build/listening-tests/` (Phase 2 material in its
-`phase2/` folder, Phase 3 in `phase3/`). Use moderate volume: file 05 is at full scale.
+`phase2/` folder, Phase 3 in `phase3/`, Phase 4 in `phase4/`). Use moderate volume:
+file 05 is at full scale.
 For the streaming check (47), add `--long`: it also writes an hour-long file of about
 700 MB.
 
@@ -38,6 +39,8 @@ Until you answer, the clips stay "Loading".
 | Record / stop recording | R |
 | Discard the recording in progress (asks first) | Cmd+. |
 | Metronome / count-in / punch | K / Shift+K / P |
+| Automation lanes on/off | A |
+| New aux bus | Shift+Cmd+T |
 
 ## Phase 1 checks (single file, still valid)
 
@@ -127,6 +130,51 @@ Before starting:
 | 47 | Streaming: `python3 tools/make_listening_test_files.py --long`, then import `phase3/long-60min.wav` (Cmd+I; reading it through for its waveform takes a little while). Play, click the ruler at many places (the tone changes every minute: 200 Hz, 220 Hz, ...), loop a region near the end. Watch DAW in Activity Monitor. | Playback starts within a moment wherever you click, the pitch matches the minute, loops are seamless, no "disk too slow" warning. DAW's memory stays near 600 MB at most, although the file decoded into memory, as Phase 2 did it, would take about 1.4 GB. |
 | 48 | In Audio Settings, change the device's sample rate during a recording. Then record at 44.1 kHz and switch back to 48 kHz. | Changing the rate stops the recording, keeps what was recorded and says why. A take recorded at 44.1 kHz plays at the right pitch and in time at 48 kHz (`Audio/` holds it at 44.1 kHz). |
 | 49 | Optional, disk full: in Terminal `hdiutil create -size 25m -fs HFS+ -volname Small /tmp/small.dmg && hdiutil attach /tmp/small.dmg`, save a project in `/Volumes/Small`, arm Mic and record. Afterwards `hdiutil detach /Volumes/Small`. | The status shows about 2 min of disk left, counting down. When about 10 s are left, recording stops on its own with "The disk is almost full"; the clip keeps everything up to there. |
+
+## Phase 4 checks (effects and automation)
+
+Open `build/listening-tests/phase4/phase4-effects.dawproject` (Cmd+O) and show the
+mixer (X). It is a song at 120 BPM in 4/4 (one bar = 2 s, 16 bars, 32 s):
+
+- Drums (kick on every beat, snare on 2 and 4): Equaliser (flat) and Compressor
+  (threshold -20 dB, 4:1), a post-fader send to the Reverb bus.
+- Bass: Equaliser with its high-pass at 40 Hz and its low-pass at 2 kHz.
+- Pad (a sustained chord): a send to Reverb; automation fades it in over bars 1 to 4
+  and pans it left and right over bars 5 to 8.
+- Pluck (a short note on beats 1 and 3): a pre-fader send to the Delay bus.
+- Tone (440 Hz at -12 dBFS) and Noise (pink noise, the first 16 s), both muted, each
+  with a flat Equaliser.
+- Buses: Reverb (Reverb, decay 2.5 s, 100 % wet; its volume rises to +6 dB over the
+  last 4 bars) and Delay (Delay synced to a dotted eighth, 40 % feedback).
+- Master: Limiter, ceiling -1 dB.
+
+In a strip, click an effect's name to open its editor; right-click it for Bypass,
+Move Up, Move Down and Remove; "+ Effect" adds one. Do every check while playing
+unless it says otherwise (Loop on, L, repeats bars 5 to 8). When a check has changed
+the song, the next one that needs the original says so: open it again with Cmd+O and
+Don't Save.
+
+| # | Do | You should hear / see |
+|---|----|------------------------|
+| 50 | Look at the mixer, then play from the start to the end and wait. | Six track strips, then two bluish bus strips (Reverb, Delay) and the master; each strip lists its effects. The pad fades in smoothly over the first 4 bars, then moves from the centre to the left (bar 6), across to the right (bar 8) and back to the centre (bar 9); the Pad fader and pan knob follow and cannot be dragged. Each pluck repeats in fading echoes; drums and pad sit in a room that grows over the last 4 bars. When the transport stops at the end, the reverb and the echoes ring on for about 3 s and die away. No clicks or crackles anywhere. |
+| 51 | Unmute Tone and solo it (a steady tone shows every click). In the Tone strip: "+ Effect" > Reverb; right-click it > Bypass, then Switch On; "+ Effect" > Delay; right-click the Delay > Move Up, then Move Down; Bypass and Switch On the Equaliser; Remove the Reverb and the Delay. Then Cmd+Z repeatedly. | Every change fades in or out with no click, crackle or gap, and the tone never drops out. A reverb switched back on starts from silence (no old tail). The editor window of an effect closes when it is removed. Undo brings each step back, one at a time, just as smoothly. |
+| 52 | Release solo, mute Tone. Add a Limiter to the Drums, then Remove it. | Each time, one very short dip of the whole mix (as when you click the ruler while playing), never a click: the total latency changed. Afterwards the drums are exactly in time with the bass and the echoes, as before. |
+| 53 | Open `phase4/phase4-latency.dawproject` and play. Clicks plays clicks; "Inverted, limited" plays the same clicks upside down through a Limiter (1.5 ms of lookahead). Then: M on "Inverted, limited" and back; bypass its Limiter; Remove it, Cmd+Z. Then mute "Inverted, limited" and unmute "Inverted, via bus" (its fader is down: only its pre-fader send to Limited bus is heard); then M on Limited bus. | Silence with both tracks playing (the master meter stays down): the limiter's delay is compensated, so the inverted clicks cancel the others exactly; a single sample off would leave audible clicks. Muting "Inverted, limited": the clicks, louder on each bar. Bypassed or removed limiter: still silence (a bypassed effect keeps its latency). Through the bus: silence again; muting the bus brings the clicks back. |
+| 54 | Back to `phase4-effects.dawproject`. Unmute and solo Noise; open its Equaliser. Drag the Bell 2 handle (800 Hz) up to +12 dB, turn the mouse wheel over it, drag it down to -12 dB. Double-click the High-pass handle (left) and drag it to about 500 Hz; select it and set its slope to 48 dB/oct. Double-click the Low-pass handle (right), drag it to about 2 kHz. Cmd+Z after a drag. | A window with a flat curve at 0 dB and eight handles. +12 dB: a nasal, honking boost around 800 Hz and a peak on the curve at the handle; the wheel makes it narrower or wider. -12 dB: a hollow notch. High-pass: the low rumble goes, steeper at 48 dB/oct; low-pass: muffled. Every drag is smooth, no zipper noise or clicks, and the curve follows the handle. Undo takes back the whole drag. |
+| 55 | Unmute and solo Tone (440 Hz at -12 dBFS), open its Equaliser, select Bell 1 and type 440 in its frequency box and -12 in its gain box. Then gain +6. | At -12 dB the Tone strip's meter drops from -12 dB to -24 dB and the tone is clearly quieter; at +6 dB the meter shows -6 dB. The curve passes through the handle at exactly that gain. |
+| 56 | Solo Drums and open its Compressor. Watch it; then Bypass and Switch On; threshold 0 dB, then back to -20; ratio 20:1; attack 0.1 ms, then 100 ms; release 2000 ms. | The static curve bends at the threshold; a dot rides on it with the input level; the gain-reduction bar and its history jump on every hit and recover between them, with the value in dB. Bypassed: louder, spikier peaks. Threshold 0 dB: no reduction. 20:1: squashed. Attack 0.1 ms: the kick's click is softened; 100 ms: the hits come through. Release 2000 ms: the level stays down between hits. No clicks when changing anything. |
+| 57 | Release solo. Open the master's Limiter and set Gain to +12 dB; export (Cmd+E, 32-bit float, Include tail off). Then ceiling -6 dB. Afterwards Gain 0 dB, ceiling -1 dB. | +12 dB: louder and denser, the gain reduction shows, but the master meters never go above -1 dB; the export's message says Peak -1.0 dBFS. Ceiling -6 dB: the meters stop at -6 dB. |
+| 58 | Solo Pluck; open the Delay in the Delay bus strip (Sync on, Note 1/8D). Choose Note 1/4 and press K (metronome). Double-click the tempo and type 90, then Cmd+Z. Sync off and Time 500 ms. Feedback 95 %. Ping-pong on. | 1/8D: echoes 3/8 of a second apart, each quieter. 1/4 with the metronome: every echo falls exactly on a click. At 90 BPM the echoes slow down to a beat at the new tempo (2/3 s apart; the plucks stay where they are in time, so they leave the clicks). 500 ms (unsynced) sounds like 1/4 at 120 BPM; changing the time while echoes ring gives a smooth crossfade, no click or pitch slide. 95 %: the echoes last long but never grow louder. Ping-pong: they alternate left and right. |
+| 59 | Still Pluck soloed (open the project again if you changed the delay). Pull the Pluck fader to -inf; right-click its send > untick Pre-fader, then tick it again; press M on Pluck. Release solo; drag along the Drums' send row to the left and right, then double-click it. | Fader down: the dry pluck goes, the echoes go on (the send is pre-fader). Post-fader: the echoes stop too. M: nothing more reaches the delay; the echoes already in it die away. The drag changes how much reverb the drums get, smoothly; double-click sets 0 dB. |
+| 60 | Shift+Cmd+T. In the Bass strip "+ Send" > Bus 3; on Bus 3 "+ Effect" > Delay. Double-click its name and rename it. Right-click the bus > Delete Bus; Cmd+Z. | A new bus strip "Bus 3" at 0 dB. The bass gets echoes. The new name shows in the strip and in the Bass send. Delete removes the bus and the send to it; undo brings both back with their effects. |
+| 61 | Open the project again (Don't Save). Export (Cmd+E): Whole project, 48 kHz, WAV 24-bit, Include tail ticked; then again with it unticked. Open both in QuickTime Player. | With the tail: about 35.5 s, the reverb and echoes dying away after the end. Without: exactly 32 s, cut at the end. Both sound exactly like playback: the effects, sends, pad fade and pan, the reverb swell, the limiter. Peak -1.0 dBFS. |
+| 62 | Press A. Look at the Pad, Reverb and Master rows; on Pad, click its Volume menu and choose Pan. | The clips dim and each row shows an automation lane. Pad: Volume, a curve rising from the bottom over bars 1 to 4; with Pan: centre, down (left) at bar 6, up (right) at bar 8, centre at bar 9. Below the tracks, a row for each bus and the master; Reverb's volume rises over the last 4 bars. Targets that have points are marked with * in the menu. A again: back to the clips. |
+| 63 | In the automation view, on the Master row (Volume): click at bar 15 and at bar 17 near the top; drag the second point to the bottom; Alt+drag the segment up and down; hold Cmd while dragging a point; double-click a point; Cmd+Z and Shift+Cmd+Z. Right-click the row > Turn Automation Off, then Read Automation. Play bars 13 to the end in between. | Points land on grid lines (with Cmd: anywhere); while dragging, the value shows in dB. The master fades out over the last 2 bars, and the master fader follows it. Alt+drag bends the segment into a curve: the fade drops fast and then slowly, or the other way round. Double-click deletes a point. Each change is one undo step. Off: the master stays at its fader level and the fader can be moved; Read: the fade again. No zipper noise during any fade. |
+| 64 | On the Bass row choose "1. Equaliser" > "Low-pass frequency". Click at bar 1 and drag the point to about 100 Hz (the value shows while dragging); click at bar 5 and drag that point to the top. Open the Bass Equaliser, play bars 1 to 5 and try to drag its low-pass handle. | The bass opens up smoothly from dull to bright, without steps or zipper noise. In the editor the low-pass handle and its frequency slider follow the automation and cannot be moved. |
+| 65 | Save As (Shift+Cmd+S) under a new name, quit, reopen it. | Everything as saved: effects and their settings, bypass states, effect order, buses, sends (levels, pre/post), automation points and curves, read/off modes. It sounds the same. |
+| 66 | Open `phase3/phase3-recording.dawproject` and `phase2/phase2-demo.dawproject`. | They open with no effects and sound exactly as in Phase 3. After saving, their files say `"formatVersion": 4`. |
+| 67 | With `phase4-effects.dawproject` playing, change the device's sample rate in Audio Settings (e.g. 48 to 44.1 kHz). | A moment of silence, then the same song: same EQ, delay times and reverb length (the effects are recreated at the new rate). |
+| 68 | Optional, with the Phase 3 setup (headphones, a microphone on input 1): Cmd+T, arm the new track, add a Reverb to it and speak; press R and, while recording, try to add a Limiter anywhere. Stop and play back. | While stopped you hear yourself with the reverb. During the recording adding a Limiter is refused with a message (it would change the latency); a Reverb or an EQ can be added. The take is dry (effects are not recorded) and in time with the song. |
 
 Anything else (a click, a crackle, wrong pitch, swapped channels, a meter that
 disagrees with the file, a clip in the wrong place) is a bug: note the check number

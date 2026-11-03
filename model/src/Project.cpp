@@ -1,5 +1,6 @@
 #include "daw/model/Project.h"
 
+#include "Containers.h"
 #include "Identifiers.h"
 #include "ObjectIds.h"
 
@@ -27,17 +28,19 @@ Project::Project()
     state.setProperty(ids::countInBars, 1, nullptr);
     state.setProperty(ids::punchEnabled, false, nullptr);
     state.setProperty(ids::recordingBitsPerSample, defaultRecordingBitsPerSample, nullptr);
+    detail::addProjectContainers(state);
 }
 
 Project::Project(juce::ValueTree projectState)
     : state(std::move(projectState))
 {
     jassert(state.hasType(ids::project));
+    detail::addProjectContainers(state);
 }
 
 int Project::getNumTracks() const
 {
-    return state.getNumChildren();
+    return detail::countLeading(state, ids::track);
 }
 
 Track Project::getTrack(int index) const
@@ -69,13 +72,73 @@ Track Project::addTrack(const juce::String& name, juce::UndoManager* undoManager
     track.setInput(TrackInput{});
     track.setMonitoring(MonitoringMode::automatic);
     track.setArmed(false);
-    state.appendChild(trackState, undoManager);
+    detail::addMixContainers(trackState);
+    state.addChild(trackState, getNumTracks(), undoManager);
     return track;
 }
 
 void Project::removeTrack(int index, juce::UndoManager* undoManager)
 {
-    state.removeChild(index, undoManager);
+    if (index >= 0 && index < getNumTracks())
+        state.removeChild(index, undoManager);
+}
+
+int Project::getNumBuses() const
+{
+    return state.getChildWithName(ids::buses).getNumChildren();
+}
+
+Bus Project::getBus(int index) const
+{
+    jassert(index >= 0 && index < getNumBuses());
+    return Bus(state.getChildWithName(ids::buses).getChild(index));
+}
+
+int Project::indexOfBus(ObjectId busId) const
+{
+    for (int index = 0; index < getNumBuses(); ++index)
+        if (getBus(index).getId() == busId)
+            return index;
+    return -1;
+}
+
+Bus Project::addBus(const juce::String& name, juce::UndoManager* undoManager)
+{
+    juce::ValueTree busState(ids::bus);
+    busState.setProperty(ids::id, detail::nextObjectId(state), nullptr);
+    busState.setProperty(ids::name, name, nullptr);
+    busState.setProperty(ids::volume, 1.0, nullptr);
+    busState.setProperty(ids::pan, 0.0, nullptr);
+    busState.setProperty(ids::mute, false, nullptr);
+    detail::addMixContainers(busState);
+    state.getChildWithName(ids::buses).appendChild(busState, undoManager);
+    return Bus(busState);
+}
+
+void Project::removeBus(int index, juce::UndoManager* undoManager)
+{
+    if (index < 0 || index >= getNumBuses())
+        return;
+
+    const auto busId = getBus(index).getId();
+    for (int trackIndex = 0; trackIndex < getNumTracks(); ++trackIndex)
+    {
+        auto track = getTrack(trackIndex);
+        if (const int send = track.indexOfSendTo(busId); send >= 0)
+            track.removeSend(send, undoManager);
+    }
+
+    state.getChildWithName(ids::buses).removeChild(index, undoManager);
+}
+
+EffectList Project::getMasterEffects() const
+{
+    return EffectList(state.getChildWithName(ids::master).getChildWithName(ids::effects));
+}
+
+Automation Project::getMasterAutomation() const
+{
+    return Automation(state.getChildWithName(ids::master).getChildWithName(ids::automation));
 }
 
 bool Project::isAnyTrackSoloed() const
@@ -113,10 +176,12 @@ void Project::moveClip(ObjectId clipId, int toTrackIndex, Ticks newPosition,
     auto fromTrack = state.getChild(location->trackIndex);
     auto clipState = fromTrack.getChild(location->clipIndex);
 
-    // Removing and appending also brings the clip to the top on its own track.
+    // Removing and adding after the others also brings the clip to the top on its
+    // own track.
     fromTrack.removeChild(location->clipIndex, undoManager);
     Clip(clipState).setPosition(newPosition, undoManager);
-    state.getChild(toTrackIndex).appendChild(clipState, undoManager);
+    auto toTrack = state.getChild(toTrackIndex);
+    toTrack.addChild(clipState, Track(toTrack).getNumClips(), undoManager);
 }
 
 void Project::removeClip(ObjectId clipId, juce::UndoManager* undoManager)

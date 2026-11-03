@@ -28,7 +28,15 @@ Phase 3 (v0.3.0): audio recording. Inputs per track (mono or stereo),
 arming and recording several tracks at once, input monitoring (off / auto / on) and
 input meters, latency compensation with a loopback measurement, metronome and
 count-in, punch in/out on the loop region, recovery of recordings interrupted by a
-crash, and playback and recording streamed from disk. Project format version 3. See
+crash, and playback and recording streamed from disk. Project format version 3.
+
+Phase 4 (v0.4.0): effects and automation. Insert chains on every track, aux bus
+and the master (add, remove, reorder and bypass while playing, without clicks); aux
+buses fed by pre- or post-fader sends; built-in equaliser, compressor, limiter,
+tempo-synced delay and reverb; delay compensation that keeps every path aligned to
+the sample; automation lanes for volume, pan, sends and every effect parameter;
+effect editors with the equaliser's response curve and the compressor's gain
+reduction; exports with the effects' tails. Project format version 4. See
 [CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
@@ -102,6 +110,30 @@ Recording:
 - Files play from disk; projects of any length need no more than about 600 MB of
   memory for their audio.
 
+Effects, buses and automation:
+
+- Every mixer strip lists its effects (inserts): "+ Effect" adds an equaliser,
+  compressor, limiter, delay or reverb; click one to open its editor; right-click it
+  to bypass, move or remove it. Track and bus effects come before the fader, the
+  master's after it. All of it works while playing.
+- Shift+Cmd+T adds an aux bus. "+ Send" in a track strip sends the track to a bus (or
+  a new one); drag along the send to set its level, double-click it for 0 dB,
+  right-click it to make it pre-fader or remove it. A bus strip's name can be
+  renamed with a double-click; right-click deletes the bus.
+- The equaliser's window shows its response curve: drag a band's handle for
+  frequency and gain, use the wheel for its width (Q), double-click to switch it on
+  or off. The compressor's shows its curve and gain reduction, the limiter's its
+  gain reduction. Values can also be typed (in Hz, dB, ms).
+- The delay follows the tempo when Sync is on; a delay's or reverb's tail rings on
+  after you stop. Export's "Include tail" lets the file run on until it has died away.
+- A shows the automation lanes: choose a target in each header (volume, pan, a send,
+  any effect parameter), click to add a point, drag to move it, double-click to
+  delete it, Alt+drag a segment to curve it; right-click to clear the lane or turn
+  automation off. Buses and the master have rows of their own. Automated controls
+  follow their lane.
+- Effects that delay their output (the limiter looks 1.5 ms ahead) are compensated:
+  everything else is delayed to match, so tracks, buses and sends stay aligned.
+
 | Action | Shortcut |
 |--------|----------|
 | Play / pause | Space |
@@ -116,15 +148,18 @@ Recording:
 | Record / stop recording | R |
 | Discard the recording in progress | Cmd+. |
 | Metronome / count-in / punch | K / Shift+K / P |
+| Automation lanes on/off | A |
+| New aux bus | Shift+Cmd+T |
 | Audio settings | Cmd+, |
 
 (Ctrl instead of Cmd on Windows and Linux.)
 
 Projects (`.dawproject`) are small JSON files that refer to the audio files; keep the
 audio next to the project (or in a subfolder) and the folder can be moved as a whole.
-Projects saved by Phases 1 and 2 open too. Manual checks with reference files:
+Projects saved by earlier phases open too. Manual checks with reference files:
 [docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md). How many tracks fit in an audio
-callback, stream from disk and record: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+callback, stream from disk and record, and what each effect costs:
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Repository layout
 
@@ -136,7 +171,7 @@ callback, stream from disk and record: [docs/PERFORMANCE.md](docs/PERFORMANCE.md
 | `ui/desktop/` | mouse and keyboard interface                                    |
 | `ui/mobile/`  | touch interface (placeholder)                                   |
 | `app/`        | application entry point                                         |
-| `tests/`      | unit tests; `tests/bench/` the mixing benchmark                 |
+| `tests/`      | unit tests; `tests/bench/` the benchmarks                       |
 | `cmake/`      | build helpers: dependencies, warnings, architecture checks      |
 | `tools/`      | development scripts (listening-test files)                      |
 | `docs/`       | manual test procedures, performance measurements               |

@@ -86,26 +86,47 @@ std::uint64_t mix(std::uint64_t hash, std::uint64_t value) noexcept
 
 } // namespace
 
+int EffectChain::getLatency() const noexcept
+{
+    int latency = 0;
+    for (const auto& slot : slots)
+        latency += slot.instance != nullptr ? slot.instance->getLatency() : 0;
+    return latency;
+}
+
 void Arrangement::updateLayoutHash() noexcept
 {
     std::uint64_t hash = 0xcbf29ce484222325ULL;
 
-    for (const auto& track : tracks)
+    for (auto& track : tracks)
     {
-        hash = mix(hash, static_cast<std::uint64_t>(track.id));
+        std::uint64_t trackHash = 0xcbf29ce484222325ULL;
         for (const auto& segment : track.segments)
         {
             const auto source = reinterpret_cast<std::uintptr_t>(segment.source);
-            hash = mix(hash, static_cast<std::uint64_t>(source));
-            hash = mix(hash, static_cast<std::uint64_t>(segment.start));
-            hash = mix(hash, static_cast<std::uint64_t>(segment.end));
-            hash = mix(hash, static_cast<std::uint64_t>(segment.sourceStart));
-            hash = mix(hash, static_cast<std::uint64_t>(segment.fadeInLength));
-            hash = mix(hash, static_cast<std::uint64_t>(segment.fadeOutLength));
+            trackHash = mix(trackHash, static_cast<std::uint64_t>(source));
+            trackHash = mix(trackHash, static_cast<std::uint64_t>(segment.start));
+            trackHash = mix(trackHash, static_cast<std::uint64_t>(segment.end));
+            trackHash = mix(trackHash, static_cast<std::uint64_t>(segment.sourceStart));
+            trackHash = mix(trackHash, static_cast<std::uint64_t>(segment.fadeInLength));
+            trackHash = mix(trackHash, static_cast<std::uint64_t>(segment.fadeOutLength));
         }
+
+        track.layoutHash = trackHash;
+        hash = mix(hash, static_cast<std::uint64_t>(track.id));
+        hash = mix(hash, trackHash);
     }
 
     layoutHash = hash;
+}
+
+bool Arrangement::hasEffects() const noexcept
+{
+    return !masterInserts.isEmpty() ||
+           std::any_of(tracks.begin(), tracks.end(),
+                       [](const ArrangementTrack& track) { return !track.inserts.isEmpty(); }) ||
+           std::any_of(buses.begin(), buses.end(),
+                       [](const ArrangementBus& bus) { return !bus.inserts.isEmpty(); });
 }
 
 bool isArrangementReady(const Arrangement& arrangement, juce::int64 position,

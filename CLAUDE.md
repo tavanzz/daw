@@ -53,9 +53,11 @@ Modules with one-way dependencies:
   also converts a block at a time, identically).
 - Engine threading: UI commands go through an `SpscQueue` and apply at the next
   block. A new `Arrangement` (with its `MixState`) arrives through one atomic pointer
-  exchange (`Engine::setArrangement()`); if it changes what the tracks play
-  (`layoutHash`) while the transport runs, old and new are crossfaded over 5 ms, one
-  change at a time; while stopped it simply applies. Replaced snapshots go back on a
+  exchange (`Engine::setArrangement()`); if it changes what a track plays
+  (`layoutHash`, per track too) while the transport runs, that track's clips
+  crossfade from old to new over 5 ms before its effects (which both arrangements
+  share and which run once), one change at a time; tracks that are gone fade out
+  over the same time whenever they may be heard; otherwise it simply applies. Replaced snapshots go back on a
   second queue and `Engine::collectGarbage()` frees them on the message thread. State
   for the UI is published with relaxed atomics after every block. Blocks larger than
   announced are rendered in pieces; mono devices get the left channel.
@@ -121,6 +123,85 @@ Modules with one-way dependencies:
   callback, cancellable, reports the peak. Tested: the export equals real-time
   playback bit for bit after the transport's fade-in, for any device block size.
   An export at another sample rate renders an arrangement built at that rate.
+- Effects (Phase 4): `engine::fx::Effect` is the one interface for built-in effects
+  and, later, plugin adapters: a description (type, name, `ParameterInfo`s with
+  stable ids, ranges, linear or logarithmic scales, choices), `prepare()` on the
+  message thread, `reset()` and `process()` noexcept on the audio thread, latency,
+  tail length and opaque extra state. The host owns the parameter values: each block
+  an effect gets `ParameterValues`, per parameter one value or a value per sample.
+  `fx::EffectInstance` is the host around one effect: 20 ms ramps in the normalised
+  domain (choices jump), automation values taken exactly, a 10 ms dry/wet crossfade
+  when added, removed or bypassed (a bypassed effect is not processed and restarts
+  clean), the dry signal delayed by the latency (`dsp::DelayLine`), and a guard that
+  resets and silences an effect producing NaN or infinity (`hasFailed()`). The audio
+  and export threads run with denormals flushed to zero (`juce::ScopedNoDenormals`;
+  Accelerate's vector operations on macOS ignore the mode, the effects' own code
+  does not).
+- Insert chains (Phase 4): an `EffectChain` of `ChainSlot`s (a shared
+  `EffectInstance`, the normalised parameter values, enabled, revival) on every
+  track, before its fader, and on the master, after the master fader. The
+  instances persist across arrangements, never twice in one. Effects run whenever
+  the mixer renders, also while stopped, so tails ring on; a silent track without
+  effects is still skipped. With empty chains, bypassed effects or exact unity
+  gains the mix equals Phase 3 bit for bit: tests compare it with a frozen copy of
+  the v0.3.0 mixer (`tests/support/Phase3Mixer`).
+- Buses and sends (Phase 4): `ArrangementBus` (id, gains, inserts, meter) sums the
+  sends it gets (`ArrangementSend`: id, bus id and index, gain, pre- or post-fader)
+  through its effects and its fader into the mix, before the master gain. Pre-fader
+  sends tap after the track's inserts, post-fader ones after its volume and pan;
+  send and bus gains ramp like faders and carry over by id (`MixState`, which also
+  holds the buses' summing buffer; longer stretches are mixed in pieces). A track
+  with only a pre-fader send is rendered even with its fader down.
+- Latency compensation (Phase 4): `MixState::startingAt()` works out each track's
+  insert latency L(t), what each bus aligns its sends to (its slowest sender,
+  A(b)), and where all tracks and buses meet (M); sends are delayed by A(b) - L(t),
+  tracks by M - L(t), buses by M - A(b) - L(b), through `dsp::DelayLine`s carried
+  over by id (`adopt()` swaps their memory, no allocation). The output lags the
+  timeline read by `latency` = M + the master's insert latency. Bypassed effects
+  keep their latency. A `TimelineHistory` records what the engine read at each
+  stream index, so what is heard is known: the playhead shows it, the metronome and
+  the count-in click on it, recordings add the latency to their own, and
+  `OfflineRenderer` reads that far ahead and drops what comes out first (export
+  sample k is timeline position start + k). A change that moves audio in time
+  (`MixState::movesAudioFrom()`: the total latency, or a latency or delay of a path
+  both arrangements have) while anything may be heard dips the output: 5 ms fade
+  out, silence while the new delays fill, 5 ms fade in. Tracks with delays run on
+  while stopped so the delayed audio still comes out.
+- Automation in the engine (Phase 4): `engine::AutomationCurve` (points in
+  samples with a normalised value and a bend; straight or bent segments, steps,
+  flat before the first and after the last point) is a pure function of the
+  position. Tracks and buses carry a `GainAutomation` (volume and pan curves),
+  sends a level curve, the arrangement a master curve, chain slots a curve per
+  parameter; volumes and send levels are fader positions (`dsp::faderGain()`, even
+  in dB from -60 to +6). The mixer reads each curve at the timeline position of the
+  audio where it applies (`MixContext::history`): a fader after effects of latency
+  L reads what was read L samples ago, through loops and seeks. Automation that
+  starts is reached over 20 ms from the fixed gains (or the parameter's ramp),
+  which keep moving underneath; when it stops they ramp on from its last value.
+- Built-in effects (Phase 4), in `engine/fx/`: `Equaliser` (eight bands: high-pass,
+  low shelf, four bells, high shelf, low-pass, and an output gain; trapezoidal SVF
+  sections in double, the Audio EQ Cookbook's bells and shelves and Butterworth
+  passes of 6 to 48 dB/oct; `magnitude()` is the exact response for the UI's curve;
+  band switches and slopes crossfade over 10 ms; silence in with filters at rest
+  skips the work; filter states below 1e-20 are set to zero sample by sample, or
+  flushing denormals leaves them flipping sign for ever). `Compressor` (Giannoulis et al.: linked peak level in dB, static
+  curve with threshold, ratio and a quadratic knee, smoothed in dB with attack and
+  release time constants, makeup, mix; `staticCurve()` for the UI). `Limiter`
+  (1.5 ms lookahead = its latency; the lowest required gain over the lookahead,
+  released exponentially, averaged over the lookahead, so every output sample is
+  under the ceiling by construction; a final clip only catches rounding). Both
+  report their gain reduction to the UI through a `GainReductionMeter`. `Delay`
+  (whole-sample delay up to 4 s, in ms or a synced note at the block's tempo;
+  feedback at most 95 % through one-pole low/high cuts that never amplify, off at
+  the ends of their ranges; ping-pong; a new time crossfades between two taps over
+  50 ms, one change at a time). `Reverb` (pre-delay, four allpass diffusers, a
+  16-line feedback delay network with a Hadamard matrix and per-line gains
+  10^(-3 d / (T60 rate)), so it loses 60 dB in the decay time; one-pole damping
+  with unity gain at DC; half the lines slowly modulated; fractional lengths read
+  through allpass interpolation, which loses nothing; size glides the lengths;
+  width, low/high cut, mix). Its tests measure T30 on Schroeder's energy decay
+  curve. Tests run effects through `tests/support/EffectRunner.h` and
+  compare measured responses with formulas written independently of the code.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -144,6 +225,18 @@ Modules with one-way dependencies:
     a `MonitoringMode` (off / auto / on) and an arm state; the project has the
     metronome (on/off, volume), count-in (on/off, 1 or 2 bars), punch on/off and
     the recording bit depth (16, 24 or 32 float).
+  - Effects and automation (format version 4): a project's children are its tracks
+    then the `Buses` and `Master` containers; a track's are its clips then
+    `Effects`, `Sends` and `Automation` (containers last, so track and clip
+    indices are unchanged; `detail::countLeading()`). `model::EffectList` /
+    `Effect` (type, bypass, parameter values by id at a float's precision so files
+    hold them exactly, extra state in standard Base64), `Send` (bus id, level,
+    pre-fader; one per bus), `Bus` (name, volume, pan, mute, effects, automation),
+    `Automation` (mode read/off, not undoable; one `AutomationLane` per
+    `AutomationTarget`: "volume", "pan", "send:<id>", "effect:<id>:<parameter>")
+    with points (ticks, normalised value, bend) kept sorted. Removing an effect,
+    a send or a bus removes what refers to it; on load, sends and lanes whose
+    targets are missing are left out.
 - Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
   integers at 282,240,000 per second, a number every common sample rate divides, so
   sample positions at any of them are exact and the project has no sample rate of its
@@ -162,6 +255,29 @@ Modules with one-way dependencies:
   the rulers; `ClipEditing.h` the move/trim rules with `Snapper`. `ExportJob` copies
   the project on the message thread and exports on another, loading files at the
   export rate when it differs from the device's.
+- Effects in the controller (Phase 4): `buildArrangement()` turns chains (values
+  normalised in the effect's parameter order, bypass, automation curves in read
+  mode), buses (muted: gain 0), sends (none from a track that is not heard) and
+  the master chain into the arrangement; without an `EffectLookup` every effect
+  gets a fresh instance (exports). `controller::EffectInstances` keeps one engine
+  instance per model effect across rebuilds, and gives a new one (fading in) to an
+  effect that is new, changed type, moved (`markMoved()`, or found out of order)
+  or after a rate change. `FadeOutKeeper` keeps removed effects (switched off),
+  sends and buses (gain 0) in the arrangement for 150 ms so they fade out.
+  `Session` edits effects (`ChainOwner`: track, bus or master), buses and sends
+  with undo; delay and reverb start fully wet on a bus; while recording, edits
+  that would change the latency are refused (`takeEditProblem()`).
+- Automation in the controller (Phase 4): `Session` adds, moves (a drag is one
+  gesture), removes and clears points of a target's lane (undoable) and switches
+  an owner's mode (not undoable); `getAutomatedValue()` gives a target's value at
+  the playhead, which controls show. `AutomationEditing.h` has the value of a lane
+  at a position (the engine's own curve, in ticks), point and segment hit tests and
+  the bend for dragging a segment.
+- Export tail (Phase 4): `BounceSettings::includeTail` (the export dialog's
+  "Include tail", on by default) renders on after the end with the timeline silent
+  (`OfflineRenderer::setTimelineEnd()`), until the mix has stayed below -96 dBFS for
+  1 s or for at most 30 s, and writes it up to its last sound: a mix without
+  tails gets nothing more.
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -226,6 +342,32 @@ Modules with one-way dependencies:
   changes first (`MainComponent::askToSaveChanges()`). Views redraw when
   `Session::getRevision()` changes. Peak meters have one reader each: the output
   peaks are taken once per tick and fed to both master meters.
+- Desktop mixer (Phase 4): `MixerView` has a strip per track, then per aux bus
+  (bluish; double-click the name to rename, right-click to delete), then the
+  master. Every strip has its inserts (`EffectSlots`: click to open the editor,
+  right-click to bypass, move, remove or reactivate; "+ Effect" adds one); track
+  strips their sends (`SendSlots`: drag along a row for the level, double-click for
+  0 dB, right-click for pre-fader or remove; "+ Send" to a bus or a new one).
+  Faders and knobs whose automation reads follow it and are disabled. Shift+Cmd+T
+  adds a bus.
+- Effect editors (Phase 4): `EffectEditors` keeps one `EffectEditorWindow` per
+  effect (closed when the effect goes): a header (Bypass; a warning with
+  Reactivate after NaN or infinity), then `EqualiserView` (the exact response
+  curve, a handle per band: drag for frequency and gain, wheel for Q, double-click
+  to switch; automated values follow and cannot be changed) with the selected
+  band's controls, `CompressorView` (static curve
+  with the input level, gain-reduction bar and history; for the limiter only the
+  reduction), and `GenericEffectEditor` rows made from `ParameterInfo` (sliders
+  over 0..1 in the parameter's scale, menus, switches; automated ones follow and
+  are disabled). The export dialog has "Include tail" (on).
+- Automation view (Phase 4, A): `ArrangeState` holds whether it is on and each
+  owner's chosen target; rows are the tracks, then the buses and the master
+  (`numRows()`, `ownerOfRow()`). `TrackLanes` dims the clips and hands its rows to
+  `AutomationLanes` (the lane drawn from the engine's own curve in ticks; click to
+  add a point at the grid, drag to move, double-click to delete, Alt+drag to bend,
+  right-click to clear or switch read/off; each one undo step). Track headers swap
+  the recording controls for the target menu and the Read/Off button; buses and
+  the master get headers of their own.
 - Desktop recording UI (Phase 3): `TrackInputControls` (arm, monitoring cycling
   off/auto/on, the input menu of the device's channels, mono and stereo pairs) sits
   in each track header, with an input meter, and in each mixer strip. The transport
@@ -320,6 +462,10 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
 - Commits are authored as `tavanzz` with the GitHub noreply address
   (`94704314+tavanzz@users.noreply.github.com`, set in the repository's git config):
   the repository is public, so no personal email in new commits.
+- Closing a phase: the pull request goes into `main` as a true merge commit (never a
+  squash), with `gh pr merge <N> --merge --author-email
+  94704314+tavanzz@users.noreply.github.com` (otherwise GitHub authors it with the
+  account's email), then an annotated tag `vX.Y.0` on that merge commit.
 - Comments explain why, not what.
 
 ## Commands
@@ -339,12 +485,12 @@ ctest --preset debug            # run all tests
 - Run some tests only: `build/debug/tests/daw_tests "[engine]"`
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
-  project and the Phase 3 recording project from
-  `python3 tools/make_listening_test_files.py` (into `build/listening-tests/`; add
-  `--long` for the hour-long streaming file).
-- Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing)
-  and `build/release/tests/daw_stream_bench` (streaming and recording); results in
-  `docs/PERFORMANCE.md`.
+  project, the Phase 3 recording project and the Phase 4 effects and delay
+  compensation projects from `python3 tools/make_listening_test_files.py` (into
+  `build/listening-tests/`; add `--long` for the hour-long streaming file).
+- Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
+  `build/release/tests/daw_stream_bench` (streaming and recording) and
+  `build/release/tests/daw_fx_bench` (effects); results in `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen.
 
@@ -520,3 +666,101 @@ Phase 3 decisions (agreed before starting):
   recording in progress (with confirmation).
 - The one-hour recording test records 48 kHz mono 24-bit to disk and reads it back
   (8 kHz if it takes more than about a minute in the Debug jobs).
+
+Phase 4 (done, released as v0.4.0): effects and automation. An insert chain
+per track, per bus and on the master (add, remove, reorder, bypass, also while
+playing, without clicks); aux buses fed by pre- or post-fader sends; built-in
+parametric EQ (with high- and low-pass), compressor, limiter, tempo-synced delay and
+reverb; plugin delay compensation keeping tracks, buses and sends aligned to the
+sample; automation lanes for volume, pan, sends and every effect parameter (points
+edited with the mouse, linear and curved segments, read/off); generic effect editors
+plus dedicated EQ and compressor views; project format version 4 with a migration
+from version 3. Out of scope: external plugins, sidechain, presets, MIDI, takes and
+comping, mobile UI, writing automation live (touch/latch).
+
+- [x] 0. Plan (this list) and draft pull request
+- [x] 1. Effect interface (`fx::Effect`) and the host's slot: parameters, ramps,
+      dry/wet fades, latency, NaN/Inf guard, denormals; test effects
+- [x] 2. Insert chains in the mixer and the engine: persistent instances across
+      snapshots, per-track clip crossfade, tails after stop; bit-identical to Phase 3
+      with empty or bypassed chains
+- [x] 3. Aux buses and pre/post-fader sends, mute and solo rules
+- [x] 4. Plugin delay compensation: latencies, compensation delays, the heard
+      position (playhead, metronome, count-in, recording), latency changes, export
+- [x] 5. Automation in the engine: curves, per-sample values at the audio's position,
+      volume, pan, sends and effect parameters
+- [x] 6. Equaliser: SVF bands, Butterworth high/low-pass, response function
+- [x] 7. Compressor and limiter, gain-reduction meters
+- [x] 8. Delay: tempo sync, ping-pong, filtered feedback
+- [x] 9. Reverb: feedback delay network with an exact decay time
+- [x] 10. Project format version 4: effects, buses, sends, automation; migration from
+      version 3
+- [x] 11. Controller: chains, buses and sends in the session, effect instances,
+      arrangement building with latencies, NaN reports
+- [x] 12. Controller: automation editing and undo, values for the UI, export with tail
+- [x] 13. Benchmark: cost of each effect, tracks with a typical chain per budget
+- [x] 14. Desktop UI: inserts, sends, bus strips and master inserts in the mixer
+- [x] 15. Desktop UI: generic effect editor, EQ curve, compressor view
+- [x] 16. Desktop UI: automation lanes
+- [x] 17. Listening tests and files for Phase 4 (`docs/LISTENING_TESTS.md`)
+- [x] Listening tests (`docs/LISTENING_TESTS.md`): all 19 passed on macOS, 2026-11-03
+
+Phase 4 decisions (agreed before starting):
+
+- Effect interface: parameters with stable string ids, ranges, scales and
+  normalised 0..1 mapping; the host owns the values and hands every block a constant
+  or a per-sample value per parameter (ramps and automation already applied), so
+  automation is sample-exact and block-size independent; `prepare()` on the message
+  thread, `process()` and `reset()` noexcept on the audio thread; latency and tail
+  length; opaque extra state for future plugins.
+- Inserts are pre-fader on tracks and buses, post-fader on the master (a limiter
+  there holds its ceiling in exports too). Buses go to the master only: no sends
+  from buses, no bus to bus. A bus has inserts, volume, pan, mute and a meter, no
+  solo.
+- Post-fader sends tap after volume and pan, pre-fader sends after the inserts. A
+  track that is not heard (mute, or another track soloed) sends nothing; solo never
+  mutes a bus. A new send is post-fader at 0 dB (-inf to +6 dB); one send per bus
+  per track.
+- Chain changes: adding, removing or bypassing fades the effect's dry/wet over
+  10 ms; moving an effect fades it out at its old place while a new instance with
+  the same parameters fades in at the new one. A bypassed effect is not processed,
+  starts from a clean state when re-enabled and keeps its latency.
+- Parameter changes ramp over 20 ms in the normalised domain (in the host); choice
+  parameters (filter type, slope, sync) switch with an internal 10 ms crossfade.
+- A change of the total latency while audio runs: 5 ms fade-out, silence while the
+  new latency fills, 5 ms fade-in. While recording such edits are refused.
+- Delay compensation delays the faster paths; monitored inputs go through the
+  track's chain and get the compensated latency too (no low-latency mode).
+- Automation mode per track, bus and master: read or off (not undoable; points
+  are). Targets: volume, pan, send levels, every automatable effect parameter, bus
+  volume and pan, master volume; not mute or bypass. Segments linear or curved
+  (tension -1 to 1, Alt+drag); points snap to the grid (Cmd bypasses); values stored
+  normalised (volume with the fader law). In read, automated controls follow the
+  curve and cannot be dragged. Lane visibility is view state (not saved). Shortcuts:
+  A automation lanes, Shift+Cmd+T new bus.
+- EQ: 8 bands (high-pass, low shelf, 4 bells, high shelf, low-pass); Butterworth
+  high/low-pass 6 to 48 dB/oct; gains +-24 dB, Q 0.1 to 18; trapezoidal SVF filters;
+  no analyser.
+- Compressor: feed-forward, peak detector in dB, linked channels, no latency;
+  threshold -60 to 0 dB, ratio 1:1 to 20:1, knee 0 to 24 dB, attack 0.1 to 100 ms,
+  release 10 to 2000 ms, makeup 0 to 24 dB, mix; attack and release are time
+  constants (63 %).
+- Limiter: sample peak (true peak later), fixed 1.5 ms lookahead (its latency),
+  ceiling -24 to 0 dB (-0.3 by default), gain 0 to 24 dB, release 1 to 1000 ms.
+- Delay: up to 4 s, feedback 0 to 95 %, sync 1/64 to 1/1 with dotted and triplets,
+  stereo or ping-pong, low/high cut in the feedback; time changes crossfade between
+  two taps over 50 ms (no tape pitch effect).
+- Reverb: 16-line feedback delay network with light modulation; pre-delay 0 to
+  250 ms, decay (RT60) 0.2 to 20 s, size, damping, low/high cut, width, mix.
+- Delay and reverb start at 100 % wet on a bus, 25 % on a track or the master.
+- An effect that outputs NaN or infinity is reset and silenced (not passed dry,
+  which could be much louder), and reported; it stays silent until re-enabled.
+- Denormals: flush-to-zero on the audio and export threads (the same mode, so
+  exports still equal playback); effects skip work when input and state are exactly
+  zero.
+- Tails ring on after stop and pause. Export option "Include tail" (on): after the
+  end, without clips, until the mix stays below -96 dBFS for 1 s, at most 30 s.
+- One editor window per effect; delay, reverb and limiter use the generic editor.
+- Effects are saved as type, bypass and parameters by id in real units (Hz, dB,
+  ms), plus optional opaque data for future plugins. A device sample-rate change
+  recreates the effects.

@@ -230,6 +230,198 @@ def write_phase3_files(out, long_file):
                 file.writeframes(bytes(second) * 60)
 
 
+def snare(rate, seconds, bpm, amplitude, seed=4):
+    """Noise bursts on beats 2 and 4 of every bar, decaying in about 0.12 s."""
+    generator = random.Random(seed)
+    out = [0.0] * int(rate * seconds)
+    beat = 60.0 / bpm
+    length = int(rate * 0.25)
+    index = 0
+    while True:
+        start = int(round((index * 2 + 1) * beat * rate))
+        if start >= len(out):
+            break
+        for n in range(min(length, len(out) - start)):
+            envelope = math.exp(-n / (rate * 0.04))
+            out[start + n] += amplitude * envelope * (generator.random() * 2 - 1)
+        index += 1
+    return out
+
+
+def notes(rate, seconds, bpm, frequencies, amplitude, harmonics, decay):
+    """One note per beat, cycling through frequencies: a few harmonics, decaying."""
+    out = [0.0] * int(rate * seconds)
+    beat = int(round(rate * 60.0 / bpm))
+    for index, start in enumerate(range(0, len(out), beat)):
+        frequency = frequencies[index % len(frequencies)]
+        for n in range(min(beat, len(out) - start)):
+            t = n / rate
+            envelope = math.exp(-t / decay) * min(1.0, n / 96) * min(1.0, (beat - n) / 96)
+            value = sum(math.sin(2 * math.pi * frequency * h * t) / h
+                        for h in range(1, harmonics + 1))
+            out[start + n] += amplitude * envelope * value
+    return out
+
+
+def effect(effect_id, type_name, parameters, bypass=False):
+    return {"id": effect_id, "type": type_name, "bypass": bypass, "parameters": parameters}
+
+
+def send(send_id, bus_id, level, pre_fader=False):
+    return {"id": send_id, "bus": bus_id, "level": level, "preFader": pre_fader}
+
+
+def automation(lanes, mode="read"):
+    """lanes: (target, [(seconds, normalised value, curve), ...]) pairs."""
+    return {"mode": mode, "lanes": [
+        {"target": target,
+         "points": [{"position": ticks(at), "value": value, "curve": curve}
+                    for at, value, curve in points]}
+        for target, points in lanes]}
+
+
+def mixer_track(track_id, name, clips, effects=(), sends=(), lanes=(), volume=1.0, mute=False):
+    result = track(track_id, name, clips, volume, 0.0, mute)
+    result.update({"input": {"channel": 1, "stereo": False}, "monitoring": "auto",
+                   "armed": False, "effects": list(effects), "sends": list(sends),
+                   "automation": automation(list(lanes))})
+    return result
+
+
+def bus(bus_id, name, effects, lanes=()):
+    return {"id": bus_id, "name": name, "volume": 1.0, "pan": 0.0, "mute": False,
+            "effects": effects, "automation": automation(list(lanes))}
+
+
+def project_v4(master_effects, buses, tracks):
+    return {
+        "format": "daw-project",
+        "formatVersion": 4,
+        "project": {
+            "tempo": 120.0,
+            "timeSignature": {"numerator": 4, "denominator": 4},
+            "loop": {"enabled": False, "start": ticks(8.0), "end": ticks(16.0)},
+            "snap": {"enabled": True, "grid": "auto"},
+            "master": {"volume": 1.0, "effects": master_effects, "automation": automation([])},
+            "metronome": {"enabled": False, "volume": 0.5},
+            "countIn": {"enabled": False, "bars": 1},
+            "punch": {"enabled": False},
+            "recording": {"bitsPerSample": 24},
+            "buses": buses,
+            "tracks": tracks,
+        },
+    }
+
+
+def write_phase4_files(out):
+    """Phase 4: a song at 120 BPM in 4/4 (a bar is 2 s, 16 bars) to put effects on, a
+    steady tone and noise to hear filters, and a project to check delay compensation."""
+    folder = out / "phase4"
+    folder.mkdir(parents=True, exist_ok=True)
+    rate = 48000
+    seconds = 32
+
+    drums = [k + s for k, s in zip(kick(rate, seconds, 120, 0.6), snare(rate, seconds, 120, 0.3))]
+    write_wav(folder / "drums.wav", rate, [drums, drums])
+
+    bass = notes(rate, seconds, 120, [55.0, 55.0, 43.65, 43.65, 65.41, 65.41, 49.0, 49.0],
+                 0.25, 8, 0.35)
+    write_wav(folder / "bass.wav", rate, [bass])
+
+    # A sustained chord (A minor) with plenty of harmonics.
+    pad = [0.0] * (rate * seconds)
+    for frequency in (220.0, 261.63, 329.63):
+        for harmonic in range(1, 7):
+            amplitude = 0.05 / harmonic
+            step = 2 * math.pi * frequency * harmonic / rate
+            for n in range(len(pad)):
+                pad[n] += amplitude * math.sin(step * n)
+    pad = faded(pad, rate, 0.5)
+    write_wav(folder / "pad.wav", rate, [pad, [v * 0.95 for v in pad]])
+
+    # A short pluck on beats 1 and 3: what the delay repeats.
+    pluck = [0.0] * (rate * seconds)
+    for start in range(0, len(pluck), rate):
+        for n in range(min(int(rate * 0.4), len(pluck) - start)):
+            t = n / rate
+            partials = math.sin(2 * math.pi * 880 * t) + 0.4 * math.sin(2 * math.pi * 1320 * t)
+            pluck[start + n] = 0.5 * math.exp(-t / 0.05) * partials
+    write_wav(folder / "pluck.wav", rate, [pluck])
+
+    tone = sine(440, 10 ** (-12 / 20), rate, seconds)
+    write_wav(folder / "tone-440.wav", rate, [faded(tone, rate)])
+
+    # Pink-ish noise (Paul Kellet's filter), about -21 dBFS RMS: where an EQ cuts or
+    # boosts is easy to hear.
+    generator = random.Random(7)
+    b = [0.0] * 7
+    noise = []
+    for _ in range(rate * 16):
+        white = generator.random() * 2 - 1
+        b[0] = 0.99886 * b[0] + white * 0.0555179
+        b[1] = 0.99332 * b[1] + white * 0.0750759
+        b[2] = 0.96900 * b[2] + white * 0.1538520
+        b[3] = 0.86650 * b[3] + white * 0.3104856
+        b[4] = 0.55000 * b[4] + white * 0.5329522
+        b[5] = -0.7616 * b[5] - white * 0.0168980
+        noise.append((sum(b) + white * 0.5362) * 0.05)
+        b[6] = white * 0.115926
+    write_wav(folder / "noise-pink.wav", rate,
+              [faded(noise, rate), faded(list(reversed(noise)), rate)])
+
+    click_track = clicks(rate, seconds, 120, 4)
+    write_wav(folder / "click-120bpm.wav", rate, [click_track])
+    write_wav(folder / "click-120bpm-inverted.wav", rate, [[-v for v in click_track]])
+
+    unity = 60 / 66  # 0 dB on the fader, as automation stores it (-60 to +6 dB)
+    reverb_bus = bus(200, "Reverb", [effect(201, "reverb", {"decay": 2.5, "mix": 100.0,
+                                                             "preDelay": 20.0})],
+                     # Swells to +6 dB over the last 4 bars, so the tail is easy to hear.
+                     [("volume", [(24.0, unity, 0.0), (32.0, 1.0, 0.0)])])
+    delay_bus = bus(210, "Delay", [effect(211, "delay", {"sync": 1.0, "note": 10.0,  # 1/8D
+                                                          "feedback": 40.0, "mix": 100.0})])
+    compressor = {"threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0}
+    band_limits = {"highPassOn": 1.0, "highPassFrequency": 40.0,
+                   "lowPassOn": 1.0, "lowPassFrequency": 2000.0}
+    tracks = [
+        mixer_track(1, "Drums", [clip(2, "drums.wav", 0.0)],
+                    effects=[effect(3, "equaliser", {}), effect(4, "compressor", compressor)],
+                    sends=[send(5, 200, 0.4)], volume=0.8),
+        mixer_track(10, "Bass", [clip(11, "bass.wav", 0.0)],
+                    effects=[effect(12, "equaliser", band_limits)]),
+        # A curved fade in over 4 bars; centre, then left, right and back to the
+        # centre over bars 5 to 8.
+        mixer_track(20, "Pad", [clip(21, "pad.wav", 0.0)], sends=[send(22, 200, 0.6)],
+                    lanes=[("volume", [(0.0, 0.0, -0.6), (8.0, unity, 0.0)]),
+                           ("pan", [(8.0, 0.5, 0.0), (10.0, 0.0, 0.0), (14.0, 1.0, 0.0),
+                                    (16.0, 0.5, 0.0)])]),
+        mixer_track(30, "Pluck", [clip(31, "pluck.wav", 0.0)],
+                    sends=[send(32, 210, 0.8, pre_fader=True)], volume=0.7),
+        mixer_track(40, "Tone", [clip(41, "tone-440.wav", 0.0)],
+                    effects=[effect(42, "equaliser", {})], mute=True),
+        mixer_track(50, "Noise", [clip(51, "noise-pink.wav", 0.0)],
+                    effects=[effect(52, "equaliser", {})], mute=True),
+    ]
+    limiter = effect(100, "limiter", {"inputGain": 0.0, "ceiling": -1.0, "release": 100.0})
+    project = project_v4([limiter], [reverb_bus, delay_bus], tracks)
+    (folder / "phase4-effects.dawproject").write_text(json.dumps(project, indent=2) + "\n")
+
+    # Delay compensation: clicks on one track and the same clicks inverted on two
+    # others, one through a limiter (1.5 ms of lookahead), one sent pre-fader (its own
+    # fader down) to a bus with a limiter. Aligned, the clicks and either inverted copy
+    # cancel to silence.
+    limited_bus = bus(300, "Limited bus", [effect(301, "limiter", {"ceiling": 0.0})])
+    tracks = [
+        mixer_track(1, "Clicks", [clip(2, "click-120bpm.wav", 0.0)], volume=0.5),
+        mixer_track(10, "Inverted, limited", [clip(11, "click-120bpm-inverted.wav", 0.0)],
+                    effects=[effect(12, "limiter", {"ceiling": 0.0})], volume=0.5),
+        mixer_track(20, "Inverted, via bus", [clip(21, "click-120bpm-inverted.wav", 0.0)],
+                    sends=[send(22, 300, 0.5, pre_fader=True)], volume=0.0, mute=True),
+    ]
+    latency = project_v4([], [limited_bus], tracks)
+    (folder / "phase4-latency.dawproject").write_text(json.dumps(latency, indent=2) + "\n")
+
+
 def extended80(value):
     """IEEE 754 80-bit extended float, as AIFF stores its sample rate."""
     exponent = 16383 + int(math.floor(math.log2(value)))
@@ -284,6 +476,7 @@ def main():
 
     write_phase2_files(out)
     write_phase3_files(out, arguments.long)
+    write_phase4_files(out)
 
     print(f"Listening test files written to {out.resolve()}")
 

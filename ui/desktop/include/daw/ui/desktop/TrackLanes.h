@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/ui/desktop/ArrangeState.h"
+#include "daw/ui/desktop/AutomationLanes.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -19,6 +20,9 @@ namespace daw::ui::desktop
     - Click empty space to move the playhead there.
     - Drop audio files: one file onto a track goes onto that track, otherwise each
       file gets a new track; all start where they were dropped.
+    - In the automation view the clips are dimmed and the mouse edits each row's
+      automation lane instead (AutomationLanes); the buses and the master get rows
+      of their own.
 */
 class TrackLanes final : public juce::Component, public juce::FileDragAndDropTarget
 {
@@ -32,6 +36,7 @@ public:
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
     void mouseWheelMove(const juce::MouseEvent& event,
                         const juce::MouseWheelDetails& wheel) override;
     void mouseMagnify(const juce::MouseEvent& event, float scaleFactor) override;
@@ -72,7 +77,10 @@ private:
                       const engine::io::PooledSource& source) const;
     void drawRecordings(juce::Graphics& g) const;
 
+    [[nodiscard]] juce::Rectangle<float> rowBounds(int row) const;
+
     ArrangeState& state;
+    AutomationLanes automation{state};
     model::Ticks playhead = 0;
     std::optional<Drag> drag;
     std::optional<juce::Rectangle<float>> dropIndicator;

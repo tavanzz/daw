@@ -2,14 +2,22 @@
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
+#include <cstdint>
 #include <memory>
+#include <random>
 
 namespace daw::test
 {
 
 TemporaryDirectory::TemporaryDirectory()
+    // A random name: CTest runs tests in parallel processes, and "the next free name"
+    // could be picked by two of them at once (one then deletes the other's files).
     : directory(juce::File::getSpecialLocation(juce::File::tempDirectory)
-                    .getNonexistentChildFile("daw-tests", ""))
+                    .getNonexistentChildFile(
+                        "daw-tests-" + juce::String::toHexString(static_cast<juce::int64>(
+                                           (static_cast<std::uint64_t>(std::random_device{}()) << 32) ^
+                                           std::random_device{}())),
+                        ""))
 {
     const auto created = directory.createDirectory();
     jassert(created.wasOk());

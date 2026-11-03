@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <functional>
+#include <map>
 #include <set>
 
 namespace daw::ui::desktop
@@ -27,6 +28,36 @@ struct ArrangeState
     controller::Session& session;
     controller::TimelineViewport viewport;
     std::set<model::ObjectId> selection;
+
+    /** Automation view: each row shows one target's lane over its clips, and the
+        buses and the master get rows of their own after the tracks. */
+    bool showAutomation = false;
+    std::map<controller::ChainOwner, model::AutomationTarget> automationTargets;
+
+    /** Rows: the tracks, then (in the automation view) the buses and the master. */
+    [[nodiscard]] int numRows() const
+    {
+        const auto& project = session.getProject();
+        return project.getNumTracks() + (showAutomation ? project.getNumBuses() + 1 : 0);
+    }
+
+    [[nodiscard]] controller::ChainOwner ownerOfRow(int row) const
+    {
+        const auto& project = session.getProject();
+        if (row < project.getNumTracks())
+            return controller::ChainOwner::track(project.getTrack(row).getId());
+        const int bus = row - project.getNumTracks();
+        if (bus < project.getNumBuses())
+            return controller::ChainOwner::bus(project.getBus(bus).getId());
+        return controller::ChainOwner::master();
+    }
+
+    /** What a row's lane shows (volume until another target is chosen). */
+    [[nodiscard]] model::AutomationTarget targetOf(const controller::ChainOwner& owner) const
+    {
+        const auto found = automationTargets.find(owner);
+        return found != automationTargets.end() ? found->second : model::AutomationTarget::volume();
+    }
 
     /** Called after zooming or scrolling, so every part redraws. */
     std::function<void()> onViewChanged;

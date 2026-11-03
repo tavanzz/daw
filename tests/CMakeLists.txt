@@ -1,12 +1,15 @@
 include(Catch)
 
 add_executable(daw_tests
+    support/Phase3Mixer.cpp
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
     support/SimulatedDevice.cpp
     support/TestMain.cpp
     support/TestAudioFiles.cpp
     controller/ArrangementBuilderTests.cpp
+    controller/AutomationEditingTests.cpp
+    controller/EffectSessionTests.cpp
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp
@@ -14,10 +17,18 @@ add_executable(daw_tests
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
     engine/AudioInputTests.cpp
+    engine/AutomationTests.cpp
     engine/AudioFileLoaderTests.cpp
     engine/BounceTests.cpp
+    engine/BusTests.cpp
+    engine/DelayTests.cpp
     engine/DiskStreamerTests.cpp
+    engine/DynamicsTests.cpp
+    engine/EffectChainTests.cpp
+    engine/EffectHostTests.cpp
     engine/EngineTests.cpp
+    engine/EqualiserTests.cpp
+    engine/LatencyCompensationTests.cpp
     engine/LatencyProbeTests.cpp
     engine/MeterTests.cpp
     engine/MetronomeTests.cpp
@@ -26,6 +37,7 @@ add_executable(daw_tests
     engine/RecorderTests.cpp
     engine/RecordingWriterTests.cpp
     engine/ResamplerTests.cpp
+    engine/ReverbTests.cpp
     engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp
     engine/TransportTests.cpp
@@ -40,8 +52,8 @@ target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::controller daw::engine daw::model Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 
-# Not tests: measure how many tracks fit in an audio callback, and how many stream
-# from disk and record at once (see the sources).
+# Not tests: measure how many tracks fit in an audio callback, how many stream
+# from disk and record at once, and what effects cost (see the sources).
 add_executable(daw_bench bench/MixBenchmark.cpp)
 target_link_libraries(daw_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_bench)
@@ -49,6 +61,10 @@ daw_enable_warnings(daw_bench)
 add_executable(daw_stream_bench bench/StreamingBenchmark.cpp)
 target_link_libraries(daw_stream_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_stream_bench)
+
+add_executable(daw_fx_bench bench/EffectBenchmark.cpp)
+target_link_libraries(daw_fx_bench PRIVATE daw::engine)
+daw_enable_warnings(daw_fx_bench)
 
 # PRE_TEST: tests are listed when CTest runs, not at build time, so building
 # never needs to execute the test binary.

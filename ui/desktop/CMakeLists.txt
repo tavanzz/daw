@@ -3,11 +3,18 @@
 add_library(daw_ui_desktop STATIC
     src/ArrangeView.cpp
     src/AudioSettingsDialog.cpp
+    src/AutomationLanes.cpp
+    src/CompressorView.cpp
+    src/EffectEditorWindow.cpp
+    src/EffectSlots.cpp
+    src/EqualiserView.cpp
     src/ExportDialog.cpp
+    src/GenericEffectEditor.cpp
     src/LevelMeter.cpp
     src/MainComponent.cpp
     src/MainWindow.cpp
     src/MixerView.cpp
+    src/SendSlots.cpp
     src/TimelineRuler.cpp
     src/TrackHeaderList.cpp
     src/TrackInputControls.cpp

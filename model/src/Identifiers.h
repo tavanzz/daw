@@ -12,6 +12,20 @@ inline const juce::Identifier project{"Project"};
 inline const juce::Identifier track{"Track"};
 inline const juce::Identifier clip{"Clip"};
 
+// Containers: after the tracks of a project, after the clips of a track.
+inline const juce::Identifier buses{"Buses"};
+inline const juce::Identifier master{"Master"};
+inline const juce::Identifier effects{"Effects"};
+inline const juce::Identifier sends{"Sends"};
+inline const juce::Identifier automation{"Automation"};
+
+inline const juce::Identifier bus{"Bus"};
+inline const juce::Identifier effect{"Effect"};
+inline const juce::Identifier parameters{"Parameters"};
+inline const juce::Identifier send{"Send"};
+inline const juce::Identifier lane{"Lane"};
+inline const juce::Identifier point{"Point"};
+
 // Project
 inline const juce::Identifier tempo{"tempo"};
 inline const juce::Identifier timeSignatureNumerator{"timeSignatureNumerator"};
@@ -44,5 +58,17 @@ inline const juce::Identifier audioFile{"audioFile"};
 inline const juce::Identifier position{"position"};
 inline const juce::Identifier offset{"offset"};
 inline const juce::Identifier length{"length"};
+
+// Effects, sends, buses and automation
+inline const juce::Identifier type{"type"};
+inline const juce::Identifier bypass{"bypass"};
+inline const juce::Identifier data{"data"};
+inline const juce::Identifier busId{"bus"};
+inline const juce::Identifier level{"level"};
+inline const juce::Identifier preFader{"preFader"};
+inline const juce::Identifier mode{"mode"};
+inline const juce::Identifier target{"target"};
+inline const juce::Identifier value{"value"};
+inline const juce::Identifier curve{"curve"};
 
 } // namespace daw::model::ids

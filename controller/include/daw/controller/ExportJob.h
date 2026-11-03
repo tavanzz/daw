@@ -26,6 +26,8 @@ struct ExportSettings
     int bitsPerSample = 24; ///< 16, 24 or 32 (float)
     bool dither = false;
     Range range = Range::wholeProject;
+    /** The effects' tails after the end (see engine::io::BounceSettings). */
+    bool includeTail = true;
 };
 
 /** The sample rates and bit depths the export dialog offers. */

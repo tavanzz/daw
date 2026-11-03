@@ -63,6 +63,8 @@ BounceResult bounceToWav(const Arrangement& arrangement, const BounceSettings& s
 
         OfflineRenderer renderer(arrangement);
         renderer.setPosition(settings.start);
+        if (settings.includeTail)
+            renderer.setTimelineEnd(settings.end);
 
         constexpr int blockSize = OfflineRenderer::defaultBlockSize;
         juce::AudioBuffer<float> block(2, blockSize);
@@ -74,6 +76,33 @@ BounceResult bounceToWav(const Arrangement& arrangement, const BounceSettings& s
         const int bits = settings.bitsPerSample;
         const int shift = 32 - bits;
 
+        // Quantises (and dithers) the block's first length samples and writes them.
+        const auto write = [&](const juce::AudioBuffer<float>& audio, int start, int length) {
+            for (int channel = 0; channel < 2; ++channel)
+                outcome.peak = std::max(outcome.peak, audio.getMagnitude(channel, start, length));
+
+            if (floatingPoint)
+                return writer->writeFromAudioSampleBuffer(audio, start, length);
+
+            int* channels[] = {integers.get(), integers.get() + blockSize};
+            for (int i = 0; i < length; ++i)
+            {
+                for (int channel = 0; channel < 2; ++channel)
+                {
+                    // TPDF: the difference of two uniform values, ±1 LSB.
+                    const float ditherLsb =
+                        settings.dither ? uniform(random) - uniform(random) : 0.0f;
+                    const auto value = static_cast<unsigned>(
+                        quantise(audio.getSample(channel, start + i), bits, ditherLsb));
+                    // The writer takes 32-bit left-justified integers.
+                    channels[channel][i] = static_cast<int>(value << shift);
+                }
+            }
+
+            const int* channelList[] = {channels[0], channels[1], nullptr};
+            return writer->write(channelList, length);
+        };
+
         while (outcome.samplesWritten < total)
         {
             const auto length =
@@ -81,36 +110,7 @@ BounceResult bounceToWav(const Arrangement& arrangement, const BounceSettings& s
             block.setSize(2, length, false, false, true);
             renderer.render(block);
 
-            for (int channel = 0; channel < 2; ++channel)
-                outcome.peak = std::max(outcome.peak, block.getMagnitude(channel, 0, length));
-
-            bool written = false;
-            if (floatingPoint)
-            {
-                written = writer->writeFromAudioSampleBuffer(block, 0, length);
-            }
-            else
-            {
-                int* channels[] = {integers.get(), integers.get() + blockSize};
-                for (int i = 0; i < length; ++i)
-                {
-                    for (int channel = 0; channel < 2; ++channel)
-                    {
-                        // TPDF: the difference of two uniform values, ±1 LSB.
-                        const float ditherLsb =
-                            settings.dither ? uniform(random) - uniform(random) : 0.0f;
-                        const auto value = static_cast<unsigned>(
-                            quantise(block.getSample(channel, i), bits, ditherLsb));
-                        // The writer takes 32-bit left-justified integers.
-                        channels[channel][i] = static_cast<int>(value << shift);
-                    }
-                }
-
-                const int* channelList[] = {channels[0], channels[1], nullptr};
-                written = writer->write(channelList, length);
-            }
-
-            if (!written)
+            if (!write(block, 0, length))
                 return fail("the file could not be written (is the disk full?).");
 
             outcome.samplesWritten += length;
@@ -120,6 +120,54 @@ BounceResult bounceToWav(const Arrangement& arrangement, const BounceSettings& s
             {
                 outcome.cancelled = true;
                 return outcome; // the temporary file is deleted, the target untouched
+            }
+        }
+
+        // The tail: rendered on until the mix has been quiet for the hold time (or
+        // the longest tail is reached), then written up to its last sound, so that
+        // a mix without tails gets nothing more.
+        if (settings.includeTail)
+        {
+            const auto silence =
+                static_cast<float>(std::pow(10.0, settings.tailSilenceDecibels / 20.0));
+            const auto hold =
+                static_cast<juce::int64>(settings.tailHoldSeconds * arrangement.sampleRate);
+            const auto longest =
+                static_cast<int>(settings.maximumTailSeconds * arrangement.sampleRate);
+
+            juce::AudioBuffer<float> tail(2, std::min(longest, blockSize * 16));
+            int rendered = 0;
+            int lastSound = -1;
+            while (rendered < longest && rendered - lastSound <= hold)
+            {
+                const int length = std::min(blockSize, longest - rendered);
+                if (rendered + length > tail.getNumSamples())
+                    tail.setSize(2, std::min(longest, 2 * tail.getNumSamples() + length), true,
+                                 false, true);
+                block.setSize(2, length, false, false, true);
+                renderer.render(block);
+                for (int channel = 0; channel < 2; ++channel)
+                    tail.copyFrom(channel, rendered, block, channel, 0, length);
+
+                for (int i = 0; i < length; ++i)
+                    if (std::abs(block.getSample(0, i)) >= silence ||
+                        std::abs(block.getSample(1, i)) >= silence)
+                        lastSound = rendered + i;
+                rendered += length;
+
+                if (keepGoing && !keepGoing(1.0))
+                {
+                    outcome.cancelled = true;
+                    return outcome;
+                }
+            }
+
+            for (int done = 0; done <= lastSound; done += blockSize)
+            {
+                const int length = std::min(blockSize, lastSound + 1 - done);
+                if (!write(tail, done, length))
+                    return fail("the file could not be written (is the disk full?).");
+                outcome.samplesWritten += length;
             }
         }
     }

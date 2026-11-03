@@ -10,7 +10,7 @@ class ArrangeView::TrackArea final : public juce::Component
 {
 public:
     explicit TrackArea(ArrangeState& state)
-        : headers(state.session)
+        : headers(state)
         , lanes(state)
     {
         addAndMakeVisible(headers);
@@ -116,6 +116,14 @@ void ArrangeView::deleteSelection()
     state.selection.clear();
 }
 
+void ArrangeView::setShowingAutomation(bool show)
+{
+    state.showAutomation = show;
+    trackArea->headers.refresh();
+    resized();
+    trackArea->lanes.repaint();
+}
+
 model::Ticks ArrangeView::getInsertPosition() const
 {
     return state.session.getPlayhead();
@@ -136,11 +144,11 @@ void ArrangeView::resized()
 
     trackViewport.setBounds(area);
 
-    // One empty lane below the last track, to drop files onto.
-    const int numTracks = state.session.getProject().getNumTracks();
+    // One empty lane below the last row, to drop files onto.
+    const int numRows = state.numRows();
     const int contentWidth = area.getWidth() - trackViewport.getScrollBarThickness();
     const int contentHeight =
-        std::max(area.getHeight(), (numTracks + 1) * ArrangeState::laneHeight);
+        std::max(area.getHeight(), (numRows + 1) * ArrangeState::laneHeight);
     trackArea->setSize(contentWidth, contentHeight);
 
     state.viewport.setWidth(std::max(1, contentWidth - ArrangeState::headerWidth));

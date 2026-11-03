@@ -119,13 +119,16 @@ ExportDialog::ExportDialog(controller::Session& sessionToExport)
     for (auto* box : {&rangeBox, &rateBox, &bitsBox})
         addAndMakeVisible(*box);
     addAndMakeVisible(ditherButton);
+    tailButton.setToggleState(true, juce::dontSendNotification);
+    tailButton.setTooltip("Goes on after the end until the reverbs and echoes have died away");
+    addAndMakeVisible(tailButton);
     addAndMakeVisible(exportButton);
     addAndMakeVisible(cancelButton);
 
     exportButton.onClick = [this] { chooseFileAndExport(); };
     cancelButton.onClick = [this] { closeWindow(); };
 
-    setSize(380, 210);
+    setSize(380, 244);
 }
 
 ExportDialog::~ExportDialog() = default;
@@ -152,6 +155,7 @@ controller::ExportSettings ExportDialog::chosenSettings() const
     settings.sampleRate = controller::exportSampleRates[rateBox.getSelectedId() - 1];
     settings.bitsPerSample = bitsBox.getSelectedId();
     settings.dither = settings.bitsPerSample == 16 && ditherButton.getToggleState();
+    settings.includeTail = tailButton.getToggleState();
     return settings;
 }
 
@@ -206,6 +210,9 @@ void ExportDialog::resized()
     line = row();
     line.removeFromLeft(100);
     ditherButton.setBounds(line);
+    line = row();
+    line.removeFromLeft(100);
+    tailButton.setBounds(line);
 
     auto buttons = area.removeFromBottom(28);
     exportButton.setBounds(buttons.removeFromRight(100));
