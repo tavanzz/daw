@@ -520,3 +520,112 @@ Phase 3 decisions (agreed before starting):
   recording in progress (with confirmation).
 - The one-hour recording test records 48 kHz mono 24-bit to disk and reads it back
   (8 kHz if it takes more than about a minute in the Debug jobs).
+
+Phase 5 (in progress, branch `phase-5`): themes and animations. Three cyberpunk
+themes (Neon Grid, Acid Terminal, Synth Chrome) applied to the whole interface:
+transport, tracks, timeline, clips, ruler, mixer, meters, automation lanes, effect
+editors (EQ curve and compressor gain reduction included), dialogs, menus and
+alerts; switched live, without a restart; the choice is a user setting, not part of
+the project (default Neon Grid). Animations at three levels (Full / Reduced / Off)
+with a switch per effect, following the system's "reduce motion" setting. Theme
+values live in a GUI-free data module the mobile UI can reuse; one LookAndFeel per
+theme in `ui/desktop`; bundled OFL fonts; one shared animation timer; UI frame time
+measured in Release. The project format does not change. Out of scope: a custom
+theme editor, a light theme, interface scaling, the mobile UI, MIDI.
+
+Steps 7 and later restyle the Phase 4 components (inserts, effect editors,
+automation lanes), so they start only once Phase 4 is in `main` (v0.4.0), merged
+into `phase-5`.
+
+- [x] 0. Plan (this list) and draft pull request
+- [ ] 1. `appearance` module: theme data (colour roles, fonts, shapes, meter style,
+      effects), the three themes as embedded JSON, loader; every theme defines every
+      value
+- [ ] 2. Contrast and status colours: WCAG contrast for every text/background pair,
+      status colours apart in lightness, derived colours
+- [ ] 3. Animation settings: levels, per-effect switches, reduced/off rules, system
+      reduce motion, costs and total load, user-setting persistence
+- [ ] 4. Bundled fonts (OFL), `docs/THIRD_PARTY.md`, typeface loading
+- [ ] 5. LookAndFeel base and one per theme for JUCE widgets; live switching across
+      windows; theme stored in the user settings; UI test target
+- [ ] 6. Shared animation clock, window visibility, system reduce motion, cache of
+      precomputed images
+- [ ] 7. Arrange view themed: transport bar with logo, bottom status bar, track
+      headers, input controls, ruler, lanes, clips, waveforms, playhead, loop, meters
+- [ ] 8. Mixer (strips, faders, pan, inserts, sends, buses), effect editors (generic,
+      EQ curve, compressor gain reduction), automation lanes themed
+- [ ] 9. Dialogs and alerts themed (export, audio settings, latency, recovery,
+      themed alert windows); no colour or font literals outside the LookAndFeels
+- [ ] 10. Animations: each theme's own and the shared ones (meters, record pulse,
+      panel transitions, theme crossfade)
+- [ ] 11. View > Theme (Cmd+1/2/3), theme previews panel; View > Animations panel,
+      Shift+Cmd+A
+- [ ] 12. UI tests: every theme paints every component; switching themes leaves the
+      project and the audio unchanged; the clock stops when off or hidden
+- [ ] 13. Benchmark: UI frame time and CPU per theme and animation level with a large
+      project (Release), `docs/PERFORMANCE.md`
+- [ ] 14. Screenshots and visual checks in `docs/LISTENING_TESTS.md`; version 0.5.0
+
+Phase 5 decisions (agreed before starting):
+
+- Neon Grid: background #07060B, panels #0E0C17 and #0A0912, lines #221E36, text
+  #E9E6FF, secondary #8F8AAE; accents cyan #00F0FF, magenta #FF2BD6, yellow
+  #F8F32B, violet #9D7BFF. Chakra Petch (interface), JetBrains Mono (numbers and
+  times). Rounded corners 3 to 6 px, neon glows on active elements. Meters a
+  cyan-yellow-magenta gradient. Own animations: scrolling scanlines, flickering
+  logo, pulsing playhead.
+- Acid Terminal: background #0B0D08, panels #12150E, lines #2A3020, text #EDEFE6,
+  secondary #949A80; accents acid yellow #D4FF00, red #FF3B30, light blue #7CE0FF.
+  Space Grotesk (titles), IBM Plex Mono (everything else). Sharp corners, 2 px
+  borders, terminal-style labels, a prompt-style status bar. LED segment meters.
+  Own animations: scrolling hazard stripes, logo glitch, blinking status-bar cursor.
+- Synth Chrome: background #0F0820, panels #140B2A, #180E30 and #241645, lines
+  #2E2050, text #F2EAFF, secondary #A397C4; accents orange #FF8A33, violet #B07CFF,
+  pink #FF3D7F, turquoise #5CE1E6. Michroma (titles and displays), Rajdhani
+  (interface). Corners cut at 45 degrees, arc pots for pan. Meters a
+  violet-orange-pink gradient. Own animations: perspective grid scrolling under the
+  timeline, playhead trail, chrome sweep on the logo.
+- Data: a new module `appearance/` (`daw::appearance`, juce_core only, no GUI): the
+  themes as embedded JSON read into typed values, contrast maths, animation settings
+  and their rules, preference serialisation. Components draw only through their
+  theme's LookAndFeel; no colour or font literals in components (checked by a test).
+- Colours the palettes lack (text on accents, control borders, disabled text, status
+  variants) are derived from the palette (lighter or darker mixes) and documented.
+  Grid lines and separators are decorative and exempt from the 3:1 rule, as in WCAG;
+  so are disabled controls.
+- Contrast: text at least 4.5:1 on its background; large text and graphic elements
+  at least 3:1. Status colours (record, mute, solo, clip, active automation): every
+  pair at least 10 apart in CIELAB lightness (L*), each at least 3:1 on its
+  background.
+- Shortcuts: Cmd+1/2/3 select the themes; Shift+Cmd+A switches animations off, and
+  again back to the previous level. The previews and animation panels have no
+  shortcut.
+- Effects and their switches: moving backgrounds = scanlines (Neon), a hazard-stripe
+  band under the transport, faster and red while recording (Acid), perspective grid
+  (Synth); glitch = the logo's flicker, glitch or chrome sweep; cursor glow = pulsing
+  playhead (Neon), blinking status-bar cursor (Acid), playhead trail (Synth);
+  animated meters = glow, LED afterglow and a smooth peak-hold fall (off: meters
+  still show level and peak); record pulse = the Rec button and recording clips;
+  panel transitions = the mixer sliding, panels fading, a crossfade on theme change.
+  "Reduced" turns off moving backgrounds, glitch and transitions.
+- One animation timer at 30 Hz, stopped when nothing animates, at level Off, or when
+  the window is minimised, invisible or (macOS) fully covered; the functional 60 Hz
+  refresh (meters, playhead, status) stays separate. Only changed areas repaint;
+  glows and backgrounds are images rebuilt on theme or size changes only.
+- System "reduce motion" (macOS, Windows, GNOME on Linux), followed by default,
+  caps the level at Reduced.
+- Themed: context menus, the menu bar on Windows and Linux, alerts and dialogs
+  (native message boxes become themed alert windows). Native: the macOS menu bar,
+  file choosers and the title bar.
+- Layout: a status bar at the bottom in every theme (the transport's status line
+  moves there; a prompt in Acid Terminal); a "DAW" logo at the left of the transport
+  in the theme's title font.
+- Fonts: static TTF files in the repository (at most two weights per family), from
+  google/fonts and the upstream releases of JetBrains Mono and Space Grotesk; OFL
+  texts next to them, in `docs/THIRD_PARTY.md` and in the app bundle.
+- UI tests: a `daw_ui_tests` target in CTest on all five jobs (under `xvfb-run` on
+  Linux if a display is needed).
+- Benchmark project: 64 tracks and 4 buses, an EQ, a compressor and a send on every
+  track, automation on volume and two parameters; a 1600x1000 window with the mixer
+  open, playing; 20 s per combination.
+- Screenshots are not committed (`build/screenshots/phase5/`).
