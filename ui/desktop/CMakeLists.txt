@@ -3,6 +3,7 @@
 add_library(daw_ui_desktop STATIC
     src/Alerts.cpp
     src/AnimationClock.cpp
+    src/AnimationLink.cpp
     src/ArrangeView.cpp
     src/AudioSettingsDialog.cpp
     src/AutomationLanes.cpp
@@ -12,6 +13,7 @@ add_library(daw_ui_desktop STATIC
     src/EqualiserView.cpp
     src/ExportDialog.cpp
     src/GenericEffectEditor.cpp
+    src/HazardBand.cpp
     src/LevelMeter.cpp
     src/Logo.cpp
     src/MainComponent.cpp

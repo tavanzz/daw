@@ -3,6 +3,7 @@
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
 #include "daw/ui/desktop/EffectEditorWindow.h"
+#include "daw/ui/desktop/HazardBand.h"
 #include "daw/ui/desktop/LevelMeter.h"
 #include "daw/ui/desktop/MixerView.h"
 #include "daw/ui/desktop/StatusBar.h"
@@ -28,7 +29,8 @@ namespace daw::ui::desktop
 class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
                             public juce::FileDragAndDropTarget,
-                            private juce::Timer
+                            private juce::Timer,
+                            private ThemeManager::Listener
 {
 public:
     enum CommandIds
@@ -77,6 +79,7 @@ public:
 
     void resized() override;
     void paint(juce::Graphics& g) override;
+    void lookAndFeelChanged() override;
 
     // juce::ApplicationCommandTarget
     juce::ApplicationCommandTarget* getNextCommandTarget() override;
@@ -91,6 +94,10 @@ public:
 
 private:
     void timerCallback() override;
+    void themeAboutToChange() override;
+    void animationSettingsChanged() override;
+    void showMixer(bool shouldShow);
+    void mixerFrame(double seconds);
     void togglePlayPause();
     void openProjectFile(const juce::File& file);
     void offerRecovery();
@@ -110,10 +117,17 @@ private:
     ThemeManager& themes;
 
     TransportBar transportBar;
+    HazardBand hazardBand;
     ArrangeView arrangeView;
     LevelMeter masterMeter;
     MixerView mixerView;
     bool mixerVisible = true;
+    float mixerAmount = 1.0f; // how much of the mixer shows, while it slides
+    float mixerFrom = 1.0f;
+    double mixerSlideStart = -1.0;
+    AnimationLink mixerSlide{*this, appearance::AnimationEffect::panelTransitions,
+                             [this](double seconds) { mixerFrame(seconds); }};
+    std::unique_ptr<ThemeCrossfade> crossfade;
     StatusBar statusBar{session};
     EffectEditors effectEditors{session};
     juce::TooltipWindow tooltipWindow{this};

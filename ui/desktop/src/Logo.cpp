@@ -15,7 +15,8 @@ Logo::Logo()
 
 void Logo::paint(juce::Graphics& g)
 {
-    ThemedLookAndFeel::get(*this).drawLogo(g, getLocalBounds().toFloat(), text);
+    ThemedLookAndFeel::get(*this).drawLogo(g, getLocalBounds().toFloat(), text, glitch.getTime(),
+                                           glitch.isActive());
 }
 
 } // namespace daw::ui::desktop

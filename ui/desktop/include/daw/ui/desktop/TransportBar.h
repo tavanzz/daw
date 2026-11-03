@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/controller/Session.h"
+#include "daw/ui/desktop/AnimationLink.h"
 #include "daw/ui/desktop/Logo.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -68,6 +69,11 @@ private:
     juce::TextButton punchButton{"Punch"};
 
     juce::uint64 shownRevision = 0;
+
+    // The Rec button pulses while recording.
+    AnimationLink recordPulse{*this, appearance::AnimationEffect::recordPulse,
+                              [this](double seconds) { showPulse(seconds); }};
+    void showPulse(double seconds);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TransportBar)
 };

@@ -11,7 +11,7 @@ namespace daw::appearance
     each theme draws them its own way (see the themes' "effects"). */
 enum class AnimationEffect
 {
-    animatedMeters,    ///< glow, LED afterglow, smooth peak-hold fall
+    animatedMeters,    ///< a glow on the level, LED afterglow
     cursorGlow,        ///< the playhead's pulse or trail, the status-bar cursor
     recordPulse,       ///< the Rec button and recording clips
     movingBackgrounds, ///< scanlines, hazard stripes, perspective grid

@@ -94,7 +94,7 @@
         ]
     },
     "effects": {
-        "animatedMeters": { "available": true, "cost": "medium", "description": "A chrome sheen over the level and a smooth peak-hold fall" },
+        "animatedMeters": { "available": true, "cost": "medium", "description": "A glow on top of the level" },
         "cursorGlow": { "available": true, "cost": "low", "description": "The playhead leaves a fading trail" },
         "recordPulse": { "available": true, "cost": "low", "description": "The Rec button and recording clips pulse" },
         "movingBackgrounds": { "available": true, "cost": "high", "description": "A perspective grid scrolls under the timeline" },

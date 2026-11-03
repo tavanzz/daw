@@ -30,6 +30,7 @@ void styleDisplay(juce::Label& label, appearance::FontRole role)
 TransportBar::TransportBar(controller::Session& sessionToControl)
     : session(sessionToControl)
 {
+    recordPulse.setWantsFrames(false);
     addAndMakeVisible(logo);
 
     for (auto* button : std::initializer_list<juce::Button*>{
@@ -171,6 +172,9 @@ void TransportBar::refresh()
     pauseButton.setEnabled(playing);
     stopButton.setEnabled(state != engine::TransportState::stopped || playhead > 0 || recording);
     recordButton.setToggleState(recording, juce::dontSendNotification);
+    recordPulse.setWantsFrames(recording);
+    if (!recording || !recordPulse.isActive())
+        showPulse(-1.0);
 
     timeLabel.setText(controller::formatTime(playhead), juce::dontSendNotification);
     barsLabel.setText(session.getProject().getTempoMap().formatBarsBeats(playhead),
@@ -194,6 +198,18 @@ void TransportBar::refresh()
         if (!tempoLabel.isBeingEdited() && !metreLabel.isBeingEdited())
             showTempoAndMetre();
     }
+}
+
+void TransportBar::showPulse(double seconds)
+{
+    const auto pulse = seconds < 0.0 ? 0.0f : ThemedLookAndFeel::pulseAt(seconds);
+    const auto shown =
+        static_cast<float>(recordButton.getProperties()[ThemedLookAndFeel::pulseProperty]);
+    if (juce::exactlyEqual(shown, pulse))
+        return;
+
+    recordButton.getProperties().set(ThemedLookAndFeel::pulseProperty, pulse);
+    recordButton.repaint();
 }
 
 void TransportBar::showTempoAndMetre()

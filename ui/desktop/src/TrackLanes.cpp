@@ -27,22 +27,118 @@ bool isAudioFile(const juce::String& path)
 TrackLanes::TrackLanes(ArrangeState& sharedState)
     : state(sharedState)
 {
+    // Frames only while the theme draws something that moves (see updateAnimations()).
+    backgroundLink.setWantsFrames(false);
+    playheadLink.setWantsFrames(false);
 }
 
-void TrackLanes::setPlayhead(model::Ticks position)
+void TrackLanes::contentChanged()
 {
+    contentValid = false;
+    repaint();
+}
+
+void TrackLanes::lookAndFeelChanged()
+{
+    updateAnimations();
+    contentChanged();
+}
+
+void TrackLanes::resized()
+{
+    contentChanged();
+}
+
+void TrackLanes::updateAnimations()
+{
+    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    backgroundLink.setWantsFrames(lookAndFeel.hasTimelineBackground());
+    playheadLink.setWantsFrames(lookAndFeel.playheadAnimates(playing));
+}
+
+juce::Rectangle<int> TrackLanes::visibleArea() const
+{
+    // The lanes scroll inside a viewport: only what it shows is worth painting.
+    if (auto* viewport = findParentComponentOfClass<juce::Viewport>())
+        return getLocalArea(viewport, viewport->getLocalBounds()).getIntersection(getLocalBounds());
+
+    return getLocalBounds();
+}
+
+void TrackLanes::setPlayhead(model::Ticks position, bool isPlaying)
+{
+    if (isPlaying != playing)
+    {
+        playing = isPlaying;
+        updateAnimations();
+        repaintPlayhead();
+    }
+
     if (position == playhead)
         return;
 
-    const auto oldX = static_cast<int>(state.viewport.ticksToX(playhead));
-    const auto newX = static_cast<int>(state.viewport.ticksToX(position));
-    const int reach = ThemedLookAndFeel::get(*this).playheadReach();
+    repaintPlayhead();
     playhead = position;
-    repaint(oldX - reach, 0, 2 * reach + 1, getHeight());
-    repaint(newX - reach, 0, 2 * reach + 1, getHeight());
+    repaintPlayhead();
+}
+
+void TrackLanes::repaintPlayhead()
+{
+    const auto x = static_cast<int>(state.viewport.ticksToX(playhead));
+    const int reach = ThemedLookAndFeel::get(*this).playheadReach();
+    repaint(x - reach, 0, 2 * reach + 1, getHeight());
 }
 
 void TrackLanes::paint(juce::Graphics& g)
+{
+    // The lanes, grid and clips change only with edits and the view: they are painted
+    // into an image of the visible area once, and each frame of an animation (the
+    // background, the playhead) puts that image back instead of painting them again.
+    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    const auto visible = visibleArea();
+    const bool background = backgroundLink.isActive() && lookAndFeel.hasTimelineBackground();
+    const bool under = background && lookAndFeel.timelineBackgroundIsUnder();
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+
+    if (!contentValid || cacheArea != visible || !juce::exactlyEqual(cacheScale, scale) ||
+        cacheTranslucent != under)
+    {
+        cacheArea = visible;
+        cacheScale = scale;
+        cacheTranslucent = under;
+        contentValid = true;
+
+        const auto pixels = visible.toFloat() * scale;
+        cache = juce::Image(juce::Image::ARGB, std::max(1, juce::roundToInt(pixels.getWidth())),
+                            std::max(1, juce::roundToInt(pixels.getHeight())), true);
+        juce::Graphics content(cache);
+        content.addTransform(juce::AffineTransform::translation(static_cast<float>(-visible.getX()),
+                                                                static_cast<float>(-visible.getY()))
+                                 .scaled(scale));
+        paintContent(content, under);
+    }
+
+    if (under)
+    {
+        lookAndFeel.drawPanel(g, visible.toFloat(), appearance::ColourRole::window, false);
+        lookAndFeel.drawTimelineBackground(g, visible.toFloat(), backgroundLink.getTime());
+    }
+
+    // Images are drawn at the context's opacity: the background may have left it low.
+    g.setOpacity(1.0f);
+    g.drawImageTransformed(cache, juce::AffineTransform::scale(1.0f / scale)
+                                      .translated(static_cast<float>(visible.getX()),
+                                                  static_cast<float>(visible.getY())));
+
+    if (background && !under)
+        lookAndFeel.drawTimelineBackground(g, visible.toFloat(), backgroundLink.getTime());
+
+    lookAndFeel.drawPlayhead(g, static_cast<float>(state.viewport.ticksToX(playhead)), 0.0f,
+                             static_cast<float>(getHeight()),
+                             {playheadLink.getTime(), playheadLink.isActive(), playing});
+}
+
+void TrackLanes::paintContent(juce::Graphics& g, bool translucent) const
 {
     const auto& project = state.session.getProject();
     const auto& viewport = state.viewport;
@@ -50,10 +146,11 @@ void TrackLanes::paint(juce::Graphics& g)
     const auto width = static_cast<float>(getWidth());
     const auto height = static_cast<float>(getHeight());
 
-    lookAndFeel.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::window, false);
+    if (!translucent)
+        lookAndFeel.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::window, false);
 
     for (int t = 0; t < state.numRows(); ++t)
-        lookAndFeel.drawLane(g, rowBounds(t), t, t < project.getNumTracks());
+        lookAndFeel.drawLane(g, rowBounds(t), t, t < project.getNumTracks(), translucent);
 
     // Grid: the snapping grid at this zoom, bar lines brighter. Too dense a grid
     // (a fine division zoomed far out) falls back to bars, then to nothing.
@@ -101,8 +198,6 @@ void TrackLanes::paint(juce::Graphics& g)
 
     if (dropIndicator)
         lookAndFeel.drawDropIndicator(g, *dropIndicator);
-
-    lookAndFeel.drawPlayhead(g, static_cast<float>(viewport.ticksToX(playhead)), 0.0f, height);
 }
 
 juce::Rectangle<float> TrackLanes::clipBounds(int trackIndex, const model::Clip& clip) const
@@ -119,7 +214,7 @@ juce::Rectangle<float> TrackLanes::clipBounds(int trackIndex, const model::Clip&
 void TrackLanes::drawClip(juce::Graphics& g, int trackIndex, const model::Clip& clip) const
 {
     const auto bounds = clipBounds(trackIndex, clip);
-    if (bounds.getRight() < 0.0f || bounds.getX() > static_cast<float>(getWidth()))
+    if (!g.clipRegionIntersects(bounds.getSmallestIntegerContainer()))
         return;
 
     const auto* source = state.session.findSource(clip.getAudioFile());
@@ -221,6 +316,12 @@ void TrackLanes::drawRecordings(juce::Graphics& g) const
         lookAndFeel.drawClipName(g, bounds.withHeight(nameHeight).reduced(4.0f, 0.0f),
                                  "Recording " + take.file.getFileNameWithoutExtension(), style);
         lookAndFeel.drawClipOutline(g, bounds, style, false);
+
+        // Recording clips pulse (recordings repaint at every refresh: no frames needed).
+        if (lookAndFeel.isAnimating(appearance::AnimationEffect::recordPulse))
+            lookAndFeel.drawRecordPulse(g, bounds, style.header,
+                                        ThemedLookAndFeel::pulseAt(
+                                            lookAndFeel.getAnimationClock()->getTime()));
     }
 }
 
@@ -328,7 +429,7 @@ void TrackLanes::mouseDown(const juce::MouseEvent& event)
             automation.mouseDown(event, rowBounds(row), state.ownerOfRow(row));
         else
             state.session.seek(state.snap(state.viewport.xToTicks(event.position.x), event.mods));
-        repaint();
+        contentChanged();
         return;
     }
 
@@ -339,7 +440,7 @@ void TrackLanes::mouseDown(const juce::MouseEvent& event)
         if (!event.mods.isShiftDown())
             state.selection.clear();
         state.session.seek(state.snap(state.viewport.xToTicks(event.position.x), event.mods));
-        repaint();
+        contentChanged();
         return;
     }
 
@@ -358,7 +459,7 @@ void TrackLanes::mouseDown(const juce::MouseEvent& event)
                           .getTrack(location->trackIndex)
                           .getClip(location->clipIndex);
     drag = Drag{*hit, clip.getBounds(), state.viewport.xToTicks(event.position.x), false};
-    repaint();
+    contentChanged();
 }
 
 void TrackLanes::mouseDrag(const juce::MouseEvent& event)
@@ -366,7 +467,7 @@ void TrackLanes::mouseDrag(const juce::MouseEvent& event)
     if (state.showAutomation)
     {
         automation.mouseDrag(event);
-        repaint();
+        contentChanged();
         return;
     }
 
@@ -418,13 +519,13 @@ void TrackLanes::mouseDrag(const juce::MouseEvent& event)
     }
     }
 
-    repaint();
+    contentChanged();
 }
 
 void TrackLanes::mouseUp(const juce::MouseEvent&)
 {
     automation.mouseUp();
-    repaint();
+    contentChanged();
     if (drag && drag->started)
         state.session.endGesture();
     drag.reset();
@@ -461,13 +562,13 @@ void TrackLanes::fileDragMove(const juce::StringArray& files, int x, int y)
 
     const auto width = static_cast<float>(getWidth()) - left;
     dropIndicator = juce::Rectangle<float>(left, top, width, height);
-    repaint();
+    contentChanged();
 }
 
 void TrackLanes::fileDragExit(const juce::StringArray&)
 {
     dropIndicator.reset();
-    repaint();
+    contentChanged();
 }
 
 void TrackLanes::filesDropped(const juce::StringArray& files, int x, int y)
@@ -490,7 +591,7 @@ void TrackLanes::filesDropped(const juce::StringArray& files, int x, int y)
 
     const auto clips = session.importAudio(audioFiles, position, ontoTrack);
     state.selection = {clips.begin(), clips.end()};
-    repaint();
+    contentChanged();
 }
 
 } // namespace daw::ui::desktop

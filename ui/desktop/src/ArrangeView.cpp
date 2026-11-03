@@ -68,7 +68,7 @@ void ArrangeView::refresh()
 
         trackArea->headers.refresh();
         resized(); // the number of tracks may have changed
-        trackArea->lanes.repaint();
+        trackArea->lanes.contentChanged();
         ruler.repaint();
         updateScrollBar();
     }
@@ -79,12 +79,13 @@ void ArrangeView::refresh()
         state.viewport.keepInView(playhead))
         viewChanged();
 
-    trackArea->lanes.setPlayhead(playhead);
+    trackArea->lanes.setPlayhead(playhead,
+                                 session.getTransportState() == engine::TransportState::playing);
     ruler.setPlayhead(playhead);
 
     // Recordings grow on screen.
     if (session.isRecording())
-        trackArea->lanes.repaint();
+        trackArea->lanes.contentChanged();
 }
 
 void ArrangeView::updateMeters(double elapsedSeconds)
@@ -123,7 +124,7 @@ void ArrangeView::setShowingAutomation(bool show)
     state.showAutomation = show;
     trackArea->headers.refresh();
     resized();
-    trackArea->lanes.repaint();
+    trackArea->lanes.contentChanged();
 }
 
 model::Ticks ArrangeView::getInsertPosition() const
@@ -167,13 +168,13 @@ void ArrangeView::paint(juce::Graphics& g)
 void ArrangeView::scrollBarMoved(juce::ScrollBar*, double newRangeStart)
 {
     state.viewport.setStart(static_cast<model::Ticks>(newRangeStart));
-    trackArea->lanes.repaint();
+    trackArea->lanes.contentChanged();
     ruler.repaint();
 }
 
 void ArrangeView::viewChanged()
 {
-    trackArea->lanes.repaint();
+    trackArea->lanes.contentChanged();
     ruler.repaint();
     updateScrollBar();
 }

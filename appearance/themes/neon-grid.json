@@ -93,7 +93,7 @@
         ]
     },
     "effects": {
-        "animatedMeters": { "available": true, "cost": "medium", "description": "A neon glow above the level and a smooth peak-hold fall" },
+        "animatedMeters": { "available": true, "cost": "medium", "description": "A neon glow on top of the level" },
         "cursorGlow": { "available": true, "cost": "low", "description": "The playhead pulses" },
         "recordPulse": { "available": true, "cost": "low", "description": "The Rec button and recording clips pulse" },
         "movingBackgrounds": { "available": true, "cost": "high", "description": "Scanlines scroll over the timeline" },

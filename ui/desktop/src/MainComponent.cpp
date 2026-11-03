@@ -39,12 +39,16 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
         toggleRecording();
     };
     addAndMakeVisible(transportBar);
+    addAndMakeVisible(hazardBand);
     addAndMakeVisible(arrangeView);
     masterMeter.setTooltip("Master output level (click to clear the clip indicators)");
     addAndMakeVisible(masterMeter);
     mixerView.openEffect = [this](model::ObjectId effectId) { effectEditors.open(effectId); };
     addAndMakeVisible(mixerView);
     addAndMakeVisible(statusBar);
+
+    mixerSlide.setWantsFrames(false);
+    themes.addListener(*this);
 
     setSize(1280, 900);
     lastRefreshSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
@@ -53,6 +57,7 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
 
 MainComponent::~MainComponent()
 {
+    themes.removeListener(*this);
     stopTimer();
 }
 
@@ -118,14 +123,18 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
     transportBar.setBounds(area.removeFromTop(TransportBar::height));
+    hazardBand.setBounds(area.removeFromTop(ThemedLookAndFeel::get(*this).hazardBandHeight()));
     statusBar.setBounds(area.removeFromBottom(StatusBar::height));
     area.reduce(8, 8);
 
-    mixerView.setVisible(mixerVisible);
-    if (mixerVisible)
+    // While it slides in or out, the mixer takes part of its height.
+    const int mixerHeight = juce::roundToInt(static_cast<float>(MixerView::preferredHeight + 8) *
+                                             mixerAmount);
+    mixerView.setVisible(mixerHeight > 0);
+    if (mixerHeight > 0)
     {
-        mixerView.setBounds(area.removeFromBottom(MixerView::preferredHeight));
-        area.removeFromBottom(8);
+        auto mixerArea = area.removeFromBottom(mixerHeight);
+        mixerView.setBounds(mixerArea.withTrimmedTop(8).withHeight(MixerView::preferredHeight));
     }
 
     masterMeter.setBounds(area.removeFromRight(40));
@@ -146,6 +155,7 @@ void MainComponent::timerCallback()
 
     transportBar.refresh();
     statusBar.refresh();
+    hazardBand.setRecording(session.isRecording());
     arrangeView.refresh();
 
     // The input peaks are taken once per refresh too; the track headers read them.
@@ -179,6 +189,77 @@ void MainComponent::timerCallback()
         lastRecording = recording;
         commandManager.commandStatusChanged();
     }
+}
+
+void MainComponent::lookAndFeelChanged()
+{
+    resized(); // the band under the transport is the theme's
+}
+
+void MainComponent::themeAboutToChange()
+{
+    // The old look fades out over the new one, if panel transitions are on.
+    if (!mixerSlide.isActive() || !isShowing())
+        return;
+
+    crossfade = std::make_unique<ThemeCrossfade>(
+        createComponentSnapshot(getLocalBounds(), true,
+                                juce::Component::getApproximateScaleFactorForComponent(this)),
+        [this] { crossfade.reset(); });
+    crossfade->setBounds(getLocalBounds());
+    addAndMakeVisible(*crossfade);
+}
+
+void MainComponent::animationSettingsChanged()
+{
+    // Effects switched on or off: everything draws again, with or without them.
+    repaint();
+
+    // Transitions switched off mid-way end at once.
+    if (!mixerSlide.isActive())
+    {
+        crossfade.reset();
+        mixerSlide.setWantsFrames(false);
+        mixerAmount = mixerVisible ? 1.0f : 0.0f;
+        resized();
+    }
+}
+
+void MainComponent::showMixer(bool shouldShow)
+{
+    mixerVisible = shouldShow;
+
+    if (!mixerSlide.isActive())
+    {
+        mixerAmount = mixerVisible ? 1.0f : 0.0f;
+        resized();
+        return;
+    }
+
+    mixerFrom = mixerAmount;
+    mixerSlideStart = -1.0;
+    mixerSlide.setWantsFrames(true);
+}
+
+void MainComponent::mixerFrame(double seconds)
+{
+    constexpr double slideSeconds = 0.18;
+    if (mixerSlideStart < 0.0)
+        mixerSlideStart = seconds;
+
+    const auto progress =
+        static_cast<float>(std::min(1.0, (seconds - mixerSlideStart) / slideSeconds));
+    const float eased = 1.0f - (1.0f - progress) * (1.0f - progress);
+    const float target = mixerVisible ? 1.0f : 0.0f;
+    mixerAmount = mixerFrom + (target - mixerFrom) * eased;
+
+    if (progress >= 1.0f)
+    {
+        mixerAmount = target;
+        mixerSlide.setWantsFrames(false);
+    }
+
+    resized();
 }
 
 void MainComponent::togglePlayPause()
@@ -583,8 +664,7 @@ bool MainComponent::perform(const InvocationInfo& info)
         arrangeView.zoomToFit();
         break;
     case toggleMixer:
-        mixerVisible = !mixerVisible;
-        resized();
+        showMixer(!mixerVisible);
         commandManager.commandStatusChanged();
         break;
     case record:

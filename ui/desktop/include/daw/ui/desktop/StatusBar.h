@@ -1,9 +1,12 @@
 #pragma once
 
 #include "daw/controller/Session.h"
+#include "daw/ui/desktop/AnimationLink.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
+
+#include <cmath>
 
 namespace daw::ui::desktop
 {
@@ -24,18 +27,28 @@ public:
     /** Shows a warning for a few seconds. */
     void showWarning(const juce::String& text);
 
-    /** The prompt's cursor (it blinks when animations allow it). */
-    void setCursorVisible(bool shouldBeVisible);
-
     [[nodiscard]] const ThemedLookAndFeel::StatusLine& getLine() const noexcept { return line; }
 
     void paint(juce::Graphics& g) override;
+    void lookAndFeelChanged() override;
 
 private:
     controller::Session& session;
     ThemedLookAndFeel::StatusLine line;
     juce::String warning;
     juce::uint32 warningUntil = 0;
+
+    // The prompt's cursor blinks (Acid Terminal), with the cursor glow effect.
+    bool cursorOn = true;
+    AnimationLink cursor{*this, appearance::AnimationEffect::cursorGlow, [this](double seconds)
+                         {
+                             const bool on = std::fmod(seconds, 1.06) < 0.53;
+                             if (on != cursorOn)
+                             {
+                                 cursorOn = on;
+                                 repaint();
+                             }
+                         }};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };

@@ -34,6 +34,8 @@ public:
     {
     public:
         virtual ~Listener() = default;
+        /** Just before the theme changes: the old look is still on screen. */
+        virtual void themeAboutToChange() {}
         virtual void themeChanged() {}
         virtual void animationSettingsChanged() {}
     };

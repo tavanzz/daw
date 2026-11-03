@@ -9,7 +9,10 @@ ThemeManager::ThemeManager(appearance::AppearancePreferences preferencesToUse,
       saveCallback(std::move(saver))
 {
     for (const auto& theme : library.getThemes())
+    {
         lookAndFeels.push_back(ThemedLookAndFeel::make(theme, fonts));
+        lookAndFeels.back()->setAnimationClock(&clock);
+    }
 
     systemReducesMotion = systemMotion.asksToReduceMotion();
     apply();
@@ -36,6 +39,7 @@ void ThemeManager::setTheme(const juce::String& themeId)
     if (library.find(themeId) == nullptr || themeId == getTheme().id)
         return;
 
+    listeners.call([](Listener& listener) { listener.themeAboutToChange(); });
     preferences.themeId = themeId;
     apply();
     save();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/appearance/Theme.h"
+#include "daw/ui/desktop/AnimationClock.h"
 #include "daw/ui/desktop/PrerenderedImages.h"
 #include "daw/ui/desktop/ThemeFonts.h"
 
@@ -62,6 +63,8 @@ public:
     static inline const juce::Identifier colourRoleProperty{"colourRole"};
     /** A Label's background, drawn as a display in the theme's shape: a ColourRole key. */
     static inline const juce::Identifier surfaceProperty{"surface"};
+    /** A toggle button's record pulse, 0 to 1 (see drawRecordPulse()). */
+    static inline const juce::Identifier pulseProperty{"pulse"};
 
     static void setFontRole(juce::Component& component, appearance::FontRole role);
     static void setColourRole(juce::Component& component, appearance::ColourRole role);
@@ -90,7 +93,18 @@ public:
 
     /** The theme's glow around a shape (nothing in themes without one), from an image
         painted once per shape, size and colour. */
-    void drawGlow(juce::Graphics& g, const juce::Path& shape, juce::Colour glowColour) const;
+    void drawGlow(juce::Graphics& g, const juce::Path& shape, juce::Colour glowColour,
+                  float opacity = 1.0f) const;
+
+    /** The app's animation clock (set by ThemeManager; none outside the app). */
+    void setAnimationClock(AnimationClock* clockToUse) noexcept { animationClock = clockToUse; }
+    [[nodiscard]] AnimationClock* getAnimationClock() const noexcept { return animationClock; }
+
+    /** Whether an animated effect is drawn now. */
+    [[nodiscard]] bool isAnimating(appearance::AnimationEffect effect) const
+    {
+        return animationClock != nullptr && animationClock->isActive(effect);
+    }
 
     /** Images costly to paint, kept while this theme is in use. */
     [[nodiscard]] PrerenderedImages& getImages() const noexcept { return images; }
@@ -175,14 +189,46 @@ public:
 
     /** A row of the timeline: alternating lanes for tracks, another surface for the
         buses' and the master's automation rows. */
-    void drawLane(juce::Graphics& g, juce::Rectangle<float> area, int row, bool isTrackRow) const;
+    void drawLane(juce::Graphics& g, juce::Rectangle<float> area, int row, bool isTrackRow,
+                  bool translucent = false) const;
     void drawGridLine(juce::Graphics& g, float x, float top, float bottom, bool barLine) const;
     void drawLoopShade(juce::Graphics& g, juce::Rectangle<float> area, bool enabled) const;
-    virtual void drawPlayhead(juce::Graphics& g, float x, float top, float bottom) const;
+    /** How the playhead is drawn now: animated (cursor glow on) or still. */
+    struct PlayheadLook
+    {
+        double seconds = 0.0; ///< on the animation clock
+        bool animated = false;
+        bool playing = false;
+    };
 
-    /** How far the playhead paints on either side of its position, glow included:
-        what a moving playhead must repaint. */
+    virtual void drawPlayhead(juce::Graphics& g, float x, float top, float bottom,
+                              const PlayheadLook& look) const;
+
+    /** Whether the playhead changes from frame to frame (cursor glow on). */
+    [[nodiscard]] virtual bool playheadAnimates(bool playing) const;
+
+    /** How far the playhead paints on either side of its position, glow and trail
+        included: what a moving playhead must repaint. */
     [[nodiscard]] int playheadReach() const noexcept;
+
+    /** A moving background in the timeline (scanlines, perspective grid), drawn under
+        the lanes, which then let it through, or over them. */
+    [[nodiscard]] virtual bool hasTimelineBackground() const { return false; }
+    [[nodiscard]] virtual bool timelineBackgroundIsUnder() const { return false; }
+    virtual void drawTimelineBackground(juce::Graphics& g, juce::Rectangle<float> area,
+                                        double seconds) const;
+
+    /** A band under the transport (Acid Terminal's hazard stripes); 0 for none. */
+    [[nodiscard]] virtual int hazardBandHeight() const { return 0; }
+    virtual void drawHazardBand(juce::Graphics& g, juce::Rectangle<float> area, double seconds,
+                                bool recording) const;
+
+    /** A pulse from 0 to 1 and back, about once a second, for recording. */
+    [[nodiscard]] static float pulseAt(double seconds) noexcept;
+
+    /** The record pulse on a control or a recording clip: a ring inside its shape. */
+    void drawRecordPulse(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour fill,
+                         float pulse) const;
     void drawDropIndicator(juce::Graphics& g, juce::Rectangle<float> area) const;
 
     enum class ClipState
@@ -218,10 +264,18 @@ public:
     void drawRulerLoop(juce::Graphics& g, float x0, float x1, float height, bool enabled) const;
     virtual void drawPlayheadMarker(juce::Graphics& g, float x, float bottom) const;
 
+    /** What animated meters add: a glow on the level (themes with a glow), LEDs
+        fading out down to the afterglow level (segment meters). */
+    struct MeterAnimation
+    {
+        bool animated = false;
+        float afterglowDb = -60.0f;
+    };
+
     /** One channel of a level meter: gradient or LED segments, as the theme says, with
         the unlit track and the peak-hold line. */
     virtual void drawMeterBar(juce::Graphics& g, juce::Rectangle<float> bar, float levelDb,
-                              float peakHoldDb) const;
+                              float peakHoldDb, const MeterAnimation& animation) const;
     void drawClipIndicator(juce::Graphics& g, juce::Rectangle<float> area, bool clipping) const;
     void drawMeterScale(juce::Graphics& g, juce::Rectangle<float> area,
                         std::span<const float> marksDb) const;
@@ -278,9 +332,10 @@ public:
     void drawAutomationLabel(juce::Graphics& g, const juce::String& text,
                              juce::Rectangle<float> area, bool emphasised) const;
 
-    /** The app's name in the theme's own logo style. */
-    virtual void drawLogo(juce::Graphics& g, juce::Rectangle<float> area,
-                          const juce::String& text) const;
+    /** The app's name in the theme's own logo style; glitching: its glitch effect at
+        this time on the clock (flicker, glitch or chrome sweep). */
+    virtual void drawLogo(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text,
+                          double seconds, bool glitching) const;
 
     /** What the status bar shows. */
     struct StatusLine
@@ -302,6 +357,9 @@ protected:
                                                  const juce::String& text) const;
 
     /** Draws the border of a control; themes with glows add theirs. */
+    /** How far behind the playhead its trail reaches (0 for none). */
+    [[nodiscard]] virtual int playheadTrail() const noexcept { return 0; }
+
     virtual void drawControlOutline(juce::Graphics& g, const juce::Path& outline, bool isActive,
                                     juce::Colour activeColour) const;
 
@@ -315,6 +373,7 @@ protected:
 
 private:
     mutable PrerenderedImages images;
+    AnimationClock* animationClock = nullptr;
 
     void setColoursFromTheme();
 

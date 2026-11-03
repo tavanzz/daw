@@ -475,6 +475,19 @@ Modules with one-way dependencies:
   enable-animations via gsettings on a background thread), read at start and when
   the window becomes active. Platform code lives in `src/SystemQueries_apple.mm` and
   `src/SystemQueries.cpp`.
+- Animations (Phase 5): components get frames through `AnimationLink` (an RAII
+  subscription to the clock of their look and feel) and ask it whether the effect is
+  active; each theme's look and feel draws the effect (`drawTimelineBackground()`,
+  `drawPlayhead()` with a `PlayheadLook`, `drawLogo()` with the clock's time,
+  `drawHazardBand()`, `drawRecordPulse()`, `drawMeterBar()` with a `MeterAnimation`).
+  `TrackLanes` paints its content (lanes, grid, loop, clips, automation) into an image
+  of the visible area, redrawn only on `contentChanged()` (edits, view, selection,
+  theme, size); frames put the image back and draw the background (under translucent
+  lanes in Synth Chrome, over them in Neon Grid) and the playhead on it. Meters
+  animate with the functional refresh, not the clock. Panel transitions: the mixer
+  slides (`MainComponent::showMixer()`), and on a theme change a snapshot of the old
+  look fades out (`ThemeCrossfade`, after `ThemeManager::Listener::
+  themeAboutToChange()`); switching transitions off mid-way ends them at once.
 - Prerendered images (Phase 5): `PrerenderedImages` keeps images costly to paint
   (glows, background tiles) by key and size, painted once, least recently used
   dropped beyond 96; each look and feel has its own set, emptied when its theme
@@ -895,7 +908,7 @@ into `phase-5`.
       EQ curve, compressor gain reduction), automation lanes themed
 - [x] 9. Dialogs and alerts themed (export, audio settings, latency, recovery,
       themed alert windows); no colour or font literals outside the LookAndFeels
-- [ ] 10. Animations: each theme's own and the shared ones (meters, record pulse,
+- [x] 10. Animations: each theme's own and the shared ones (meters, record pulse,
       panel transitions, theme crossfade)
 - [ ] 11. View > Theme (Cmd+1/2/3), theme previews panel; View > Animations panel,
       Shift+Cmd+A
@@ -943,8 +956,8 @@ Phase 5 decisions (agreed before starting):
   band under the transport, faster and red while recording (Acid), perspective grid
   (Synth); glitch = the logo's flicker, glitch or chrome sweep; cursor glow = pulsing
   playhead (Neon), blinking status-bar cursor (Acid), playhead trail (Synth);
-  animated meters = glow, LED afterglow and a smooth peak-hold fall (off: meters
-  still show level and peak); record pulse = the Rec button and recording clips;
+  animated meters = a glow on the level (Neon, Synth), LED afterglow (Acid) (off:
+  meters still show level and peak, whose fall is the meter's own ballistics); record pulse = the Rec button and recording clips;
   panel transitions = the mixer sliding, panels fading, a crossfade on theme change.
   "Reduced" turns off moving backgrounds, glitch and transitions.
 - One animation timer at 30 Hz, stopped when nothing animates, at level Off, or when

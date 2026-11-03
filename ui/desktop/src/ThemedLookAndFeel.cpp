@@ -298,7 +298,7 @@ void ThemedLookAndFeel::setColoursFromTheme()
 }
 
 void ThemedLookAndFeel::drawGlow(juce::Graphics& g, const juce::Path& shape,
-                                 juce::Colour glowColour) const
+                                 juce::Colour glowColour, float opacity) const
 {
     const float radius = theme.shape.glow;
     if (radius <= 0.0f || shape.isEmpty())
@@ -326,8 +326,10 @@ void ThemedLookAndFeel::drawGlow(juce::Graphics& g, const juce::Path& shape,
                 .drawForPath(imageGraphics, tube);
         });
 
+    g.setOpacity(opacity);
     g.drawImageAt(image, juce::roundToInt(origin.x) + size.getX(),
                   juce::roundToInt(origin.y) + size.getY());
+    g.setOpacity(1.0f);
 }
 
 //==============================================================================
@@ -364,6 +366,10 @@ void ThemedLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bu
     g.fillPath(outline);
 
     drawControlOutline(g, outline, isOn, baseColour);
+
+    if (const auto pulse = static_cast<float>(button.getProperties()[pulseProperty]);
+        isOn && pulse > 0.0f)
+        drawRecordPulse(g, area, baseColour, pulse);
 
     if (button.hasKeyboardFocus(true))
     {
@@ -986,11 +992,12 @@ void ThemedLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> area
 }
 
 void ThemedLookAndFeel::drawLane(juce::Graphics& g, juce::Rectangle<float> area, int row,
-                                 bool isTrackRow) const
+                                 bool isTrackRow, bool translucent) const
 {
-    g.setColour(colour(!isTrackRow    ? ColourRole::panelAlt
-                       : row % 2 == 0 ? ColourRole::lane
-                                      : ColourRole::laneAlt));
+    const auto fill = colour(!isTrackRow    ? ColourRole::panelAlt
+                             : row % 2 == 0 ? ColourRole::lane
+                                            : ColourRole::laneAlt);
+    g.setColour(translucent ? fill.withAlpha(0.72f) : fill);
     g.fillRect(area);
 }
 
@@ -1010,10 +1017,40 @@ void ThemedLookAndFeel::drawLoopShade(juce::Graphics& g, juce::Rectangle<float> 
 
 int ThemedLookAndFeel::playheadReach() const noexcept
 {
-    return 3 + static_cast<int>(std::ceil(theme.shape.glow));
+    return 3 + static_cast<int>(std::ceil(theme.shape.glow)) + playheadTrail();
 }
 
-void ThemedLookAndFeel::drawPlayhead(juce::Graphics& g, float x, float top, float bottom) const
+bool ThemedLookAndFeel::playheadAnimates(bool) const
+{
+    return false;
+}
+
+void ThemedLookAndFeel::drawTimelineBackground(juce::Graphics&, juce::Rectangle<float>,
+                                               double) const
+{
+}
+
+void ThemedLookAndFeel::drawHazardBand(juce::Graphics&, juce::Rectangle<float>, double, bool) const
+{
+}
+
+float ThemedLookAndFeel::pulseAt(double seconds) noexcept
+{
+    return static_cast<float>(0.5 -
+                              0.5 * std::cos(seconds * juce::MathConstants<double>::twoPi * 0.9));
+}
+
+void ThemedLookAndFeel::drawRecordPulse(juce::Graphics& g, juce::Rectangle<float> area,
+                                        juce::Colour fill, float pulse) const
+{
+    // A ring in the colour that reads on the fill, so the label stays as readable.
+    g.setColour(textColourOn(fill).withAlpha(0.75f * pulse));
+    g.strokePath(shapeOf(area.reduced(theme.shape.border + 1.5f), CornerSize::small),
+                 juce::PathStrokeType(1.5f));
+}
+
+void ThemedLookAndFeel::drawPlayhead(juce::Graphics& g, float x, float top, float bottom,
+                                     const PlayheadLook&) const
 {
     const auto line = juce::Rectangle<float>(x - 0.75f, top, 1.5f, bottom - top);
     juce::Path shape;
@@ -1138,7 +1175,7 @@ void ThemedLookAndFeel::drawPlayheadMarker(juce::Graphics& g, float x, float bot
 }
 
 void ThemedLookAndFeel::drawMeterBar(juce::Graphics& g, juce::Rectangle<float> bar, float levelDb,
-                                     float peakHoldDb) const
+                                     float peakHoldDb, const MeterAnimation& animation) const
 {
     using engine::dsp::MeterBallistics;
     const auto yFor = [&bar](float decibels)
@@ -1165,7 +1202,11 @@ void ThemedLookAndFeel::drawMeterBar(juce::Graphics& g, juce::Rectangle<float> b
             const auto lit = toJuce(meter.colourAt(decibels));
             const bool on =
                 levelDb > MeterBallistics::floorDb && segment.getCentreY() >= yFor(levelDb);
-            g.setColour(on ? lit : lit.withAlpha(0.12f));
+            // Animated: LEDs that were just lit fade out instead of going dark at once.
+            const bool fading = !on && animation.animated &&
+                                animation.afterglowDb > MeterBallistics::floorDb &&
+                                segment.getCentreY() >= yFor(animation.afterglowDb);
+            g.setColour(on ? lit : lit.withAlpha(fading ? 0.45f : 0.12f));
             g.fillRect(segment);
         }
     }
@@ -1179,6 +1220,14 @@ void ThemedLookAndFeel::drawMeterBar(juce::Graphics& g, juce::Rectangle<float> b
 
         g.setGradientFill(gradient);
         g.fillRect(bar.withTop(yFor(levelDb)));
+
+        // Animated: the top of the level glows in its colour.
+        if (animation.animated && theme.shape.glow > 0.0f)
+        {
+            juce::Path top;
+            top.addRectangle(bar.withTop(yFor(levelDb)).withHeight(2.0f));
+            drawGlow(g, top, toJuce(meter.colourAt(levelDb)), 0.8f);
+        }
     }
 
     if (peakHoldDb > MeterBallistics::floorDb)
@@ -1219,7 +1268,7 @@ void ThemedLookAndFeel::drawTrackHeader(juce::Graphics& g, juce::Rectangle<float
 }
 
 void ThemedLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> area,
-                                 const juce::String& text) const
+                                 const juce::String& text, double, bool) const
 {
     g.setColour(colour(ColourRole::accent));
     g.setFont(font(FontRole::title, std::min(26.0f, area.getHeight() * 0.62f)));

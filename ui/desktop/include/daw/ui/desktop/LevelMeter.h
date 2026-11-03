@@ -27,6 +27,8 @@ public:
 
 private:
     std::array<engine::dsp::MeterBallistics, 2> channels;
+    std::array<float, 2> afterglowDb{engine::dsp::MeterBallistics::floorDb,
+                                     engine::dsp::MeterBallistics::floorDb};
     bool scaleVisible = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LevelMeter)

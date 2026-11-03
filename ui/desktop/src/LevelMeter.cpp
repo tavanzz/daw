@@ -2,6 +2,8 @@
 
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
+#include <algorithm>
+
 namespace daw::ui::desktop
 {
 
@@ -10,6 +12,8 @@ namespace
 constexpr int clipIndicatorHeight = 8;
 constexpr int scaleWidth = 22;
 constexpr float scaleMarksDb[] = {0.0f, -6.0f, -12.0f, -24.0f, -36.0f, -48.0f};
+// LEDs fade out more slowly than the level falls.
+constexpr float afterglowFallDbPerSecond = 12.0f;
 } // namespace
 
 LevelMeter::LevelMeter()
@@ -21,6 +25,12 @@ void LevelMeter::update(float leftPeak, float rightPeak, double elapsedSeconds)
 {
     channels[0].update(leftPeak, elapsedSeconds);
     channels[1].update(rightPeak, elapsedSeconds);
+
+    const auto fall = afterglowFallDbPerSecond * static_cast<float>(elapsedSeconds);
+    for (std::size_t channel = 0; channel < channels.size(); ++channel)
+        afterglowDb[channel] =
+            std::max(channels[channel].getLevelDb(), afterglowDb[channel] - fall);
+
     repaint();
 }
 
@@ -39,6 +49,7 @@ void LevelMeter::paint(juce::Graphics& g)
     area.removeFromTop(2.0f);
 
     const float barWidth = (area.getWidth() - 2.0f) / 2.0f;
+    const bool animated = lookAndFeel.isAnimating(appearance::AnimationEffect::animatedMeters);
 
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -46,7 +57,8 @@ void LevelMeter::paint(juce::Graphics& g)
         const float x = area.getX() + static_cast<float>(channel) * (barWidth + 2.0f);
 
         lookAndFeel.drawMeterBar(g, {x, area.getY(), barWidth, area.getHeight()},
-                                 meter.getLevelDb(), meter.getPeakHoldDb());
+                                 meter.getLevelDb(), meter.getPeakHoldDb(),
+                                 {animated, afterglowDb[static_cast<std::size_t>(channel)]});
         lookAndFeel.drawClipIndicator(g, {x, clipArea.getY(), barWidth, clipArea.getHeight()},
                                       meter.isClipping());
     }

@@ -24,6 +24,7 @@ juce::String diskTimeLeft(double seconds)
 StatusBar::StatusBar(controller::Session& sessionToShow) : session(sessionToShow)
 {
     setInterceptsMouseClicks(false, false);
+    lookAndFeelChanged();
     refresh();
 }
 
@@ -34,12 +35,11 @@ void StatusBar::showWarning(const juce::String& text)
     refresh();
 }
 
-void StatusBar::setCursorVisible(bool shouldBeVisible)
+void StatusBar::lookAndFeelChanged()
 {
-    if (line.cursorVisible == shouldBeVisible)
-        return;
-
-    line.cursorVisible = shouldBeVisible;
+    // Only a prompt has a cursor to blink.
+    cursor.setWantsFrames(ThemedLookAndFeel::get(*this).getTheme().shape.statusBar ==
+                          appearance::StatusBarStyle::prompt);
     repaint();
 }
 
@@ -99,7 +99,9 @@ void StatusBar::refresh()
 
 void StatusBar::paint(juce::Graphics& g)
 {
-    ThemedLookAndFeel::get(*this).drawStatusBar(g, getLocalBounds().toFloat(), line);
+    auto shown = line;
+    shown.cursorVisible = cursorOn || !cursor.isActive();
+    ThemedLookAndFeel::get(*this).drawStatusBar(g, getLocalBounds().toFloat(), shown);
 }
 
 } // namespace daw::ui::desktop
