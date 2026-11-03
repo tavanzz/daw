@@ -96,9 +96,9 @@
         "animatedMeters": { "available": true, "cost": "medium", "description": "A neon glow on top of the level" },
         "cursorGlow": { "available": true, "cost": "low", "description": "The playhead pulses" },
         "recordPulse": { "available": true, "cost": "low", "description": "The Rec button and recording clips pulse" },
-        "movingBackgrounds": { "available": true, "cost": "high", "description": "Scanlines scroll over the timeline" },
+        "movingBackgrounds": { "available": true, "cost": "medium", "description": "Scanlines scroll over the timeline" },
         "glitch": { "available": true, "cost": "low", "description": "The logo flickers" },
-        "panelTransitions": { "available": true, "cost": "medium", "description": "The mixer slides, panels fade, themes crossfade" }
+        "panelTransitions": { "available": true, "cost": "low", "description": "The mixer slides, panels fade, themes crossfade" }
     },
     "summary": {
         "shapes": "Rounded corners (3 to 6 px), neon glow on active elements",

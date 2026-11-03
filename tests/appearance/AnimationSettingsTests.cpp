@@ -111,13 +111,13 @@ TEST_CASE("An effect the theme does not draw never runs", "[appearance]")
 
 TEST_CASE("The animation load adds up the running effects' costs", "[appearance]")
 {
-    // Neon Grid: meters medium, cursor low, record low, backgrounds high, glitch low,
-    // transitions medium.
+    // Neon Grid: meters medium, cursor low, record low, backgrounds medium, glitch low,
+    // transitions low (as measured, docs/PERFORMANCE.md).
     AnimationSettings settings;
 
     const auto full = animationLoad(settings, neonGrid(), noSystemRequest);
-    CHECK(full.points == 10);
-    CHECK(full.maximumPoints == 10);
+    CHECK(full.points == 8);
+    CHECK(full.maximumPoints == 8);
     CHECK(full.rating == Cost::high);
 
     settings.setLevel(AnimationLevel::reduced);
@@ -128,7 +128,7 @@ TEST_CASE("The animation load adds up the running effects' costs", "[appearance]
     settings.setLevel(AnimationLevel::full);
     settings.setSwitchedOn(AnimationEffect::movingBackgrounds, false);
     const auto withoutBackgrounds = animationLoad(settings, neonGrid(), noSystemRequest);
-    CHECK(withoutBackgrounds.points == 7);
+    CHECK(withoutBackgrounds.points == 6);
     CHECK(withoutBackgrounds.rating == Cost::medium);
 
     settings.setLevel(AnimationLevel::off);

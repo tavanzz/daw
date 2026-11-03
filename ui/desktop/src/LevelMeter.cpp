@@ -3,6 +3,7 @@
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace daw::ui::desktop
 {
@@ -31,6 +32,26 @@ void LevelMeter::update(float leftPeak, float rightPeak, double elapsedSeconds)
         afterglowDb[channel] =
             std::max(channels[channel].getLevelDb(), afterglowDb[channel] - fall);
 
+    // Silent or steady meters (most of them, most of the time) are not repainted: a
+    // change smaller than a twentieth of a dB moves nothing on screen.
+    Shown now;
+    for (std::size_t channel = 0; channel < channels.size(); ++channel)
+    {
+        now.levelDb[channel] = channels[channel].getLevelDb();
+        now.peakHoldDb[channel] = channels[channel].getPeakHoldDb();
+        now.afterglowDb[channel] = afterglowDb[channel];
+        now.clipping[channel] = channels[channel].isClipping();
+    }
+
+    const auto unchanged = [](const std::array<float, 2>& a, const std::array<float, 2>& b)
+    { return std::abs(a[0] - b[0]) < 0.05f && std::abs(a[1] - b[1]) < 0.05f; };
+
+    if (shown && unchanged(shown->levelDb, now.levelDb) &&
+        unchanged(shown->peakHoldDb, now.peakHoldDb) &&
+        unchanged(shown->afterglowDb, now.afterglowDb) && shown->clipping == now.clipping)
+        return;
+
+    shown = now;
     repaint();
 }
 
@@ -72,6 +93,7 @@ void LevelMeter::mouseDown(const juce::MouseEvent&)
 {
     for (auto& meter : channels)
         meter.resetClip();
+    shown.reset();
     repaint();
 }
 

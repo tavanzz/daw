@@ -97,9 +97,9 @@
         "animatedMeters": { "available": true, "cost": "medium", "description": "A glow on top of the level" },
         "cursorGlow": { "available": true, "cost": "low", "description": "The playhead leaves a fading trail" },
         "recordPulse": { "available": true, "cost": "low", "description": "The Rec button and recording clips pulse" },
-        "movingBackgrounds": { "available": true, "cost": "high", "description": "A perspective grid scrolls under the timeline" },
+        "movingBackgrounds": { "available": true, "cost": "medium", "description": "A perspective grid scrolls under the timeline" },
         "glitch": { "available": true, "cost": "low", "description": "A chrome reflection sweeps across the logo" },
-        "panelTransitions": { "available": true, "cost": "medium", "description": "The mixer slides, panels fade, themes crossfade" }
+        "panelTransitions": { "available": true, "cost": "low", "description": "The mixer slides, panels fade, themes crossfade" }
     },
     "summary": {
         "shapes": "Corners cut at 45 degrees, arc pots for pan",

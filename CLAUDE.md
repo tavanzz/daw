@@ -610,8 +610,11 @@ ctest --preset debug            # run all tests
   compensation projects from `python3 tools/make_listening_test_files.py` (into
   `build/listening-tests/`; add `--long` for the hour-long streaming file).
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
-  `build/release/tests/daw_stream_bench` (streaming and recording) and
-  `build/release/tests/daw_fx_bench` (effects); results in `docs/PERFORMANCE.md`.
+  `build/release/tests/daw_stream_bench` (streaming and recording),
+  `build/release/tests/daw_fx_bench` (effects) and the interface's cost per theme and
+  animation level, `"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI
+  Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
+  four minutes); results in `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen.
 
@@ -929,7 +932,7 @@ into `phase-5`.
       Shift+Cmd+A
 - [x] 12. UI tests: every theme paints every component; switching themes leaves the
       project and the audio unchanged; the clock stops when off or hidden
-- [ ] 13. Benchmark: UI frame time and CPU per theme and animation level with a large
+- [x] 13. Benchmark: UI frame time and CPU per theme and animation level with a large
       project (Release), `docs/PERFORMANCE.md`
 - [ ] 14. Screenshots and visual checks in `docs/LISTENING_TESTS.md`; version 0.5.0
 

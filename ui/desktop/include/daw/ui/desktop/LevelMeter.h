@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <optional>
 
 namespace daw::ui::desktop
 {
@@ -29,6 +30,16 @@ private:
     std::array<engine::dsp::MeterBallistics, 2> channels;
     std::array<float, 2> afterglowDb{engine::dsp::MeterBallistics::floorDb,
                                      engine::dsp::MeterBallistics::floorDb};
+
+    // What was last painted: a meter that would look the same is not repainted.
+    struct Shown
+    {
+        std::array<float, 2> levelDb{};
+        std::array<float, 2> peakHoldDb{};
+        std::array<float, 2> afterglowDb{};
+        std::array<bool, 2> clipping{};
+    };
+    std::optional<Shown> shown;
     bool scaleVisible = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LevelMeter)

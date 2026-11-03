@@ -93,12 +93,12 @@
         "segmentGap": 1
     },
     "effects": {
-        "animatedMeters": { "available": true, "cost": "medium", "description": "LED segments fade out instead of going dark at once" },
+        "animatedMeters": { "available": true, "cost": "low", "description": "LED segments fade out instead of going dark at once" },
         "cursorGlow": { "available": true, "cost": "low", "description": "The status bar's cursor blinks" },
         "recordPulse": { "available": true, "cost": "low", "description": "The Rec button and recording clips pulse" },
-        "movingBackgrounds": { "available": true, "cost": "medium", "description": "Hazard stripes scroll under the transport, red while recording" },
+        "movingBackgrounds": { "available": true, "cost": "low", "description": "Hazard stripes scroll under the transport, red while recording" },
         "glitch": { "available": true, "cost": "low", "description": "The logo glitches" },
-        "panelTransitions": { "available": true, "cost": "medium", "description": "The mixer slides, panels fade, themes crossfade" }
+        "panelTransitions": { "available": true, "cost": "low", "description": "The mixer slides, panels fade, themes crossfade" }
     },
     "summary": {
         "shapes": "Sharp corners, 2 px borders, terminal labels, a prompt status bar",
