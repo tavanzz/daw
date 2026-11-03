@@ -189,7 +189,11 @@ Modules with one-way dependencies:
   (1.5 ms lookahead = its latency; the lowest required gain over the lookahead,
   released exponentially, averaged over the lookahead, so every output sample is
   under the ceiling by construction; a final clip only catches rounding). Both
-  report their gain reduction to the UI through a `GainReductionMeter`. Tests run effects through `tests/support/EffectRunner.h` and
+  report their gain reduction to the UI through a `GainReductionMeter`. `Delay`
+  (whole-sample delay up to 4 s, in ms or a synced note at the block's tempo;
+  feedback at most 95 % through one-pole low/high cuts that never amplify, off at
+  the ends of their ranges; ping-pong; a new time crossfades between two taps over
+  50 ms, one change at a time). Tests run effects through `tests/support/EffectRunner.h` and
   compare measured responses with formulas written independently of the code.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
@@ -619,7 +623,7 @@ comping, mobile UI, writing automation live (touch/latch).
       volume, pan, sends and effect parameters
 - [x] 6. Equaliser: SVF bands, Butterworth high/low-pass, response function
 - [x] 7. Compressor and limiter, gain-reduction meters
-- [ ] 8. Delay: tempo sync, ping-pong, filtered feedback
+- [x] 8. Delay: tempo sync, ping-pong, filtered feedback
 - [ ] 9. Reverb: feedback delay network with an exact decay time
 - [ ] 10. Project format version 4: effects, buses, sends, automation; migration from
       version 3
