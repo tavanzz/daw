@@ -20,6 +20,7 @@ add_executable(daw_tests
     engine/BounceTests.cpp
     engine/BusTests.cpp
     engine/DiskStreamerTests.cpp
+    engine/DynamicsTests.cpp
     engine/EffectChainTests.cpp
     engine/EffectHostTests.cpp
     engine/EngineTests.cpp

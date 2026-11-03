@@ -183,7 +183,13 @@ Modules with one-way dependencies:
   sections in double, the Audio EQ Cookbook's bells and shelves and Butterworth
   passes of 6 to 48 dB/oct; `magnitude()` is the exact response for the UI's curve;
   band switches and slopes crossfade over 10 ms; silence in with filters at rest
-  skips the work). Tests run effects through `tests/support/EffectRunner.h` and
+  skips the work). `Compressor` (Giannoulis et al.: linked peak level in dB, static
+  curve with threshold, ratio and a quadratic knee, smoothed in dB with attack and
+  release time constants, makeup, mix; `staticCurve()` for the UI). `Limiter`
+  (1.5 ms lookahead = its latency; the lowest required gain over the lookahead,
+  released exponentially, averaged over the lookahead, so every output sample is
+  under the ceiling by construction; a final clip only catches rounding). Both
+  report their gain reduction to the UI through a `GainReductionMeter`. Tests run effects through `tests/support/EffectRunner.h` and
   compare measured responses with formulas written independently of the code.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
@@ -612,7 +618,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 5. Automation in the engine: curves, per-sample values at the audio's position,
       volume, pan, sends and effect parameters
 - [x] 6. Equaliser: SVF bands, Butterworth high/low-pass, response function
-- [ ] 7. Compressor and limiter, gain-reduction meters
+- [x] 7. Compressor and limiter, gain-reduction meters
 - [ ] 8. Delay: tempo sync, ping-pong, filtered feedback
 - [ ] 9. Reverb: feedback delay network with an exact decay time
 - [ ] 10. Project format version 4: effects, buses, sends, automation; migration from
