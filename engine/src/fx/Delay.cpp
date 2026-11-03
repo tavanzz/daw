@@ -14,6 +14,10 @@ namespace
 constexpr float lowCutOff = 20.0f;     // at or below: no low cut
 constexpr float highCutOff = 20000.0f; // at or above: no high cut
 
+// Echoes this quiet become zero, sample by sample: far below hearing, and the delay
+// comes to rest (and skips its work) much sooner.
+constexpr float restingLevel = 1.0e-15f;
+
 double onePoleCoefficient(double frequency, double sampleRate) noexcept
 {
     const double g = std::tan(std::numbers::pi * std::min(frequency, 0.49 * sampleRate) / sampleRate);
@@ -122,6 +126,20 @@ void Delay::process(const ProcessBlock& block) noexcept
     const auto& values = block.parameters;
     const int numChannels = std::min(block.numChannels, 2);
 
+    // At rest with silence coming in: only time passes.
+    if (silentFor >= capacity + fadeLength)
+    {
+        bool silence = true;
+        for (int channel = 0; channel < numChannels && silence; ++channel)
+            for (int i = 0; i < block.numSamples && silence; ++i)
+                silence = juce::exactlyEqual(block.channels[channel][i], 0.0f);
+        if (silence)
+        {
+            writePosition = (writePosition + block.numSamples) % capacity;
+            return;
+        }
+    }
+
     for (int i = 0; i < block.numSamples; ++i)
     {
         const float in[2] = {block.channels[0][i],
@@ -202,8 +220,12 @@ void Delay::process(const ProcessBlock& block) noexcept
         }
 
         for (int channel = 0; channel < 2; ++channel)
+        {
+            if (std::abs(written[channel]) < restingLevel)
+                written[channel] = 0.0f;
             lines[static_cast<std::size_t>(channel)][static_cast<std::size_t>(writePosition)] =
                 written[channel];
+        }
         writePosition = (writePosition + 1) % capacity;
 
         const bool quiet = juce::exactlyEqual(written[0], 0.0f) && juce::exactlyEqual(written[1], 0.0f);

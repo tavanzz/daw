@@ -105,6 +105,9 @@ public:
         [[nodiscard]] bool isClear() const noexcept;
     };
 
+    /** Nothing left inside and silence coming in: it skips its work. For tests. */
+    [[nodiscard]] bool isResting() const noexcept { return silent; }
+
 private:
     struct Band
     {

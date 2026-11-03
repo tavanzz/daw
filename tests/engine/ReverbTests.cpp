@@ -1,3 +1,5 @@
+#include "daw/engine/fx/Delay.h"
+#include "daw/engine/fx/Equaliser.h"
 #include "daw/engine/fx/Reverb.h"
 
 #include "support/EffectRunner.h"
@@ -219,4 +221,32 @@ TEST_CASE("Mix and width: dry when off, mono when narrow", "[engine][fx][reverb]
     values[Reverb::preDelay] = 50.0f;
     values[Reverb::decay] = 3.0f;
     CHECK_THAT(Reverb().getTailSeconds(values), WithinRel(0.05 + 5.0, 1e-6));
+}
+
+TEST_CASE("Equaliser, delay and reverb come to rest in silence and skip their work",
+          "[engine][fx][reverb]")
+{
+    const juce::ScopedNoDenormals noDenormals; // as on the audio thread
+
+    juce::AudioBuffer<float> input(2, 25 * 48000);
+    input.clear();
+    for (int i = 0; i < 4800; ++i)
+        for (int channel = 0; channel < 2; ++channel)
+            input.setSample(channel, i, 0.5f * daw::test::testInputSample(channel, i));
+
+    EffectRunner equaliser(std::make_unique<daw::engine::fx::Equaliser>(), sampleRate);
+    equaliser.set("highPassOn", 1.0f);
+    equaliser.set("bell2Gain", 6.0f);
+    (void) equaliser.run(input);
+    CHECK(dynamic_cast<daw::engine::fx::Equaliser&>(equaliser.instance.getEffect()).isResting());
+
+    EffectRunner delay(std::make_unique<daw::engine::fx::Delay>(), sampleRate);
+    delay.set("feedback", 50.0f); // 1e-15 after about 50 echoes, 10 s
+    delay.set("time", 200.0f);
+    (void) delay.run(input);
+    CHECK(dynamic_cast<daw::engine::fx::Delay&>(delay.instance.getEffect()).isResting());
+
+    auto reverb = plainReverb(2.0f, 70.0f, 30.0f);
+    (void) reverb->run(input);
+    CHECK(dynamic_cast<Reverb&>(reverb->instance.getEffect()).isResting());
 }

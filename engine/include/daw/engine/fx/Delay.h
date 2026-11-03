@@ -62,6 +62,9 @@ public:
     [[nodiscard]] static int delaySamples(bool synced, double milliseconds, int noteIndex,
                                           double tempo, double sampleRate) noexcept;
 
+    /** Nothing left inside and silence coming in: it skips its work. For tests. */
+    [[nodiscard]] bool isResting() const noexcept { return silentFor >= capacity + fadeLength; }
+
 private:
     struct OnePole
     {

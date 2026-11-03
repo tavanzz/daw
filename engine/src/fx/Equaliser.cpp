@@ -205,6 +205,20 @@ void Equaliser::reset() noexcept
     fresh = true;
 }
 
+namespace
+{
+// States this small are set to zero, sample by sample (so the result never depends
+// on the blocks): far below hearing, and it lets a filter come to rest. Without
+// it, flushing denormals can leave a state flipping sign just above the smallest
+// normal double for ever.
+constexpr double restingLevel = 1.0e-20;
+
+double settled(double state) noexcept
+{
+    return std::abs(state) < restingLevel ? 0.0 : state;
+}
+} // namespace
+
 double Equaliser::Section::process(int channel, double x) noexcept
 {
     if (firstOrder)
@@ -212,15 +226,15 @@ double Equaliser::Section::process(int channel, double x) noexcept
         // Trapezoidal one-pole: a1 is G = g / (1 + g).
         const double v = (x - s1[channel]) * a1;
         const double low = v + s1[channel];
-        s1[channel] = low + v;
+        s1[channel] = settled(low + v);
         return m0 * x + m2 * low;
     }
 
     const double v3 = x - s2[channel];
     const double v1 = a1 * s1[channel] + a2 * v3;
     const double v2 = s2[channel] + a2 * s1[channel] + a3 * v3;
-    s1[channel] = 2.0 * v1 - s1[channel];
-    s2[channel] = 2.0 * v2 - s2[channel];
+    s1[channel] = settled(2.0 * v1 - s1[channel]);
+    s2[channel] = settled(2.0 * v2 - s2[channel]);
     return m0 * x + m1 * v1 + m2 * v2;
 }
 

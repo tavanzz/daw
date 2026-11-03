@@ -183,7 +183,8 @@ Modules with one-way dependencies:
   sections in double, the Audio EQ Cookbook's bells and shelves and Butterworth
   passes of 6 to 48 dB/oct; `magnitude()` is the exact response for the UI's curve;
   band switches and slopes crossfade over 10 ms; silence in with filters at rest
-  skips the work). `Compressor` (Giannoulis et al.: linked peak level in dB, static
+  skips the work; filter states below 1e-20 are set to zero sample by sample, or
+  flushing denormals leaves them flipping sign for ever). `Compressor` (Giannoulis et al.: linked peak level in dB, static
   curve with threshold, ratio and a quadratic knee, smoothed in dB with attack and
   release time constants, makeup, mix; `staticCurve()` for the UI). `Limiter`
   (1.5 ms lookahead = its latency; the lowest required gain over the lookahead,
@@ -461,9 +462,9 @@ ctest --preset debug            # run all tests
   project and the Phase 3 recording project from
   `python3 tools/make_listening_test_files.py` (into `build/listening-tests/`; add
   `--long` for the hour-long streaming file).
-- Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing)
-  and `build/release/tests/daw_stream_bench` (streaming and recording); results in
-  `docs/PERFORMANCE.md`.
+- Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
+  `build/release/tests/daw_stream_bench` (streaming and recording) and
+  `build/release/tests/daw_fx_bench` (effects); results in `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen.
 
@@ -671,7 +672,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 11. Controller: chains, buses and sends in the session, effect instances,
       arrangement building with latencies, NaN reports
 - [x] 12. Controller: automation editing and undo, values for the UI, export with tail
-- [ ] 13. Benchmark: cost of each effect, tracks with a typical chain per budget
+- [x] 13. Benchmark: cost of each effect, tracks with a typical chain per budget
 - [ ] 14. Desktop UI: inserts, sends, bus strips and master inserts in the mixer
 - [ ] 15. Desktop UI: generic effect editor, EQ curve, compressor view
 - [ ] 16. Desktop UI: automation lanes

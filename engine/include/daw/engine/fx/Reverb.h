@@ -54,6 +54,9 @@ public:
     void process(const ProcessBlock& block) noexcept override;
     [[nodiscard]] double getTailSeconds(std::span<const float> values) const override;
 
+    /** Nothing left inside and silence coming in: it skips its work. For tests. */
+    [[nodiscard]] bool isResting() const noexcept { return quietFor >= memory * 4; }
+
 private:
     struct Line
     {
@@ -81,6 +84,7 @@ private:
     };
 
     void setSize(float percent, bool glide) noexcept;
+    [[nodiscard]] static bool allSilent(const ProcessBlock& block) noexcept;
     void setGains(float decaySeconds) noexcept;
 
     EffectDescription description;

@@ -21,6 +21,10 @@ constexpr double glidePerSample = 0.125;
 constexpr float lowCutOff = 20.0f;
 constexpr float highCutOff = 20000.0f;
 
+// What is written into the network this quiet becomes zero, sample by sample: far
+// below hearing, and the reverb comes to rest seconds sooner (and skips its work).
+constexpr double restingLevel = 1.0e-15;
+
 double sizeFactor(double percent) noexcept
 {
     return 0.3 + 0.7 * std::clamp(percent, 0.0, 100.0) / 100.0;
@@ -150,6 +154,15 @@ void Reverb::reset() noexcept
     started = false;
 }
 
+bool Reverb::allSilent(const ProcessBlock& block) noexcept
+{
+    for (int channel = 0; channel < block.numChannels; ++channel)
+        for (int i = 0; i < block.numSamples; ++i)
+            if (!juce::exactlyEqual(block.channels[channel][i], 0.0f))
+                return false;
+    return true;
+}
+
 double Reverb::Line::read(double delay) noexcept
 {
     // Split into whole samples and a fraction in [0.618, 1.618), where the
@@ -206,6 +219,11 @@ void Reverb::process(const ProcessBlock& block) noexcept
     const int numChannels = std::min(block.numChannels, 2);
     const double depth = modulationDepth * sampleRate / 48000.0;
     const auto preDelaySize = static_cast<int>(preDelayLine.size());
+
+    // At rest with silence coming in: nothing at all to do (the same as going through
+    // the samples, which would skip each one).
+    if (quietFor >= memory * 4 && allSilent(block))
+        return;
 
     for (int i = 0; i < block.numSamples; ++i)
     {
@@ -280,6 +298,8 @@ void Reverb::process(const ProcessBlock& block) noexcept
             const double read = line.read(std::max(1.0, delay));
             // One-pole low-pass with unity gain at DC: the decay time holds there.
             line.damped = read + dampingAmount * (line.damped - read);
+            if (std::abs(line.damped) < restingLevel)
+                line.damped = 0.0;
             outs[k] = line.damped * line.gain;
         }
 
@@ -300,7 +320,8 @@ void Reverb::process(const ProcessBlock& block) noexcept
             // The input goes in with signs that differ from line to line, so the lines
             // start out different.
             const double sign = (k * 5 + 3) % 7 < 3 ? -1.0 : 1.0;
-            const auto written = static_cast<float>(feedback[k] + sign * diffused);
+            const double value = feedback[k] + sign * diffused;
+            const auto written = static_cast<float>(std::abs(value) < restingLevel ? 0.0 : value);
             line.buffer[static_cast<std::size_t>(line.position)] = written;
             line.position = (line.position + 1) % static_cast<int>(line.buffer.size());
             anything = anything || !juce::exactlyEqual(written, 0.0f);
