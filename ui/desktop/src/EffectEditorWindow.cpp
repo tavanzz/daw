@@ -213,12 +213,6 @@ void EffectEditorWindow::refresh(double elapsedSeconds)
     content->refresh(elapsedSeconds);
 }
 
-void EffectEditorWindow::lookAndFeelChanged()
-{
-    juce::DocumentWindow::lookAndFeelChanged();
-    setBackgroundColour(findColour(juce::ResizableWindow::backgroundColourId));
-}
-
 void EffectEditorWindow::closeButtonPressed()
 {
     if (onClose)

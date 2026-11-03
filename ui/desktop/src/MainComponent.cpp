@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/MainComponent.h"
 
 #include "daw/model/ProjectFile.h"
+#include "daw/ui/desktop/Alerts.h"
 #include "daw/ui/desktop/AudioSettingsDialog.h"
 #include "daw/ui/desktop/ExportDialog.h"
 
@@ -65,7 +66,7 @@ void MainComponent::openFile(const juce::File& file)
 
 void MainComponent::showError(const juce::String& title, const juce::String& message)
 {
-    juce::NativeMessageBox::showAsync(
+    showAlert(
         juce::MessageBoxOptions::makeOptionsOk(juce::MessageBoxIconType::WarningIcon, title,
                                                message, "OK", this),
         [](int) {});
@@ -91,7 +92,7 @@ void MainComponent::askToSaveChanges(std::function<void()> next)
                              .withButton("Cancel")
                              .withAssociatedComponent(this);
 
-    juce::NativeMessageBox::showAsync(options, [this, next = std::move(next)](int button) {
+    showAlert(options, [this, next = std::move(next)](int button) {
         if (button == 0)
             saveThen(next);
         else if (button == 1)
@@ -221,7 +222,7 @@ void MainComponent::offerRecovery()
             .withButton("Not Now")
             .withAssociatedComponent(this);
 
-    juce::NativeMessageBox::showAsync(options, [this](int button) {
+    showAlert(options, [this](int button) {
         if (button == 0)
         {
             if (const auto recovered = session.recoverRecordings(); recovered.failed())
@@ -295,7 +296,7 @@ void MainComponent::confirmDiscardRecording()
                              .withButton("Keep Recording")
                              .withAssociatedComponent(this);
 
-    juce::NativeMessageBox::showAsync(options,
+    showAlert(options,
                                       [this](int button)
                                       {
                                           if (button == 0)

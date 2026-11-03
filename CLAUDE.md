@@ -459,6 +459,10 @@ Modules with one-way dependencies:
   and the automation lanes (shade over the clips, curve, dashed level, points,
   labels) draw the same way; `AutomationLanes::paintRow()` takes the look and feel of
   the lanes it paints on.
+  Dialogs (export, audio settings, latency measurement, recovery, alerts) use the
+  look and feel too; `ThemeManager` gives every open window the new background
+  colour when the theme changes, since JUCE windows keep the one they opened with.
+  File choosers, the macOS menu bar and the title bars stay native.
 - Animation clock (Phase 5): `AnimationClock` (owned by `ThemeManager`) is the one
   timer behind every decorative animation, at 30 Hz. Animated components subscribe
   for the `AnimationEffect` they draw, say when they want frames, and repaint only
@@ -547,6 +551,13 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
   94704314+tavanzz@users.noreply.github.com` (otherwise GitHub authors it with the
   account's email), then an annotated tag `vX.Y.0` on that merge commit.
 - Comments explain why, not what.
+- Desktop UI components hold no literal colours or fonts (`juce::Colour(...)`,
+  `Colours::...`, `FontOptions`, `juce::Font(...)`): they use theme roles through
+  `ThemedLookAndFeel`. Checked by `architecture.ui_literals`
+  (`cmake/CheckUiLiterals.cmake`); only the look and feel files are exempt.
+- Message boxes go through `showAlert()` (`Alerts.h`), JUCE's alert window in the
+  theme, never `NativeMessageBox`; it reports button indices as `NativeMessageBox`
+  does.
 
 ## Commands
 
@@ -882,7 +893,7 @@ into `phase-5`.
       headers, input controls, ruler, lanes, clips, waveforms, playhead, loop, meters
 - [x] 8. Mixer (strips, faders, pan, inserts, sends, buses), effect editors (generic,
       EQ curve, compressor gain reduction), automation lanes themed
-- [ ] 9. Dialogs and alerts themed (export, audio settings, latency, recovery,
+- [x] 9. Dialogs and alerts themed (export, audio settings, latency, recovery,
       themed alert windows); no colour or font literals outside the LookAndFeels
 - [ ] 10. Animations: each theme's own and the shared ones (meters, record pulse,
       panel transitions, theme crossfade)

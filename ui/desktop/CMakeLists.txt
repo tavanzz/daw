@@ -1,6 +1,7 @@
 # Desktop user interface (mouse and keyboard).
 
 add_library(daw_ui_desktop STATIC
+    src/Alerts.cpp
     src/AnimationClock.cpp
     src/ArrangeView.cpp
     src/AudioSettingsDialog.cpp

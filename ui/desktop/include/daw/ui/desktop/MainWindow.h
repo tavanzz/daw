@@ -31,7 +31,6 @@ public:
     [[nodiscard]] MainComponent& getMainComponent() noexcept { return *mainComponent; }
 
     void closeButtonPressed() override;
-    void lookAndFeelChanged() override;
     void minimisationStateChanged(bool isNowMinimised) override;
     void visibilityChanged() override;
     void activeWindowStatusChanged() override;

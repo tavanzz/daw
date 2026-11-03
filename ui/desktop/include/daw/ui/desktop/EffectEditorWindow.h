@@ -33,7 +33,6 @@ public:
 
     std::function<void()> onClose;
     void closeButtonPressed() override;
-    void lookAndFeelChanged() override;
 
 private:
     class Content;

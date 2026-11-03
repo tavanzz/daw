@@ -1,5 +1,6 @@
 #include "daw/ui/desktop/TrackInputControls.h"
 
+#include "daw/ui/desktop/Alerts.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 namespace daw::ui::desktop
@@ -60,7 +61,7 @@ TrackInputControls::TrackInputControls(controller::Session& sessionToEdit, model
     {
         const bool armed = !arm.getToggleState();
         if (!session.setTrackArmed(trackId, armed))
-            juce::NativeMessageBox::showAsync(juce::MessageBoxOptions::makeOptionsOk(
+            showAlert(juce::MessageBoxOptions::makeOptionsOk(
                                                   juce::MessageBoxIconType::WarningIcon,
                                                   "Microphone access is off",
                                                   controller::microphoneDeniedMessage, "OK", &arm),

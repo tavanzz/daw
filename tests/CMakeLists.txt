@@ -64,6 +64,7 @@ daw_enable_warnings(daw_tests)
 add_executable(daw_ui_tests
     support/UiTestMain.cpp
     support/WindowManagerAtoms.cpp
+    ui/AlertsTests.cpp
     ui/AnimationClockTests.cpp
     ui/PrerenderedImagesTests.cpp
     ui/ThemeManagerTests.cpp
@@ -141,3 +142,16 @@ add_test(NAME architecture.detects_appearance_include_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_appearance_include_in_engine PROPERTIES
     PASS_REGULAR_EXPRESSION "engine/src/UsesAppearance\\.cpp: <daw/appearance/Theme\\.h>")
+
+# No literal colours or fonts in the desktop UI's components (cmake/CheckUiLiterals.cmake).
+set(check_ui_literals "${PROJECT_SOURCE_DIR}/cmake/CheckUiLiterals.cmake")
+
+add_test(NAME architecture.ui_literals
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${PROJECT_SOURCE_DIR}" -P "${check_ui_literals}")
+
+add_test(NAME architecture.detects_ui_literals
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/architecture/violating_ui"
+            -P "${check_ui_literals}")
+set_tests_properties(architecture.detects_ui_literals PROPERTIES
+    PASS_REGULAR_EXPRESSION
+    "LiteralLook\\.cpp:5: juce::Colour\\(.*LiteralLook\\.cpp:6: FontOptions\\(")

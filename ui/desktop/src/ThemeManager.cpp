@@ -107,8 +107,16 @@ void ThemeManager::apply()
         lookAndFeels[previous]->getImages().clear();
 
     // JUCE tells every window, dialog, menu and tooltip on screen, which redraw in the
-    // new theme.
-    juce::LookAndFeel::setDefaultLookAndFeel(lookAndFeels[current].get());
+    // new theme. Windows keep the background colour they were opened with: give them
+    // the new one.
+    auto& lookAndFeel = *lookAndFeels[current];
+    juce::LookAndFeel::setDefaultLookAndFeel(&lookAndFeel);
+
+    auto& desktop = juce::Desktop::getInstance();
+    for (int index = 0; index < desktop.getNumComponents(); ++index)
+        if (auto* window = dynamic_cast<juce::ResizableWindow*>(desktop.getComponent(index)))
+            window->setBackgroundColour(
+                lookAndFeel.findColour(juce::ResizableWindow::backgroundColourId));
 
     clock.effectsChanged();
     listeners.call([](Listener& listener) { listener.themeChanged(); });

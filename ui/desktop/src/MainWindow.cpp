@@ -58,12 +58,6 @@ MainWindow::~MainWindow()
     clearContentComponent();
 }
 
-void MainWindow::lookAndFeelChanged()
-{
-    DocumentWindow::lookAndFeelChanged();
-    setBackgroundColour(findColour(juce::ResizableWindow::backgroundColourId));
-}
-
 void MainWindow::minimisationStateChanged(bool isNowMinimised)
 {
     DocumentWindow::minimisationStateChanged(isNowMinimised);
