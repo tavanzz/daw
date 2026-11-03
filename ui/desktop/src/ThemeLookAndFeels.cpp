@@ -52,6 +52,26 @@ void drawGradientProgress(juce::Graphics& g, const ThemedLookAndFeel& lookAndFee
     g.strokePath(outline, juce::PathStrokeType(border));
     drawProgressText(g, lookAndFeel, area, textToShow);
 }
+
+// The logo is larger than titles: it fills most of its area.
+float logoHeight(juce::Rectangle<float> area)
+{
+    return std::min(26.0f, area.getHeight() * 0.62f);
+}
+
+// The logo's letters as a path, centred in the area.
+juce::Path logoPath(const ThemedLookAndFeel& lookAndFeel, juce::Rectangle<float> area,
+                    const juce::String& text)
+{
+    const auto& spec = lookAndFeel.getTheme().font(FontRole::title);
+    juce::GlyphArrangement glyphs;
+    glyphs.addFittedText(lookAndFeel.font(FontRole::title, logoHeight(area)),
+                         ThemeFonts::textFor(spec, text), area.getX(), area.getY(), area.getWidth(),
+                         area.getHeight(), juce::Justification::centred, 1);
+    juce::Path path;
+    glyphs.createPath(path);
+    return path;
+}
 } // namespace
 
 void NeonGridLookAndFeel::drawProgressBar(juce::Graphics& g, juce::ProgressBar& bar, int width,
@@ -59,6 +79,16 @@ void NeonGridLookAndFeel::drawProgressBar(juce::Graphics& g, juce::ProgressBar& 
                                           const juce::String& textToShow)
 {
     drawGradientProgress(g, *this, bar, width, height, progress, textToShow);
+}
+
+void NeonGridLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> area,
+                                   const juce::String& text) const
+{
+    // A neon tube: the letters glowing in the accent.
+    const auto letters = logoPath(*this, area, text);
+    drawGlow(g, letters, colour(ColourRole::accent));
+    g.setColour(colour(ColourRole::accent));
+    g.fillPath(letters);
 }
 
 //==============================================================================
@@ -112,6 +142,18 @@ void AcidTerminalLookAndFeel::drawProgressBar(juce::Graphics& g, juce::ProgressB
     }
 }
 
+void AcidTerminalLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> area,
+                                       const juce::String& text) const
+{
+    // A block in the accent with the name cut out of it, like a terminal's banner.
+    const auto letters = logoPath(*this, area, text);
+    const auto block = letters.getBounds().expanded(8.0f, 4.0f);
+    g.setColour(colour(ColourRole::accent));
+    g.fillRect(block);
+    g.setColour(textColourOn(colour(ColourRole::accent)));
+    g.fillPath(letters);
+}
+
 //==============================================================================
 void SynthChromeLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button,
                                                   const juce::Colour& backgroundColour,
@@ -133,6 +175,26 @@ void SynthChromeLookAndFeel::drawProgressBar(juce::Graphics& g, juce::ProgressBa
                                              const juce::String& textToShow)
 {
     drawGradientProgress(g, *this, bar, width, height, progress, textToShow);
+}
+
+void SynthChromeLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> area,
+                                      const juce::String& text) const
+{
+    // Chrome letters: light at the top, a dark band at the horizon, light again below,
+    // over a line in the accent.
+    const auto letters = logoPath(*this, area, text);
+    const auto bounds = letters.getBounds();
+    const auto light = colour(ColourRole::text);
+    const auto dark = colour(ColourRole::textSecondary);
+
+    juce::ColourGradient chrome(light, 0.0f, bounds.getY(), light, 0.0f, bounds.getBottom(), false);
+    chrome.addColour(0.48, dark);
+    chrome.addColour(0.52, colour(ColourRole::accentAlt));
+    g.setGradientFill(chrome);
+    g.fillPath(letters);
+
+    g.setColour(colour(ColourRole::accent));
+    g.fillRect(bounds.withY(bounds.getBottom() + 3.0f).withHeight(2.0f));
 }
 
 } // namespace daw::ui::desktop

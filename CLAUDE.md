@@ -444,6 +444,15 @@ Modules with one-way dependencies:
   sets the current one as JUCE's default (JUCE then restyles every window, dialog,
   menu and tooltip on screen), notifies its listeners and hands each preference
   change to the app, which keeps it in the user settings under "appearance".
+- Themed components (Phase 5): components state what they are with
+  `ThemedLookAndFeel::setFontRole()`, `setColourRole()` (a label's text, a toggle's
+  fill when on: record, mute, solo, monitor, automation) and `setSurface()` (a
+  display on an inset), and paint through `ThemedLookAndFeel::get(*this)`: lanes,
+  grid, loop, playhead (`playheadReach()` is what a move repaints), clips
+  (`clipStyle()` for the track's clip colour, its header strip and readable name),
+  ruler, meters (gradient or LED segments from the theme's meter), track headers, the
+  `Logo` and the `StatusBar` (recording state, warnings, rate and format; a shell
+  prompt in Acid Terminal), which replaced the transport's status line.
 - Animation clock (Phase 5): `AnimationClock` (owned by `ThemeManager`) is the one
   timer behind every decorative animation, at 30 Hz. Animated components subscribe
   for the `AnimationEffect` they draw, say when they want frames, and repaint only
@@ -863,7 +872,7 @@ into `phase-5`.
       windows; theme stored in the user settings; UI test target
 - [x] 6. Shared animation clock, window visibility, system reduce motion, cache of
       precomputed images
-- [ ] 7. Arrange view themed: transport bar with logo, bottom status bar, track
+- [x] 7. Arrange view themed: transport bar with logo, bottom status bar, track
       headers, input controls, ruler, lanes, clips, waveforms, playhead, loop, meters
 - [ ] 8. Mixer (strips, faders, pan, inserts, sends, buses), effect editors (generic,
       EQ curve, compressor gain reduction), automation lanes themed

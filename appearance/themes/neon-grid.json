@@ -45,7 +45,7 @@
         "monitor": "violet",
         "warning": "yellow",
         "error": { "mix": ["magenta", "yellow", 0.5] },
-        "meterTrack": "background",
+        "meterTrack": { "mix": ["background", "line", 0.55] },
         "peakHold": "text",
         "curve": "cyan",
         "curveFill": { "alpha": ["cyan", 0.14] },

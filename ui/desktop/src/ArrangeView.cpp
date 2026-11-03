@@ -1,5 +1,7 @@
 #include "daw/ui/desktop/ArrangeView.h"
 
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
+
 #include <algorithm>
 
 namespace daw::ui::desktop
@@ -157,7 +159,9 @@ void ArrangeView::resized()
 
 void ArrangeView::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1b1b1b));
+    // The corner left of the ruler, above the track headers.
+    ThemedLookAndFeel::get(*this).drawPanel(g, getLocalBounds().toFloat(),
+                                            appearance::ColourRole::panelAlt, false);
 }
 
 void ArrangeView::scrollBarMoved(juce::ScrollBar*, double newRangeStart)

@@ -13,7 +13,8 @@ MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& ses
                      DocumentWindow::allButtons)
     , themes(themeManager)
 {
-    auto content = std::make_unique<MainComponent>(session, deviceManager, commandManager);
+    auto content =
+        std::make_unique<MainComponent>(session, deviceManager, commandManager, themeManager);
     mainComponent = content.get();
 
     commandManager.registerAllCommandsForTarget(mainComponent);

@@ -132,7 +132,7 @@ TEST_CASE("A dim meter colour and an unreadable clip name are reported", "[appea
     const auto problems = contrastProblems(theme);
     INFO(problems.joinIntoString("\n").toStdString());
 
-    CHECK(problems.contains("meter at -60 dB: 1.26:1, needs 3.00:1"));
+    CHECK(problems.contains("meter at -60 dB: 1.14:1, needs 3.00:1"));
     CHECK(problems.joinIntoString("\n").contains("clip colour 2 on lane, name"));
 }
 

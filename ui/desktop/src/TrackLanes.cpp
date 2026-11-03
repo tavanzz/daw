@@ -1,9 +1,9 @@
 #include "daw/ui/desktop/TrackLanes.h"
 
 #include "daw/controller/ClipEditing.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
-#include <array>
 
 namespace daw::ui::desktop
 {
@@ -12,19 +12,10 @@ namespace
 {
 
 constexpr float edgeWidth = 6.0f;
-constexpr int nameHeight = 15;
 // How long a clip whose length is not known yet (its file is loading) looks.
 constexpr model::Ticks placeholderLength = 2 * model::ticksPerSecond;
 
-const juce::Colour playheadColour(0xffffa726);
-
-juce::Colour trackColour(int trackIndex)
-{
-    static constexpr std::array<juce::uint32, 8> palette{0xff4fc3f7, 0xff81c784, 0xffffb74d,
-                                                         0xffba68c8, 0xffe57373, 0xff4db6ac,
-                                                         0xfff06292, 0xffaed581};
-    return juce::Colour(palette[static_cast<std::size_t>(trackIndex) % palette.size()]);
-}
+using ClipState = ThemedLookAndFeel::ClipState;
 
 bool isAudioFile(const juce::String& path)
 {
@@ -45,27 +36,24 @@ void TrackLanes::setPlayhead(model::Ticks position)
 
     const auto oldX = static_cast<int>(state.viewport.ticksToX(playhead));
     const auto newX = static_cast<int>(state.viewport.ticksToX(position));
+    const int reach = ThemedLookAndFeel::get(*this).playheadReach();
     playhead = position;
-    repaint(oldX - 2, 0, 5, getHeight());
-    repaint(newX - 2, 0, 5, getHeight());
+    repaint(oldX - reach, 0, 2 * reach + 1, getHeight());
+    repaint(newX - reach, 0, 2 * reach + 1, getHeight());
 }
 
 void TrackLanes::paint(juce::Graphics& g)
 {
     const auto& project = state.session.getProject();
     const auto& viewport = state.viewport;
+    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
     const auto width = static_cast<float>(getWidth());
     const auto height = static_cast<float>(getHeight());
 
-    g.fillAll(juce::Colour(0xff1b1b1b));
+    lookAndFeel.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::window, false);
 
     for (int t = 0; t < state.numRows(); ++t)
-    {
-        const bool trackRow = t < project.getNumTracks();
-        g.setColour(trackRow ? (t % 2 == 0 ? juce::Colour(0xff222222) : juce::Colour(0xff252525))
-                             : juce::Colour(0xff20262c));
-        g.fillRect(0, t * ArrangeState::laneHeight, getWidth(), ArrangeState::laneHeight);
-    }
+        lookAndFeel.drawLane(g, rowBounds(t), t, t < project.getNumTracks());
 
     // Grid: the snapping grid at this zoom, bar lines brighter. Too dense a grid
     // (a fine division zoomed far out) falls back to bars, then to nothing.
@@ -84,8 +72,8 @@ void TrackLanes::paint(juce::Graphics& g)
         for (const auto line : grid.linesBetween(viewport.getStart(), viewport.getEnd() + 1))
         {
             const bool barLine = tempoMap.barStart(tempoMap.barAt(line)) == line;
-            g.setColour(barLine ? juce::Colour(0xff3c3c3c) : juce::Colour(0xff2c2c2c));
-            g.drawVerticalLine(static_cast<int>(viewport.ticksToX(line)), 0.0f, height);
+            lookAndFeel.drawGridLine(g, static_cast<float>(viewport.ticksToX(line)), 0.0f, height,
+                                     barLine);
         }
     }
 
@@ -94,8 +82,7 @@ void TrackLanes::paint(juce::Graphics& g)
     {
         const auto x0 = static_cast<float>(viewport.ticksToX(project.getLoopStart()));
         const auto x1 = static_cast<float>(viewport.ticksToX(project.getLoopEnd()));
-        g.setColour(juce::Colour(0xff2e7d32).withAlpha(project.isLoopEnabled() ? 0.12f : 0.05f));
-        g.fillRect(juce::Rectangle<float>(x0, 0.0f, x1 - x0, height));
+        lookAndFeel.drawLoopShade(g, {x0, 0.0f, x1 - x0, height}, project.isLoopEnabled());
     }
 
     // Clips, bottom of each stack first so the one on top is drawn last.
@@ -113,15 +100,9 @@ void TrackLanes::paint(juce::Graphics& g)
             automation.paintRow(g, rowBounds(row), state.ownerOfRow(row));
 
     if (dropIndicator)
-    {
-        g.setColour(juce::Colour(0xff4fc3f7));
-        g.drawRect(*dropIndicator, 2.0f);
-    }
+        lookAndFeel.drawDropIndicator(g, *dropIndicator);
 
-    const auto x = static_cast<float>(viewport.ticksToX(playhead));
-    g.setColour(playheadColour);
-    g.drawLine(x, 0.0f, x, height, 1.5f);
-    juce::ignoreUnused(width);
+    lookAndFeel.drawPlayhead(g, static_cast<float>(viewport.ticksToX(playhead)), 0.0f, height);
 }
 
 juce::Rectangle<float> TrackLanes::clipBounds(int trackIndex, const model::Clip& clip) const
@@ -147,44 +128,44 @@ void TrackLanes::drawClip(juce::Graphics& g, int trackIndex, const model::Clip& 
     const bool failed = source != nullptr && source->status == Status::failed;
     const bool selected = state.selection.contains(clip.getId());
 
-    const auto colour = failed ? juce::Colour(0xffc62828) : trackColour(trackIndex);
-    g.setColour(colour.withAlpha(ready ? 0.35f : 0.18f));
-    g.fillRoundedRectangle(bounds, 4.0f);
+    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    const auto style = lookAndFeel.clipStyle(
+        trackIndex, failed ? ClipState::failed : ready ? ClipState::ready : ClipState::loading,
+        trackIndex);
+    const float nameHeight = lookAndFeel.clipHeaderHeight();
 
-    // Keep everything inside the clip: long clips may reach far outside the view.
-    juce::Graphics::ScopedSaveState saved(g);
-    g.reduceClipRegion(bounds.toNearestInt());
-
-    if (ready && source->peaks != nullptr)
     {
-        g.setColour(colour.brighter(0.4f));
-        drawWaveform(g, bounds.withTrimmedTop(nameHeight).reduced(0.0f, 2.0f), clip, *source);
+        // Keep everything inside the clip: long clips may reach far outside the view.
+        juce::Graphics::ScopedSaveState saved(g);
+        g.reduceClipRegion(bounds.toNearestInt());
+
+        lookAndFeel.drawClipFrame(g, bounds, style);
+
+        if (ready && source->peaks != nullptr)
+        {
+            g.setColour(style.waveform);
+            drawWaveform(g, bounds.withTrimmedTop(nameHeight).reduced(0.0f, 2.0f), clip, *source);
+        }
+
+        auto name = clip.getAudioFile().getFileNameWithoutExtension();
+        if (failed)
+            name = "Missing: " + name;
+        else if (!ready)
+            name = "Loading " + name + "...";
+
+        const auto textArea = bounds.withHeight(nameHeight).reduced(4.0f, 0.0f);
+        lookAndFeel.drawClipName(g, textArea.withX(std::max(textArea.getX(), 2.0f)), name, style);
     }
 
-    g.setColour(colour.withAlpha(0.6f));
-    g.fillRect(bounds.withHeight(static_cast<float>(nameHeight)));
-
-    auto name = clip.getAudioFile().getFileNameWithoutExtension();
-    if (failed)
-        name = "Missing: " + name;
-    else if (!ready)
-        name = "Loading " + name + "...";
-
-    g.setColour(juce::Colours::white);
-    g.setFont(juce::FontOptions(12.0f));
-    const auto textArea = bounds.withHeight(static_cast<float>(nameHeight)).reduced(4.0f, 0.0f);
-    g.drawText(name, textArea.withX(std::max(textArea.getX(), 2.0f)),
-               juce::Justification::centredLeft, true);
-
-    g.setColour(selected ? juce::Colours::white : colour.withAlpha(0.9f));
-    g.drawRoundedRectangle(bounds.reduced(0.5f), 4.0f, selected ? 2.0f : 1.0f);
+    lookAndFeel.drawClipOutline(g, bounds, style, selected);
 }
 
 void TrackLanes::drawRecordings(juce::Graphics& g) const
 {
     const auto& project = state.session.getProject();
     const double rate = state.session.getSampleRate();
-    const juce::Colour colour(0xffd32f2f);
+    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    const float nameHeight = lookAndFeel.clipHeaderHeight();
 
     for (const auto& take : state.session.getRecording().getLiveTakes())
     {
@@ -202,20 +183,19 @@ void TrackLanes::drawRecordings(juce::Graphics& g) const
             x0, static_cast<float>(trackIndex * ArrangeState::laneHeight + 3),
             std::max(1.0f, x1 - x0), static_cast<float>(ArrangeState::laneHeight - 6));
 
-        g.setColour(colour.withAlpha(0.3f));
-        g.fillRoundedRectangle(bounds, 4.0f);
+        const auto style = lookAndFeel.clipStyle(trackIndex, ClipState::recording, trackIndex);
 
         juce::Graphics::ScopedSaveState saved(g);
         g.reduceClipRegion(bounds.toNearestInt());
+        lookAndFeel.drawClipFrame(g, bounds, style);
 
         // The waveform written so far: file sample s is at take.firstPosition + s.
         if (take.peaks != nullptr && take.peaks->getNumSamples() > 0)
         {
-            const auto area =
-                bounds.withTrimmedTop(static_cast<float>(nameHeight)).reduced(0.0f, 2.0f);
+            const auto area = bounds.withTrimmedTop(nameHeight).reduced(0.0f, 2.0f);
             const float middle = area.getCentreY();
             const float halfHeight = area.getHeight() / 2.0f;
-            g.setColour(colour.brighter(0.5f));
+            g.setColour(style.waveform);
             for (int x = std::max(0, static_cast<int>(area.getX()));
                  x < std::min(getWidth(), static_cast<int>(area.getRight()) + 1); ++x)
             {
@@ -238,13 +218,9 @@ void TrackLanes::drawRecordings(juce::Graphics& g) const
             }
         }
 
-        g.setColour(colour.withAlpha(0.7f));
-        g.fillRect(bounds.withHeight(static_cast<float>(nameHeight)));
-        g.setColour(juce::Colours::white);
-        g.setFont(juce::FontOptions(12.0f));
-        g.drawText("Recording " + take.file.getFileNameWithoutExtension(),
-                   bounds.withHeight(static_cast<float>(nameHeight)).reduced(4.0f, 0.0f),
-                   juce::Justification::centredLeft, true);
+        lookAndFeel.drawClipName(g, bounds.withHeight(nameHeight).reduced(4.0f, 0.0f),
+                                 "Recording " + take.file.getFileNameWithoutExtension(), style);
+        lookAndFeel.drawClipOutline(g, bounds, style, false);
     }
 }
 

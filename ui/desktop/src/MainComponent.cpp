@@ -23,10 +23,12 @@ bool isProjectFile(const juce::File& file)
 
 MainComponent::MainComponent(controller::Session& sessionToShow,
                              juce::AudioDeviceManager& audioDeviceManager,
-                             juce::ApplicationCommandManager& applicationCommandManager)
+                             juce::ApplicationCommandManager& applicationCommandManager,
+                             ThemeManager& themeManager)
     : session(sessionToShow)
     , deviceManager(audioDeviceManager)
     , commandManager(applicationCommandManager)
+    , themes(themeManager)
     , transportBar(sessionToShow)
     , arrangeView(sessionToShow)
     , mixerView(sessionToShow)
@@ -41,6 +43,7 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
     addAndMakeVisible(masterMeter);
     mixerView.openEffect = [this](model::ObjectId effectId) { effectEditors.open(effectId); };
     addAndMakeVisible(mixerView);
+    addAndMakeVisible(statusBar);
 
     setSize(1280, 900);
     lastRefreshSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
@@ -112,10 +115,10 @@ void MainComponent::saveThen(std::function<void()> afterSaving)
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced(8);
-
-    transportBar.setBounds(area.removeFromTop(30));
-    area.removeFromTop(8);
+    auto area = getLocalBounds();
+    transportBar.setBounds(area.removeFromTop(TransportBar::height));
+    statusBar.setBounds(area.removeFromBottom(StatusBar::height));
+    area.reduce(8, 8);
 
     mixerView.setVisible(mixerVisible);
     if (mixerVisible)
@@ -141,6 +144,7 @@ void MainComponent::timerCallback()
     lastRefreshSeconds = now;
 
     transportBar.refresh();
+    statusBar.refresh();
     arrangeView.refresh();
 
     // The input peaks are taken once per refresh too; the track headers read them.
@@ -150,7 +154,7 @@ void MainComponent::timerCallback()
     if (const auto problem = session.takeRecordingProblem(); problem.isNotEmpty())
         showError("Recording stopped", problem);
     if (session.takeDropouts() > 0)
-        transportBar.showWarning("The disk is too slow: some audio was missing");
+        statusBar.showWarning("The disk is too slow: some audio was missing");
 
     // The output peaks can be taken once: both master meters get the same reading.
     auto& engine = session.getEngine();

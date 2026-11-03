@@ -12,11 +12,13 @@ add_library(daw_ui_desktop STATIC
     src/ExportDialog.cpp
     src/GenericEffectEditor.cpp
     src/LevelMeter.cpp
+    src/Logo.cpp
     src/MainComponent.cpp
     src/MainWindow.cpp
     src/MixerView.cpp
     src/PrerenderedImages.cpp
     src/SendSlots.cpp
+    src/StatusBar.cpp
     src/SystemMotion.cpp
     src/ThemeFonts.cpp
     src/ThemeLookAndFeels.cpp

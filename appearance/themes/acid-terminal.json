@@ -43,7 +43,7 @@
         "monitor": "blue",
         "warning": "acid",
         "error": "red",
-        "meterTrack": "background",
+        "meterTrack": { "mix": ["background", "line", 0.55] },
         "peakHold": "text",
         "curve": "acid",
         "curveFill": { "alpha": ["acid", 0.12] },

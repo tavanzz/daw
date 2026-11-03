@@ -46,7 +46,7 @@
         "monitor": "violet",
         "warning": "orange",
         "error": "pink",
-        "meterTrack": "background",
+        "meterTrack": { "mix": ["background", "line", 0.55] },
         "peakHold": "text",
         "curve": "turquoise",
         "curveFill": { "alpha": ["turquoise", 0.12] },

@@ -2,9 +2,12 @@
 
 #include "ThemeLookAndFeels.h"
 #include "daw/appearance/ContrastRules.h"
+#include "daw/appearance/ThemeLibrary.h"
+#include "daw/engine/dsp/MeterBallistics.h"
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace daw::ui::desktop
 {
@@ -16,6 +19,49 @@ using appearance::CornerStyle;
 using appearance::FontRole;
 
 constexpr float disabledAlpha = 0.45f;
+
+std::optional<ColourRole> colourRoleNamed(const juce::var& value)
+{
+    if (!value.isString())
+        return std::nullopt;
+
+    for (std::size_t index = 0; index < appearance::colourRoleCount; ++index)
+    {
+        const auto role = static_cast<ColourRole>(index);
+        if (value.toString() == juce::String(std::string(appearance::keyOf(role))))
+            return role;
+    }
+
+    return std::nullopt;
+}
+
+juce::String keyString(ColourRole role)
+{
+    return juce::String(std::string(appearance::keyOf(role)));
+}
+
+// The look and feel of components outside the app (tests that made no ThemeManager),
+// freed with JUCE's other singletons.
+class FallbackLookAndFeel final : private juce::DeletedAtShutdown
+{
+public:
+    static ThemedLookAndFeel& get()
+    {
+        if (instance == nullptr)
+            instance = new FallbackLookAndFeel();
+        return *instance->lookAndFeel;
+    }
+
+    ~FallbackLookAndFeel() override { instance = nullptr; }
+
+private:
+    FallbackLookAndFeel() = default;
+
+    static inline FallbackLookAndFeel* instance = nullptr;
+    ThemeFonts fonts;
+    std::unique_ptr<ThemedLookAndFeel> lookAndFeel =
+        ThemedLookAndFeel::make(appearance::ThemeLibrary::builtIn().getDefault(), fonts);
+};
 
 juce::LookAndFeel_V4::ColourScheme schemeFor(const appearance::Theme& theme)
 {
@@ -56,9 +102,49 @@ std::unique_ptr<ThemedLookAndFeel> ThemedLookAndFeel::make(const appearance::The
     return std::make_unique<ThemedLookAndFeel>(themeToDraw, fontsToUse);
 }
 
-ThemedLookAndFeel* ThemedLookAndFeel::of(juce::Component& component) noexcept
+ThemedLookAndFeel* ThemedLookAndFeel::of(const juce::Component& component) noexcept
 {
-    return dynamic_cast<ThemedLookAndFeel*>(&component.getLookAndFeel());
+    // JUCE's getLookAndFeel() is not const, though it changes nothing.
+    return dynamic_cast<ThemedLookAndFeel*>(
+        &const_cast<juce::Component&>(component).getLookAndFeel());
+}
+
+ThemedLookAndFeel& ThemedLookAndFeel::get(const juce::Component& component)
+{
+    if (auto* themed = of(component))
+        return *themed;
+
+    return FallbackLookAndFeel::get();
+}
+
+void ThemedLookAndFeel::setFontRole(juce::Component& component, FontRole role)
+{
+    component.getProperties().set(fontRoleProperty,
+                                  juce::String(std::string(appearance::keyOf(role))));
+    component.repaint();
+}
+
+void ThemedLookAndFeel::setColourRole(juce::Component& component, ColourRole role)
+{
+    if (component.getProperties()[colourRoleProperty].toString() == keyString(role))
+        return;
+
+    component.getProperties().set(colourRoleProperty, keyString(role));
+    component.repaint();
+}
+
+void ThemedLookAndFeel::setSurface(juce::Component& component, ColourRole role)
+{
+    component.getProperties().set(surfaceProperty, keyString(role));
+    component.repaint();
+}
+
+std::optional<juce::Colour> ThemedLookAndFeel::buttonOnColour(const juce::Button& button) const
+{
+    if (const auto role = colourRoleNamed(button.getProperties()[colourRoleProperty]))
+        return colour(*role);
+
+    return std::nullopt;
 }
 
 juce::Colour ThemedLookAndFeel::colour(ColourRole role) const noexcept
@@ -219,23 +305,29 @@ void ThemedLookAndFeel::drawGlow(juce::Graphics& g, const juce::Path& shape,
         return;
 
     // The blurred outline of the shape, in an image with room for the glow around it.
-    const auto bounds = shape.getBounds().expanded(radius).getSmallestIntegerContainer();
+    // The image is made for the shape moved to the origin, so the same shape anywhere
+    // (a moving playhead, buttons of one size) reuses it.
+    const auto origin = shape.getBounds().getPosition();
+    auto atOrigin = shape;
+    atOrigin.applyTransform(juce::AffineTransform::translation(-origin.x, -origin.y));
+    const auto size = atOrigin.getBounds().expanded(radius).getSmallestIntegerContainer();
     const auto key = "glow/" + glowColour.toString() + "/" +
-                     juce::String(static_cast<juce::int64>(shape.toString().hashCode64()));
+                     juce::String(static_cast<juce::int64>(atOrigin.toString().hashCode64()));
 
     const auto image = images.get(
-        key, {bounds.getWidth(), bounds.getHeight()},
+        key, {size.getWidth(), size.getHeight()},
         [&](juce::Graphics& imageGraphics, juce::Rectangle<int>)
         {
             juce::Path tube;
-            juce::PathStrokeType(theme.shape.border * 2.0f).createStrokedPath(tube, shape);
+            juce::PathStrokeType(theme.shape.border * 2.0f).createStrokedPath(tube, atOrigin);
             tube.applyTransform(juce::AffineTransform::translation(
-                static_cast<float>(-bounds.getX()), static_cast<float>(-bounds.getY())));
+                static_cast<float>(-size.getX()), static_cast<float>(-size.getY())));
             juce::DropShadow(glowColour.withMultipliedAlpha(0.85f), static_cast<int>(radius), {})
                 .drawForPath(imageGraphics, tube);
         });
 
-    g.drawImageAt(image, bounds.getX(), bounds.getY());
+    g.drawImageAt(image, juce::roundToInt(origin.x) + size.getX(),
+                  juce::roundToInt(origin.y) + size.getY());
 }
 
 //==============================================================================
@@ -257,8 +349,10 @@ void ThemedLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bu
     const auto area = button.getLocalBounds().toFloat().reduced(inset);
     const auto outline = shapeOf(area, CornerSize::small);
     const bool isOn = button.getToggleState();
+    const auto onColour = buttonOnColour(button);
+    const auto baseColour = isOn && onColour ? *onColour : backgroundColour;
 
-    auto fill = backgroundColour;
+    auto fill = baseColour;
     if (isButtonDown)
         fill = fill.interpolatedWith(colour(ColourRole::text), 0.18f);
     else if (isMouseOverButton)
@@ -269,7 +363,7 @@ void ThemedLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bu
     g.setColour(fill);
     g.fillPath(outline);
 
-    drawControlOutline(g, outline, isOn, backgroundColour);
+    drawControlOutline(g, outline, isOn, baseColour);
 
     if (button.hasKeyboardFocus(true))
     {
@@ -293,9 +387,10 @@ void ThemedLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& butt
     auto textColour = button.findColour(isOn ? juce::TextButton::textColourOnId
                                              : juce::TextButton::textColourOffId);
 
-    // Buttons whose fill was chosen by the component (status colours) get the text
-    // colour that reads on it.
-    if (isOn && button.isColourSpecified(juce::TextButton::buttonOnColourId))
+    // Buttons filled with a status colour when on get the text colour that reads on it.
+    if (const auto onColour = buttonOnColour(button); isOn && onColour)
+        textColour = textColourOn(*onColour);
+    else if (isOn && button.isColourSpecified(juce::TextButton::buttonOnColourId))
         textColour = textColourOn(button.findColour(juce::TextButton::buttonOnColourId));
 
     g.setFont(buttonFont);
@@ -376,15 +471,32 @@ juce::Font ThemedLookAndFeel::getLabelFont(juce::Label& label)
 
 void ThemedLookAndFeel::drawLabel(juce::Graphics& g, juce::Label& label)
 {
-    g.fillAll(label.findColour(juce::Label::backgroundColourId));
+    const auto surface = colourRoleNamed(label.getProperties()[surfaceProperty]);
+
+    if (surface)
+    {
+        const auto outline = shapeOf(
+            label.getLocalBounds().toFloat().reduced(theme.shape.border / 2.0f), CornerSize::small);
+        g.setColour(colour(*surface));
+        g.fillPath(outline);
+        g.setColour(colour(label.isBeingEdited() ? ColourRole::focus : ColourRole::outline));
+        g.strokePath(outline, juce::PathStrokeType(theme.shape.border));
+    }
+    else
+    {
+        g.fillAll(label.findColour(juce::Label::backgroundColourId));
+    }
 
     if (!label.isBeingEdited())
     {
         const auto role = roleOf(label);
         const float alpha = label.isEnabled() ? 1.0f : disabledAlpha;
         const auto textArea = getLabelBorderSize(label).subtractedFrom(label.getLocalBounds());
+        const auto textRole = colourRoleNamed(label.getProperties()[colourRoleProperty]);
+        const auto textColour =
+            textRole ? colour(*textRole) : label.findColour(juce::Label::textColourId);
 
-        g.setColour(label.findColour(juce::Label::textColourId).withMultipliedAlpha(alpha));
+        g.setColour(textColour.withMultipliedAlpha(alpha));
         g.setFont(getLabelFont(label));
         g.drawFittedText(labelText(role, label.getText()), textArea, label.getJustificationType(),
                          std::max(1, static_cast<int>(static_cast<float>(textArea.getHeight()) /
@@ -392,9 +504,12 @@ void ThemedLookAndFeel::drawLabel(juce::Graphics& g, juce::Label& label)
                          label.getMinimumHorizontalScale());
     }
 
-    g.setColour(label.findColour(label.isBeingEdited() ? juce::Label::outlineWhenEditingColourId
-                                                       : juce::Label::outlineColourId));
-    g.drawRect(label.getLocalBounds());
+    if (!surface)
+    {
+        g.setColour(label.findColour(label.isBeingEdited() ? juce::Label::outlineWhenEditingColourId
+                                                           : juce::Label::outlineColourId));
+        g.drawRect(label.getLocalBounds());
+    }
 }
 
 //==============================================================================
@@ -852,6 +967,311 @@ void ThemedLookAndFeel::drawCallOutBoxBackground(juce::CallOutBox&, juce::Graphi
     g.fillPath(path);
     g.setColour(colour(ColourRole::outline));
     g.strokePath(path, juce::PathStrokeType(theme.shape.border));
+}
+
+//==============================================================================
+// The DAW's own components.
+
+void ThemedLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> area,
+                                  ColourRole surface, bool separatorBelow) const
+{
+    g.setColour(colour(surface));
+    g.fillRect(area);
+
+    if (separatorBelow)
+    {
+        g.setColour(colour(ColourRole::separator));
+        g.fillRect(area.withTop(area.getBottom() - 1.0f));
+    }
+}
+
+void ThemedLookAndFeel::drawLane(juce::Graphics& g, juce::Rectangle<float> area, int row,
+                                 bool isTrackRow) const
+{
+    g.setColour(colour(!isTrackRow    ? ColourRole::panelAlt
+                       : row % 2 == 0 ? ColourRole::lane
+                                      : ColourRole::laneAlt));
+    g.fillRect(area);
+}
+
+void ThemedLookAndFeel::drawGridLine(juce::Graphics& g, float x, float top, float bottom,
+                                     bool barLine) const
+{
+    g.setColour(colour(barLine ? ColourRole::gridBar : ColourRole::gridBeat));
+    g.drawVerticalLine(juce::roundToInt(x), top, bottom);
+}
+
+void ThemedLookAndFeel::drawLoopShade(juce::Graphics& g, juce::Rectangle<float> area,
+                                      bool enabled) const
+{
+    g.setColour(colour(ColourRole::loopShade).withMultipliedAlpha(enabled ? 1.0f : 0.45f));
+    g.fillRect(area);
+}
+
+int ThemedLookAndFeel::playheadReach() const noexcept
+{
+    return 3 + static_cast<int>(std::ceil(theme.shape.glow));
+}
+
+void ThemedLookAndFeel::drawPlayhead(juce::Graphics& g, float x, float top, float bottom) const
+{
+    const auto line = juce::Rectangle<float>(x - 0.75f, top, 1.5f, bottom - top);
+    juce::Path shape;
+    shape.addRectangle(line);
+    drawGlow(g, shape, colour(ColourRole::playhead));
+
+    g.setColour(colour(ColourRole::playhead));
+    g.fillRect(line);
+}
+
+void ThemedLookAndFeel::drawDropIndicator(juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    g.setColour(colour(ColourRole::focus));
+    g.strokePath(shapeOf(area, CornerSize::medium), juce::PathStrokeType(2.0f));
+}
+
+ThemedLookAndFeel::ClipStyle ThemedLookAndFeel::clipStyle(int trackIndex, ClipState state,
+                                                          int row) const
+{
+    const auto lane = theme.colour(row % 2 == 0 ? ColourRole::lane : ColourRole::laneAlt)
+                          .over(theme.colour(ColourRole::window));
+    const auto base = (state == ClipState::failed      ? theme.colour(ColourRole::error)
+                       : state == ClipState::recording ? theme.colour(ColourRole::record)
+                                                       : theme.clips.colourFor(trackIndex))
+                          .withAlpha(1.0f);
+
+    // A clip still loading shows only faintly; its name stays readable.
+    const float bodyAlpha = theme.clips.bodyAlpha * (state == ClipState::loading ? 0.5f : 1.0f);
+    const auto header = base.withAlpha(theme.clips.headerAlpha).over(lane);
+
+    ClipStyle style;
+    style.body = toJuce(base.withAlpha(bodyAlpha).over(lane));
+    style.header = toJuce(header);
+    style.name = colour(appearance::textRoleOn(theme, header));
+    style.waveform = toJuce(base);
+    style.outline = toJuce(base);
+    return style;
+}
+
+float ThemedLookAndFeel::clipHeaderHeight() const
+{
+    return std::max(15.0f, std::ceil(font(FontRole::caption).getHeight()) + 3.0f);
+}
+
+void ThemedLookAndFeel::drawClipFrame(juce::Graphics& g, juce::Rectangle<float> bounds,
+                                      const ClipStyle& style) const
+{
+    const auto outline = shapeOf(bounds, CornerSize::medium);
+    g.setColour(style.body);
+    g.fillPath(outline);
+
+    juce::Graphics::ScopedSaveState saved(g);
+    g.reduceClipRegion(outline);
+    g.setColour(style.header);
+    g.fillRect(bounds.withHeight(clipHeaderHeight()));
+}
+
+void ThemedLookAndFeel::drawClipOutline(juce::Graphics& g, juce::Rectangle<float> bounds,
+                                        const ClipStyle& style, bool selected) const
+{
+    const auto outline = shapeOf(bounds.reduced(0.5f), CornerSize::medium);
+
+    if (selected)
+    {
+        drawGlow(g, outline, colour(ColourRole::selection));
+        g.setColour(colour(ColourRole::selection));
+        g.strokePath(outline, juce::PathStrokeType(2.0f));
+        return;
+    }
+
+    g.setColour(style.outline.withMultipliedAlpha(0.9f));
+    g.strokePath(outline, juce::PathStrokeType(theme.shape.border));
+}
+
+void ThemedLookAndFeel::drawClipName(juce::Graphics& g, juce::Rectangle<float> area,
+                                     const juce::String& name, const ClipStyle& style) const
+{
+    g.setColour(style.name);
+    g.setFont(font(FontRole::caption));
+    g.drawText(labelText(FontRole::caption, name), area, juce::Justification::centredLeft, true);
+}
+
+void ThemedLookAndFeel::drawRulerBackground(juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    drawPanel(g, area, ColourRole::panelAlt, true);
+}
+
+void ThemedLookAndFeel::drawRulerMark(juce::Graphics& g, float x, float top, float bottom,
+                                      bool major) const
+{
+    g.setColour(colour(major ? ColourRole::textSecondary : ColourRole::outline));
+    g.drawVerticalLine(juce::roundToInt(x), top, bottom);
+}
+
+void ThemedLookAndFeel::drawRulerLabel(juce::Graphics& g, const juce::String& text,
+                                       juce::Rectangle<float> area, bool major) const
+{
+    g.setColour(colour(major ? ColourRole::text : ColourRole::textSecondary));
+    g.setFont(font(major ? FontRole::numeric : FontRole::caption,
+                   std::min(theme.font(FontRole::caption).size, area.getHeight())));
+    g.drawText(text, area, juce::Justification::centredLeft, false);
+}
+
+void ThemedLookAndFeel::drawRulerLoop(juce::Graphics& g, float x0, float x1, float height,
+                                      bool enabled) const
+{
+    const auto edge = colour(enabled ? ColourRole::loop : ColourRole::textDisabled);
+    g.setColour(edge.withAlpha(enabled ? 0.3f : 0.18f));
+    g.fillRect(juce::Rectangle<float>(x0, 0.0f, x1 - x0, height));
+    g.setColour(edge);
+    g.fillRect(juce::Rectangle<float>(x0, 0.0f, 2.0f, height));
+    g.fillRect(juce::Rectangle<float>(x1 - 2.0f, 0.0f, 2.0f, height));
+    g.fillRect(juce::Rectangle<float>(x0, 0.0f, x1 - x0, 3.0f));
+}
+
+void ThemedLookAndFeel::drawPlayheadMarker(juce::Graphics& g, float x, float bottom) const
+{
+    juce::Path marker;
+    marker.addTriangle(x - 6.0f, bottom - 10.0f, x + 6.0f, bottom - 10.0f, x, bottom);
+    g.setColour(colour(ColourRole::playhead));
+    g.fillPath(marker);
+}
+
+void ThemedLookAndFeel::drawMeterBar(juce::Graphics& g, juce::Rectangle<float> bar, float levelDb,
+                                     float peakHoldDb) const
+{
+    using engine::dsp::MeterBallistics;
+    const auto yFor = [&bar](float decibels)
+    {
+        return bar.getBottom() - MeterBallistics::toProportion(decibels) * bar.getHeight();
+    };
+
+    g.setColour(colour(ColourRole::meterTrack));
+    g.fillRect(bar);
+
+    const auto& meter = theme.meter;
+
+    if (meter.style == appearance::MeterStyle::segments)
+    {
+        // LEDs from the bottom up; each lit in its zone's colour, unlit ones faintly.
+        const float step = meter.segmentHeight + meter.segmentGap;
+        for (float top = bar.getBottom() - meter.segmentHeight; top >= bar.getY() - 0.5f;
+             top -= step)
+        {
+            const auto segment =
+                juce::Rectangle<float>(bar.getX(), top, bar.getWidth(), meter.segmentHeight);
+            const float proportion = (bar.getBottom() - segment.getCentreY()) / bar.getHeight();
+            const float decibels = MeterBallistics::floorDb * (1.0f - proportion);
+            const auto lit = toJuce(meter.colourAt(decibels));
+            const bool on =
+                levelDb > MeterBallistics::floorDb && segment.getCentreY() >= yFor(levelDb);
+            g.setColour(on ? lit : lit.withAlpha(0.12f));
+            g.fillRect(segment);
+        }
+    }
+    else if (levelDb > MeterBallistics::floorDb)
+    {
+        juce::ColourGradient gradient(toJuce(meter.colourAt(MeterBallistics::floorDb)), 0.0f,
+                                      bar.getBottom(), toJuce(meter.colourAt(0.0f)), 0.0f,
+                                      bar.getY(), false);
+        for (const auto& stop : meter.stops)
+            gradient.addColour(MeterBallistics::toProportion(stop.decibels), toJuce(stop.colour));
+
+        g.setGradientFill(gradient);
+        g.fillRect(bar.withTop(yFor(levelDb)));
+    }
+
+    if (peakHoldDb > MeterBallistics::floorDb)
+    {
+        g.setColour(colour(ColourRole::peakHold));
+        g.fillRect(bar.withTop(yFor(peakHoldDb)).withHeight(2.0f));
+    }
+}
+
+void ThemedLookAndFeel::drawClipIndicator(juce::Graphics& g, juce::Rectangle<float> area,
+                                          bool clipping) const
+{
+    g.setColour(colour(clipping ? ColourRole::clip : ColourRole::meterTrack));
+    g.fillPath(shapeOf(area, CornerSize::small));
+}
+
+void ThemedLookAndFeel::drawMeterScale(juce::Graphics& g, juce::Rectangle<float> area,
+                                       std::span<const float> marksDb) const
+{
+    using engine::dsp::MeterBallistics;
+    const auto scaleFont = font(FontRole::caption, theme.font(FontRole::caption).size * 0.85f);
+    g.setFont(scaleFont);
+    g.setColour(colour(ColourRole::textSecondary));
+
+    for (const float decibels : marksDb)
+    {
+        const float y =
+            area.getBottom() - MeterBallistics::toProportion(decibels) * area.getHeight();
+        const auto text = decibels == 0.0f ? juce::String("0") : juce::String(decibels, 0);
+        g.drawText(text, juce::Rectangle<float>(area.getX(), y - 6.0f, area.getWidth(), 12.0f),
+                   juce::Justification::centredRight, false);
+    }
+}
+
+void ThemedLookAndFeel::drawTrackHeader(juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    drawPanel(g, area, ColourRole::panel, true);
+}
+
+void ThemedLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> area,
+                                 const juce::String& text) const
+{
+    g.setColour(colour(ColourRole::accent));
+    g.setFont(font(FontRole::title, std::min(26.0f, area.getHeight() * 0.62f)));
+    g.drawText(labelText(FontRole::title, text), area, juce::Justification::centred, false);
+}
+
+void ThemedLookAndFeel::drawStatusBar(juce::Graphics& g, juce::Rectangle<float> area,
+                                      const StatusLine& line) const
+{
+    const bool prompt = theme.shape.statusBar == appearance::StatusBarStyle::prompt;
+    const auto surface = prompt ? ColourRole::inset : ColourRole::panel;
+
+    g.setColour(colour(surface));
+    g.fillRect(area);
+    g.setColour(colour(ColourRole::separator));
+    g.fillRect(area.withHeight(1.0f));
+
+    auto text = area.reduced(10.0f, 0.0f);
+    const auto textFont = font(prompt ? FontRole::label : FontRole::caption);
+    g.setFont(textFont);
+
+    if (line.details.isNotEmpty())
+    {
+        const float width = juce::GlyphArrangement::getStringWidth(textFont, line.details);
+        g.setColour(colour(ColourRole::textSecondary));
+        g.drawText(line.details, text.removeFromRight(width + 4.0f),
+                   juce::Justification::centredRight, false);
+    }
+
+    if (prompt)
+    {
+        // A shell prompt: "daw:project$ message", then the cursor.
+        const auto promptText = "daw:" + line.projectName.replaceCharacter(' ', '_') + "$ ";
+        const float promptWidth = juce::GlyphArrangement::getStringWidth(textFont, promptText);
+        g.setColour(colour(ColourRole::accent));
+        g.drawText(promptText, text.removeFromLeft(promptWidth), juce::Justification::centredLeft,
+                   false);
+    }
+
+    const float messageWidth =
+        std::min(text.getWidth(), juce::GlyphArrangement::getStringWidth(textFont, line.message));
+    g.setColour(colour(line.messageRole));
+    g.drawText(line.message, text.removeFromLeft(messageWidth), juce::Justification::centredLeft,
+               true);
+
+    if (prompt && line.cursorVisible)
+    {
+        const float height = textFont.getHeight() * 0.85f;
+        g.setColour(colour(ColourRole::accent));
+        g.fillRect(juce::Rectangle<float>(text.getX() + 1.0f, area.getCentreY() - height / 2.0f,
+                                          height * 0.5f, height));
+    }
 }
 
 } // namespace daw::ui::desktop

@@ -5,6 +5,8 @@
 #include "daw/ui/desktop/EffectEditorWindow.h"
 #include "daw/ui/desktop/LevelMeter.h"
 #include "daw/ui/desktop/MixerView.h"
+#include "daw/ui/desktop/StatusBar.h"
+#include "daw/ui/desktop/ThemeManager.h"
 #include "daw/ui/desktop/TransportBar.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -17,8 +19,8 @@ namespace daw::ui::desktop
 {
 
 /**
-    Content of the main window: transport bar, arrange view, master meter and the
-    mixer (shown or hidden with X).
+    Content of the main window: transport bar, arrange view, master meter, the mixer
+    (shown or hidden with X) and the status bar.
 
     Edits go to the Session; the commands (menus and shortcuts) are handled here.
     It refreshes from the session and the engine on a timer.
@@ -60,7 +62,8 @@ public:
     };
 
     MainComponent(controller::Session& sessionToShow, juce::AudioDeviceManager& audioDeviceManager,
-                  juce::ApplicationCommandManager& applicationCommandManager);
+                  juce::ApplicationCommandManager& applicationCommandManager,
+                  ThemeManager& themeManager);
     ~MainComponent() override;
 
     /** Opens a project or imports an audio file (e.g. given on the command line). */
@@ -104,12 +107,14 @@ private:
     controller::Session& session;
     juce::AudioDeviceManager& deviceManager;
     juce::ApplicationCommandManager& commandManager;
+    ThemeManager& themes;
 
     TransportBar transportBar;
     ArrangeView arrangeView;
     LevelMeter masterMeter;
     MixerView mixerView;
     bool mixerVisible = true;
+    StatusBar statusBar{session};
     EffectEditors effectEditors{session};
     juce::TooltipWindow tooltipWindow{this};
 
