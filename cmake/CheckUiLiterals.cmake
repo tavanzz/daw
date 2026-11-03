@@ -7,6 +7,9 @@
 #
 # Exempt: the look and feel files, which turn roles into colours and fonts.
 
+# Scripts run with old policies unless told otherwise (IN_LIST needs CMP0057).
+cmake_minimum_required(VERSION 3.25)
+
 if(NOT DAW_SOURCE_DIR)
     message(FATAL_ERROR "DAW_SOURCE_DIR is not set")
 endif()
