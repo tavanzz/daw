@@ -140,7 +140,7 @@ callback, stream from disk and record: [docs/PERFORMANCE.md](docs/PERFORMANCE.md
 | `tests/`      | unit tests; `tests/bench/` the mixing benchmark                 |
 | `cmake/`      | build helpers: dependencies, warnings, architecture checks      |
 | `tools/`      | development scripts (listening-test files)                      |
-| `docs/`       | manual test procedures, performance measurements               |
+| `docs/`       | manual test procedures, performance measurements, licences     |
 
 Architecture, audio-thread rules and coding conventions are described in
 [CLAUDE.md](CLAUDE.md).
@@ -151,4 +151,6 @@ Copyright © 2026. All rights reserved. No open-source licence has been chosen f
 this project's own code yet.
 
 Third-party components keep their own licences: JUCE (AGPLv3 or commercial, see
-the note at the top) and Catch2 (Boost Software License 1.0, tests only).
+the note at the top), Catch2 (Boost Software License 1.0, tests only) and the fonts
+built into the app (SIL Open Font License 1.1). See
+[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).

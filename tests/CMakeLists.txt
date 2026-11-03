@@ -7,6 +7,7 @@ add_executable(daw_tests
     support/TestMain.cpp
     support/TestAudioFiles.cpp
     appearance/AnimationSettingsTests.cpp
+    appearance/BundledFontsTests.cpp
     appearance/ColourTests.cpp
     appearance/ContrastTests.cpp
     appearance/ThemeFileTests.cpp

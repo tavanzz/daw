@@ -285,6 +285,12 @@ Modules with one-way dependencies:
   caps full at reduced. `animationLoad()` adds up the running effects' costs (low 1,
   medium 2, high 3; rated low up to 4, medium up to 7). `AppearancePreferences` (theme
   id and animations) goes to the user settings as JSON; reading it never fails.
+- Fonts (Phase 5): six OFL families as static TTF files in `appearance/fonts/`
+  (two weights at most each), embedded with the themes; `appearance::bundledFonts()`
+  lists them by family and style. `ui::desktop::ThemeFonts` loads them as JUCE
+  typefaces once and gives the font for a theme's `FontSpec` (an unknown family falls
+  back to the default sans-serif). The licences go into the app (`Licences/`) with
+  `docs/THIRD_PARTY.md`, which lists every third-party component.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -576,7 +582,7 @@ into `phase-5`.
       status colours apart in lightness, derived colours
 - [x] 3. Animation settings: levels, per-effect switches, reduced/off rules, system
       reduce motion, costs and total load, user-setting persistence
-- [ ] 4. Bundled fonts (OFL), `docs/THIRD_PARTY.md`, typeface loading
+- [x] 4. Bundled fonts (OFL), `docs/THIRD_PARTY.md`, typeface loading
 - [ ] 5. LookAndFeel base and one per theme for JUCE widgets; live switching across
       windows; theme stored in the user settings; UI test target
 - [ ] 6. Shared animation clock, window visibility, system reduce motion, cache of
