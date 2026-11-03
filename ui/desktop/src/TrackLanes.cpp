@@ -59,9 +59,11 @@ void TrackLanes::paint(juce::Graphics& g)
 
     g.fillAll(juce::Colour(0xff1b1b1b));
 
-    for (int t = 0; t < project.getNumTracks(); ++t)
+    for (int t = 0; t < state.numRows(); ++t)
     {
-        g.setColour(t % 2 == 0 ? juce::Colour(0xff222222) : juce::Colour(0xff252525));
+        const bool trackRow = t < project.getNumTracks();
+        g.setColour(trackRow ? (t % 2 == 0 ? juce::Colour(0xff222222) : juce::Colour(0xff252525))
+                             : juce::Colour(0xff20262c));
         g.fillRect(0, t * ArrangeState::laneHeight, getWidth(), ArrangeState::laneHeight);
     }
 
@@ -105,6 +107,10 @@ void TrackLanes::paint(juce::Graphics& g)
     }
 
     drawRecordings(g);
+
+    if (state.showAutomation)
+        for (int row = 0; row < state.numRows(); ++row)
+            automation.paintRow(g, rowBounds(row), state.ownerOfRow(row));
 
     if (dropIndicator)
     {
@@ -311,8 +317,27 @@ std::optional<TrackLanes::Hit> TrackLanes::clipAt(juce::Point<float> point) cons
     return std::nullopt;
 }
 
+juce::Rectangle<float> TrackLanes::rowBounds(int row) const
+{
+    return {0.0f, static_cast<float>(row * ArrangeState::laneHeight), static_cast<float>(getWidth()),
+            static_cast<float>(ArrangeState::laneHeight)};
+}
+
+void TrackLanes::mouseDoubleClick(const juce::MouseEvent& event)
+{
+    const int row = trackIndexAt(event.position.y);
+    if (state.showAutomation && row >= 0 && row < state.numRows())
+        automation.mouseDoubleClick(event, rowBounds(row), state.ownerOfRow(row));
+}
+
 void TrackLanes::mouseMove(const juce::MouseEvent& event)
 {
+    if (state.showAutomation)
+    {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+        return;
+    }
+
     const auto hit = clipAt(event.position);
     setMouseCursor(hit && hit->zone != Zone::body ? juce::MouseCursor::LeftRightResizeCursor
                                                    : juce::MouseCursor::NormalCursor);
@@ -320,6 +345,17 @@ void TrackLanes::mouseMove(const juce::MouseEvent& event)
 
 void TrackLanes::mouseDown(const juce::MouseEvent& event)
 {
+    if (state.showAutomation)
+    {
+        const int row = trackIndexAt(event.position.y);
+        if (row >= 0 && row < state.numRows())
+            automation.mouseDown(event, rowBounds(row), state.ownerOfRow(row));
+        else
+            state.session.seek(state.snap(state.viewport.xToTicks(event.position.x), event.mods));
+        repaint();
+        return;
+    }
+
     const auto hit = clipAt(event.position);
 
     if (!hit)
@@ -351,6 +387,13 @@ void TrackLanes::mouseDown(const juce::MouseEvent& event)
 
 void TrackLanes::mouseDrag(const juce::MouseEvent& event)
 {
+    if (state.showAutomation)
+    {
+        automation.mouseDrag(event);
+        repaint();
+        return;
+    }
+
     if (!drag)
         return;
 
@@ -404,6 +447,8 @@ void TrackLanes::mouseDrag(const juce::MouseEvent& event)
 
 void TrackLanes::mouseUp(const juce::MouseEvent&)
 {
+    automation.mouseUp();
+    repaint();
     if (drag && drag->started)
         state.session.endGesture();
     drag.reset();

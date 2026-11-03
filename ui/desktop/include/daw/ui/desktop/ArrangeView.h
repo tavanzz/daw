@@ -33,6 +33,10 @@ public:
     void zoomToFit();
 
     [[nodiscard]] bool hasSelection() const noexcept { return !state.selection.empty(); }
+
+    /** The automation view (A): each row's automation lane over its clips. */
+    [[nodiscard]] bool isShowingAutomation() const noexcept { return state.showAutomation; }
+    void setShowingAutomation(bool show);
     void deleteSelection();
 
     /** Where new material goes: the playhead. */

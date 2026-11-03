@@ -9,6 +9,7 @@ namespace daw::engine
 Engine::~Engine()
 {
     collectGarbage();
+    delete held;
     delete pendingSnapshot.exchange(nullptr);
     delete waitingToRetire;
     delete fadingOut;
@@ -36,7 +37,7 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     }
     transport.setLinear(false);
     recordingTransport = false;
-    crossfadeBuffer.setSize(2, newMaximumBlockSize);
+    silentArrangement.sampleRate = newSampleRate;
     stereoBuffer.setSize(2, newMaximumBlockSize);
     crossfadeLength =
         std::max(1, static_cast<int>(std::lround(crossfadeSeconds * newSampleRate)));
@@ -46,10 +47,16 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
 
     // The device was stopped: whatever was crossfading is over.
     finishCrossfade();
+    latencySwitch = LatencySwitch::none;
+    switchLevel = crossfadeLength;
+    history.reset(streamPosition, transport.getPosition());
 }
 
 void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept
 {
+    // Decaying tails would otherwise turn into denormals, which some processors
+    // compute very slowly. Exports run in the same mode, so they stay identical.
+    const juce::ScopedNoDenormals noDenormals;
     renderClock.begin();
     processBlock(inputs, output);
     renderClock.end();
@@ -68,13 +75,7 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
     if (waitingToRetire != nullptr && retired.push(waitingToRetire))
         waitingToRetire = nullptr;
 
-    // A crossfade only lasts while the timeline is being rendered.
-    if (fadingOut != nullptr && !transport.isRunning())
-        finishCrossfade();
-
-    // One change of arrangement at a time: a newer one waits for the crossfade.
-    if (fadingOut == nullptr)
-        adoptPendingSnapshot();
+    takeNewSnapshot();
 
     while (const auto command = commands.pop())
         apply(*command);
@@ -122,6 +123,7 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
     }
 
     blockInputs = nullptr;
+    applyLatencySwitch(output);
     streamPosition += output.getNumSamples();
     publish();
 }
@@ -144,7 +146,9 @@ void Engine::startPendingRecording() noexcept
     const auto* setup = std::exchange(pendingRecording, nullptr);
     waitingForData = false;
 
-    recorder.begin(*setup, streamPosition);
+    // What is heard lags what is read by the effects' latency: so does the recording.
+    recordingLatency = getCurrentLatency();
+    recorder.begin(*setup, streamPosition + recordingLatency);
     recordingTransport = true;
     transport.setLinear(true);
     transport.seek(setup->startPosition);
@@ -214,7 +218,7 @@ bool Engine::runLatencyTest(const AudioInputs& inputs, juce::AudioBuffer<float>&
 void Engine::endRecording() noexcept
 {
     if (recorder.isRecording())
-        recorder.end(streamPosition);
+        recorder.end(streamPosition + recordingLatency);
 }
 
 bool Engine::isReadyAt(juce::int64 position) const noexcept
@@ -292,13 +296,21 @@ void Engine::renderCountIn(juce::AudioBuffer<float>& output, int outputStart,
         auto context = makeContext(outputStart + done);
         context.timelineRunning = false;
         context.autoMonitorsInput = true;
+        recordRead(outputStart + done, TimelineHistory::Kind::countIn, countInPosition + done,
+                   beats != nullptr);
         renderPiece(countInPosition + done, output, outputStart + done, piece, context);
-        finishPiece(output, outputStart + done, piece, countInPosition + done, beats != nullptr);
+        finishPiece(output, outputStart + done, piece);
     }
 }
 
-void Engine::finishPiece(juce::AudioBuffer<float>& output, int outputStart, int numSamples,
-                         juce::int64 timelineStart, bool newClicks) noexcept
+void Engine::recordRead(int outputStart, TimelineHistory::Kind kind, juce::int64 position,
+                        bool clicks) noexcept
+{
+    history.record({streamPosition + renderOffset + outputStart, position, kind, clicks});
+}
+
+void Engine::finishPiece(juce::AudioBuffer<float>& output, int outputStart,
+                         int numSamples) noexcept
 {
     // The meter shows the mix: it measures before the clicks are added.
     outputMeter.process(output, outputStart, numSamples, meteredChannels);
@@ -307,12 +319,30 @@ void Engine::finishPiece(juce::AudioBuffer<float>& output, int outputStart, int 
         return;
 
     const bool playable = canPlay(current);
-    const BeatGrid* beats =
-        newClicks && playable ? current->arrangement->beats.get() : nullptr;
+    const BeatGrid* beats = playable ? current->arrangement->beats.get() : nullptr;
     const float gain = playable ? current->arrangement->metronomeGain : 0.0f;
+    float* const left = output.getWritePointer(0, outputStart);
+    float* const right = output.getWritePointer(1, outputStart);
 
-    metronome.render(beats, timelineStart, gain, output.getWritePointer(0, outputStart),
-                     output.getWritePointer(1, outputStart), numSamples);
+    // The clicks go with what is heard now, which was read latency samples ago.
+    const juce::int64 heard = streamPosition + renderOffset + outputStart - getCurrentLatency();
+    history.forEach(heard, numSamples,
+                    [&](int offset, int length, const TimelineHistory::Stretch& stretch) {
+                        metronome.render(stretch.clicks ? beats : nullptr, stretch.position, gain,
+                                         left + offset, right + offset, length);
+                    });
+}
+
+int Engine::getCurrentLatency() const noexcept
+{
+    return canPlay(current) ? current->mix.latency : 0;
+}
+
+bool Engine::mayBeHeard() const noexcept
+{
+    return transport.isRunning() || countInRemaining > 0 ||
+           (current != nullptr &&
+            (current->mix.isHearingInput() || current->arrangement->hasEffects()));
 }
 
 MixContext Engine::makeContext(int outputStart) const noexcept
@@ -320,6 +350,8 @@ MixContext Engine::makeContext(int outputStart) const noexcept
     MixContext context;
     context.inputs = blockInputs;
     context.inputOffset = renderOffset + outputStart;
+    context.history = &history;
+    context.stream = streamPosition + renderOffset + outputStart;
     context.autoMonitorsInput = autoMonitorsAt(transport.getPosition());
     return context;
 }
@@ -337,8 +369,9 @@ void Engine::renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>&
         auto context = makeContext(outputStart + done);
         context.fade = fade.from(done);
         context.autoMonitorsInput = autoMonitorsAt(timelineStart + done);
+        recordRead(outputStart + done, TimelineHistory::Kind::playing, timelineStart + done, clicks);
         renderPiece(timelineStart + done, output, outputStart + done, piece, context);
-        finishPiece(output, outputStart + done, piece, timelineStart + done, clicks);
+        finishPiece(output, outputStart + done, piece);
         done += piece;
     }
 }
@@ -351,8 +384,10 @@ void Engine::renderStopped(juce::AudioBuffer<float>& output, int outputStart,
         const int piece = std::min(maximumBlockSize, numSamples - done);
         auto context = makeContext(outputStart + done);
         context.timelineRunning = false;
+        recordRead(outputStart + done, TimelineHistory::Kind::stopped, transport.getPosition(),
+                   false);
         renderPiece(transport.getPosition(), output, outputStart + done, piece, context);
-        finishPiece(output, outputStart + done, piece, transport.getPosition(), false);
+        finishPiece(output, outputStart + done, piece);
     }
 }
 
@@ -366,34 +401,26 @@ void Engine::renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& ou
         return;
     }
 
-    mixer.render(*current->arrangement, current->mix, timelineStart, output, outputStart,
-                 numSamples, context);
-
     if (fadingOut == nullptr)
-        return;
-
-    const int fading = std::min(numSamples, crossfadeLength - crossfadeDone);
-
-    if (canPlay(fadingOut))
-        mixer.render(*fadingOut->arrangement, fadingOut->mix, timelineStart, crossfadeBuffer, 0,
-                     fading, context);
-    else
-        crossfadeBuffer.clear();
-
-    const auto fullLength = static_cast<float>(crossfadeLength);
-    for (int channel = 0; channel < 2; ++channel)
     {
-        float* mixed = output.getWritePointer(channel, outputStart);
-        const float* old = crossfadeBuffer.getReadPointer(channel);
-
-        for (int i = 0; i < fading; ++i)
-        {
-            const float gain = static_cast<float>(crossfadeDone + i + 1) / fullLength;
-            mixed[i] = old[i] + (mixed[i] - old[i]) * gain;
-        }
+        mixer.render(*current->arrangement, current->mix, timelineStart, output, outputStart,
+                     numSamples, context);
+        return;
     }
 
-    crossfadeDone += fading;
+    // Track by track, the clips that changed crossfade from the old arrangement to
+    // the new, and tracks that are gone fade out. (An arrangement at another rate
+    // plays nothing, so everything fades in from silence.)
+    auto crossfading = context;
+    const bool oldPlays = canPlay(fadingOut);
+    crossfading.previous = oldPlays ? fadingOut->arrangement.get() : &silentArrangement;
+    crossfading.previousState = oldPlays ? &fadingOut->mix : &silentMix;
+    crossfading.crossfadeDone = crossfadeDone;
+    crossfading.crossfadeLength = crossfadeLength;
+    mixer.render(*current->arrangement, current->mix, timelineStart, output, outputStart,
+                 numSamples, crossfading);
+
+    crossfadeDone += std::min(numSamples, crossfadeLength - crossfadeDone);
     if (crossfadeDone >= crossfadeLength)
         finishCrossfade();
 }
@@ -405,7 +432,8 @@ void Engine::setArrangement(std::unique_ptr<Arrangement> arrangement)
 
     arrangement->updateLayoutHash();
     auto snapshot = std::make_unique<Snapshot>();
-    snapshot->mix = MixState::startingAt(*arrangement);
+    snapshot->mix = MixState::startingAt(
+        *arrangement, std::max(MixState::defaultBusBlockSize, maximumBlockSize));
     snapshot->arrangement = std::move(arrangement);
 
     // A previous snapshot the audio thread has not picked up yet never will be: the
@@ -493,6 +521,11 @@ TransportState Engine::getTransportState() const noexcept
 juce::int64 Engine::getPlayheadPosition() const noexcept
 {
     return publishedPosition.load(std::memory_order_relaxed);
+}
+
+int Engine::getLatency() const noexcept
+{
+    return publishedLatency.load(std::memory_order_relaxed);
 }
 
 juce::int64 Engine::getLength() const noexcept
@@ -657,24 +690,63 @@ void Engine::apply(const Command& command) noexcept
     }
 }
 
-void Engine::adoptPendingSnapshot() noexcept
+void Engine::takeNewSnapshot() noexcept
 {
-    Snapshot* incoming = pendingSnapshot.exchange(nullptr, std::memory_order_acq_rel);
-    if (incoming == nullptr)
+    if (Snapshot* incoming = pendingSnapshot.exchange(nullptr, std::memory_order_acq_rel))
+    {
+        if (held != nullptr)
+            retire(held); // superseded before it could play
+        held = incoming;
+    }
+
+    // One change at a time: a newer one waits for the crossfade.
+    if (held == nullptr || fadingOut != nullptr || latencySwitch == LatencySwitch::fadingOut)
         return;
 
+    // A change of latency puts the audio at other times: rather than jump, the output
+    // fades out first, stays silent while the new delays fill, then fades in.
+    const bool movesAudio = current != nullptr && canPlay(current) && canPlay(held) &&
+                            held->mix.movesAudioFrom(current->mix, *current->arrangement,
+                                                     *held->arrangement);
+
+    if (movesAudio && mayBeHeard() &&
+        (latencySwitch == LatencySwitch::none || latencySwitch == LatencySwitch::fadingIn))
+    {
+        latencySwitch = LatencySwitch::fadingOut;
+        return;
+    }
+
+    const bool dipping = latencySwitch == LatencySwitch::silent ||
+                         latencySwitch == LatencySwitch::filling;
+    adopt(std::exchange(held, nullptr));
+
+    if (dipping)
+    {
+        latencySwitch = LatencySwitch::filling;
+        fillRemaining = current->mix.latency;
+    }
+}
+
+void Engine::adopt(Snapshot* incoming) noexcept
+{
     if (current != nullptr)
     {
-        // While anything is heard, gains carry on from where they are and ramp to
-        // the new targets; while silent, the new gains simply apply.
-        if (transport.isRunning() || current->mix.isHearingInput())
+        // While anything may be heard (effects ring on after a stop), gains carry on
+        // from where they are and ramp to the new targets; while silent, the new
+        // gains simply apply.
+        const bool heard = mayBeHeard();
+        if (heard)
             incoming->mix.continueFrom(current->mix, *current->arrangement,
                                        *incoming->arrangement, mixer.getGainRampLength());
 
+        // Changed clips crossfade while the timeline plays; tracks that are gone fade
+        // out whenever they may be heard.
         const bool soundsDifferent =
             incoming->arrangement->layoutHash != current->arrangement->layoutHash;
+        const bool losesTracks = !hasEveryTrackOf(*incoming->arrangement, *current->arrangement);
 
-        if (transport.isRunning() && soundsDifferent && canPlay(current))
+        if (canPlay(current) &&
+            ((transport.isRunning() && soundsDifferent) || (heard && losesTracks)))
         {
             fadingOut = current;
             crossfadeDone = 0;
@@ -689,6 +761,61 @@ void Engine::adoptPendingSnapshot() noexcept
     const auto& arrangement = *current->arrangement;
     transport.setLength(arrangement.length);
     transport.setLoopRange(arrangement.loopStart, arrangement.loopEnd);
+}
+
+bool Engine::hasEveryTrackOf(const Arrangement& arrangement, const Arrangement& other) noexcept
+{
+    for (std::size_t i = 0; i < other.tracks.size(); ++i)
+    {
+        const auto id = other.tracks[i].id;
+        if (i < arrangement.tracks.size() && arrangement.tracks[i].id == id)
+            continue;
+        if (std::none_of(arrangement.tracks.begin(), arrangement.tracks.end(),
+                         [id](const ArrangementTrack& track) { return track.id == id; }))
+            return false;
+    }
+    return true;
+}
+
+void Engine::applyLatencySwitch(juce::AudioBuffer<float>& output) noexcept
+{
+    if (latencySwitch == LatencySwitch::none)
+        return;
+
+    const auto fullLevel = static_cast<float>(crossfadeLength);
+    for (int i = 0; i < output.getNumSamples(); ++i)
+    {
+        switch (latencySwitch)
+        {
+        case LatencySwitch::fadingOut:
+            if (--switchLevel <= 0)
+            {
+                switchLevel = 0;
+                latencySwitch = LatencySwitch::silent;
+            }
+            break;
+        case LatencySwitch::filling:
+            if (fillRemaining > 0)
+                --fillRemaining;
+            else
+                latencySwitch = LatencySwitch::fadingIn;
+            break;
+        case LatencySwitch::fadingIn:
+            if (++switchLevel >= crossfadeLength)
+            {
+                switchLevel = crossfadeLength;
+                latencySwitch = LatencySwitch::none;
+            }
+            break;
+        case LatencySwitch::silent:
+        case LatencySwitch::none:
+            break;
+        }
+
+        const float gain = static_cast<float>(switchLevel) / fullLevel;
+        for (int channel = 0; channel < output.getNumChannels(); ++channel)
+            output.getWritePointer(channel)[i] *= gain;
+    }
 }
 
 void Engine::finishCrossfade() noexcept
@@ -724,7 +851,13 @@ void Engine::publish() noexcept
     publishedWaiting.store(waitingForData, std::memory_order_relaxed);
     publishedLoopStart.store(transport.getLoopStart(), std::memory_order_relaxed);
     publishedLoopEnd.store(transport.getLoopEnd(), std::memory_order_relaxed);
-    publishedPosition.store(transport.getPosition(), std::memory_order_relaxed);
+    // The playhead shows what is heard: with effects that delay the audio, what was
+    // read latency samples ago.
+    const int latency = getCurrentLatency();
+    publishedPosition.store(latency == 0 ? transport.getPosition()
+                                         : history.at(streamPosition - latency).position,
+                            std::memory_order_relaxed);
+    publishedLatency.store(latency, std::memory_order_relaxed);
     publishedLength.store(transport.getLength(), std::memory_order_relaxed);
     publishedLooping.store(transport.isLooping(), std::memory_order_relaxed);
     publishedCountingIn.store(countInRemaining > 0, std::memory_order_relaxed);

@@ -1,7 +1,8 @@
 # Performance
 
-How many tracks the engine mixes within the time of one audio callback (Phase 2), and
-how many stream from disk and record at once (Phase 3).
+How many tracks the engine mixes within the time of one audio callback (Phase 2),
+how many stream from disk and record at once (Phase 3), and what effects cost and
+how many tracks with effects fit (Phase 4).
 
 ```bash
 cmake --preset release && cmake --build --preset release
@@ -114,3 +115,62 @@ What this means:
 - Recording 128 mono tracks at once takes about 1/24 of real time: the writer thread
   is far from being a bottleneck; the disk's write speed would be (128 tracks need
   18 MB/s at 24-bit 48 kHz).
+
+## Effects (Phase 4)
+
+```bash
+cmake --preset release && cmake --build --preset release
+build/release/tests/daw_fx_bench
+```
+
+`tests/bench/EffectBenchmark.cpp`:
+
+- Each built-in effect, through the host (`fx::EffectInstance`, as the mixer runs it,
+  with denormals flushed as on the audio thread), processes 10 s of stereo noise in
+  blocks of 256 at 48 kHz: the time per sample, and the share of one core that
+  takes in real time. Then 30 s of silence, of which the last 10 s are timed: what
+  an effect costs once its tail has died away.
+- Tracks playing noise, each through an equaliser (every band working) and a
+  compressor, with two post-fader sends to a reverb bus and a delay bus shared by
+  all tracks, and a limiter on the master: the most tracks whose 99th-percentile
+  block time stays within the share of the budget asked for (the best of three
+  runs per count, then doubling and bisection as `daw_bench` does).
+
+Apple M3 Pro, macOS 15.6.1, Release build, 2026-11-03, with the code of Phase 4
+step 13.
+
+| Effect | Signal: ns/sample | Share of a core | Silence: ns/sample |
+|--------|------------------:|----------------:|-------------------:|
+| Equaliser, neutral (bands on at 0 dB) | 48.6 | 0.23 % | 2.9 |
+| Equaliser, every band working | 53.2 | 0.26 % | 2.8 |
+| Equaliser, a bell's frequency automated | 82.5 | 0.40 % | 6.9 |
+| Compressor | 15.4 | 0.07 % | 2.4 |
+| Limiter | 14.3 | 0.07 % | 14.1 |
+| Delay (350 ms, 35 %) | 9.8 | 0.05 % | 2.3 |
+| Reverb (2 s) | 142.2 | 0.68 % | 2.3 |
+
+| Block | Budget | Tracks within 100% | Within 50% |
+|------:|-------:|-------------------:|-----------:|
+|   128 | 2.67 ms |               264 |        130 |
+|   256 | 5.33 ms |               256 |        124 |
+|   512 | 10.67 ms |              158 |         75 |
+
+What this means:
+
+- One core runs about 400 equalisers, 1,400 compressors or limiters, 2,000 delays
+  or 150 reverbs at 48 kHz. The equaliser costs the same at 0 dB as working (its
+  filters run so that they are ready when a band moves); per-sample automation of a
+  frequency costs about 60 % more (the coefficients are worked out every sample).
+- In silence, once their tails are gone, the equaliser, compressor, delay and
+  reverb come to rest and skip their work (2 to 3 ns per sample: the host's own
+  checks). The limiter always runs (14 ns). Without the resting rule, the
+  equaliser's filter states kept flipping sign just above the smallest normal
+  double (a limit cycle that flushing denormals creates) and it never rested:
+  states below 1e-20 (1e-15 in the delay and reverb) are now set to zero, sample by
+  sample, far below hearing and the same in exports.
+- With the typical chain, about 250 tracks fit in a whole callback of 128 or 256
+  samples and about 125 in half of it: effects, not mixing, now set the limit (the
+  mixer alone fits thousands, see above). As with the mixer, 512-sample blocks come
+  out lower per sample than 256; still 75 tracks fit in half the budget.
+- One core only: the mixer and the effects run on the audio thread. Spreading
+  tracks over cores is the way to more.

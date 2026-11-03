@@ -1,8 +1,10 @@
 #pragma once
 
 #include "daw/engine/AudioSource.h"
+#include "daw/engine/AutomationCurve.h"
 #include "daw/engine/BeatGrid.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
+#include "daw/engine/fx/EffectInstance.h"
 
 #include <juce_core/juce_core.h>
 
@@ -35,13 +37,92 @@ enum class InputMonitoring : std::uint8_t
     on
 };
 
+/** One effect of a chain, as an arrangement plays it. */
+struct ChainSlot
+{
+    /** The effect. One instance per effect, shared by every arrangement that plays
+        it, so that its state (tails, envelopes) goes on when the arrangement
+        changes; never in two places of one arrangement. */
+    std::shared_ptr<fx::EffectInstance> instance;
+
+    std::vector<float> parameters; ///< normalised values set by the user, one per parameter
+    bool enabled = true;           ///< false: bypassed, or fading out before it is removed
+    std::uint32_t revival = 0;     ///< see fx::SlotSettings
+
+    /** Per parameter, its automation (normalised values) or null; may be shorter
+        than the parameter list. */
+    std::vector<std::shared_ptr<const AutomationCurve>> automation;
+};
+
+/** A fader and pan that automation may move: the arrangement's fixed gains apply
+    unless a curve is given (positions on the fader, dsp::faderGain(); pan from 0
+    hard left to 1 hard right). Curves are only given where the result is heard. */
+struct GainAutomation
+{
+    float volume = 1.0f; ///< linear gain, used while only the pan is automated
+    float pan = 0.0f;    ///< -1 to 1, used while only the volume is automated
+    std::shared_ptr<const AutomationCurve> volumeCurve;
+    std::shared_ptr<const AutomationCurve> panCurve;
+
+    [[nodiscard]] bool isActive() const noexcept
+    {
+        return volumeCurve != nullptr || panCurve != nullptr;
+    }
+};
+
+/** Effects in series, processed in order. */
+struct EffectChain
+{
+    std::vector<ChainSlot> slots;
+
+    [[nodiscard]] bool isEmpty() const noexcept { return slots.empty(); }
+
+    /** How many samples the chain delays its audio: the sum of its effects'
+        latencies, bypassed ones included (bypassing never moves audio in time). */
+    [[nodiscard]] int getLatency() const noexcept;
+};
+
+/** A track's send to an aux bus. */
+struct ArrangementSend
+{
+    juce::int64 id = 0;   ///< the model's send id: keeps its gain ramp going across arrangements
+    juce::int64 bus = 0;  ///< the bus's id
+    int busIndex = -1;    ///< where that bus is in Arrangement::buses (checked against bus)
+    float gain = 1.0f;    ///< the send level, 0 when the track is not heard
+    bool preFader = false; ///< after the inserts and before volume and pan, or after both
+
+    /** The level's automation (positions on the fader), or null. */
+    std::shared_ptr<const AutomationCurve> levelCurve;
+};
+
+/** An aux bus: the sum of the sends it gets, through its effects and its fader,
+    into the master. */
+struct ArrangementBus
+{
+    juce::int64 id = 0;
+    float leftGain = 1.0f; ///< volume × pan law, 0 when muted
+    float rightGain = 1.0f;
+    GainAutomation automation;
+    EffectChain inserts; ///< before its fader
+
+    /** Measures the bus after its fader, for the UI; may be null. */
+    std::shared_ptr<dsp::PeakLevelMeter> meter;
+};
+
 /** A track as the mixer sees it. */
 struct ArrangementTrack
 {
     juce::int64 id = 0;    ///< the model's track id: keeps gain ramps going across arrangements
     float leftGain = 1.0f; ///< volume × pan law, 0 when the track is not heard
     float rightGain = 1.0f;
+    GainAutomation automation;
     std::vector<ClipSegment> segments; ///< sorted by start, never overlapping
+
+    /** Effects on the track, before its fader. */
+    EffectChain inserts;
+
+    /** Sends to aux buses, at most one per bus. */
+    std::vector<ArrangementSend> sends;
 
     int inputChannel = -1;  ///< first device input channel; -1 for none
     int numInputChannels = 0; ///< 1 (heard on both sides) or 2
@@ -50,6 +131,9 @@ struct ArrangementTrack
 
     /** Measures the track after its fader, for the UI; may be null. */
     std::shared_ptr<dsp::PeakLevelMeter> meter;
+
+    /** Summary of the segments (see Arrangement::layoutHash). */
+    std::uint64_t layoutHash = 0;
 };
 
 /**
@@ -64,7 +148,20 @@ struct Arrangement
 {
     double sampleRate = 0.0;
     std::vector<ArrangementTrack> tracks;
+    std::vector<ArrangementBus> buses;
     float masterGain = 1.0f;
+
+    /** The master volume's automation (positions on the fader), or null. */
+    std::shared_ptr<const AutomationCurve> masterCurve;
+
+    /** Effects on the mix, after the master fader (so a limiter there holds its
+        ceiling whatever the fader does). */
+    EffectChain masterInserts;
+
+    /** The project's tempo and metre, for tempo-synced effects. */
+    double tempo = 120.0; ///< quarter notes per minute
+    int numerator = 4;
+    int denominator = 4;
 
     juce::int64 length = 0;    ///< where the last clip ends
     juce::int64 loopStart = 0; ///< loop region [loopStart, loopEnd); empty = [0, length)
@@ -79,10 +176,14 @@ struct Arrangement
 
     /** Summary of the segments of every track. Two arrangements with different
         hashes sound different even at equal gains: swapping them while playing
-        needs a crossfade. Computed by updateLayoutHash(). */
+        needs a crossfade (of the tracks whose own hashes differ). Computed by
+        updateLayoutHash(), with the tracks' own. */
     std::uint64_t layoutHash = 0;
 
     void updateLayoutHash() noexcept;
+
+    /** Whether any track, bus or the master has effects. */
+    [[nodiscard]] bool hasEffects() const noexcept;
 };
 
 /** Audio thread (or any). Whether every source the arrangement plays in

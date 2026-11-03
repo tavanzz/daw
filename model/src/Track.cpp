@@ -1,5 +1,6 @@
 #include "daw/model/Track.h"
 
+#include "Containers.h"
 #include "Identifiers.h"
 #include "ObjectIds.h"
 
@@ -142,7 +143,7 @@ void Track::setArmed(bool shouldBeArmed)
 
 int Track::getNumClips() const
 {
-    return state.getNumChildren();
+    return detail::countLeading(state, ids::clip);
 }
 
 Clip Track::getClip(int index) const
@@ -169,13 +170,74 @@ Clip Track::addClip(const juce::File& audioFile, const ClipBounds& bounds,
     Clip clip{clipState};
     clip.setAudioFile(audioFile);
     clip.setBounds(bounds);
-    state.appendChild(clip.getState(), undoManager);
+    state.addChild(clip.getState(), getNumClips(), undoManager);
     return clip;
 }
 
 void Track::removeClip(int index, juce::UndoManager* undoManager)
 {
-    state.removeChild(index, undoManager);
+    if (index >= 0 && index < getNumClips())
+        state.removeChild(index, undoManager);
+}
+
+EffectList Track::getEffects() const
+{
+    return EffectList(state.getChildWithName(ids::effects));
+}
+
+Automation Track::getAutomation() const
+{
+    return Automation(state.getChildWithName(ids::automation));
+}
+
+int Track::getNumSends() const
+{
+    return state.getChildWithName(ids::sends).getNumChildren();
+}
+
+Send Track::getSend(int index) const
+{
+    jassert(index >= 0 && index < getNumSends());
+    return Send(state.getChildWithName(ids::sends).getChild(index));
+}
+
+int Track::indexOfSend(ObjectId sendId) const
+{
+    for (int index = 0; index < getNumSends(); ++index)
+        if (getSend(index).getId() == sendId)
+            return index;
+    return -1;
+}
+
+int Track::indexOfSendTo(ObjectId busId) const
+{
+    for (int index = 0; index < getNumSends(); ++index)
+        if (getSend(index).getBus() == busId)
+            return index;
+    return -1;
+}
+
+Send Track::addSend(ObjectId busId, juce::UndoManager* undoManager)
+{
+    if (const int existing = indexOfSendTo(busId); existing >= 0)
+        return getSend(existing);
+
+    juce::ValueTree sendState(ids::send);
+    sendState.setProperty(ids::id, detail::nextObjectId(state), nullptr);
+    sendState.setProperty(ids::busId, busId, nullptr);
+    sendState.setProperty(ids::level, 1.0, nullptr);
+    sendState.setProperty(ids::preFader, false, nullptr);
+    state.getChildWithName(ids::sends).appendChild(sendState, undoManager);
+    return Send(sendState);
+}
+
+void Track::removeSend(int index, juce::UndoManager* undoManager)
+{
+    if (index < 0 || index >= getNumSends())
+        return;
+
+    getAutomation().removeLaneOfSend(getSend(index).getId(), undoManager);
+    state.getChildWithName(ids::sends).removeChild(index, undoManager);
 }
 
 } // namespace daw::model

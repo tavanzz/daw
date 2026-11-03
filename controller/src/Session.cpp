@@ -1,6 +1,7 @@
 #include "daw/controller/Session.h"
 
 #include "daw/controller/ArrangementBuilder.h"
+#include "daw/controller/AutomationEditing.h"
 #include "daw/controller/TempoBeatGrid.h"
 #include "daw/controller/TimelineViewport.h"
 #include "daw/engine/io/WavRepair.h"
@@ -37,6 +38,7 @@ Session::Session(engine::Engine& engineToDrive, SessionOptions sessionOptions)
 
     sources.onSourceChanged = [this](const juce::File& file) { sourceChanged(file); };
     project.getState().addListener(this);
+    effectInstances.prepare(sources.getSampleRate(), effectBlockSize);
 }
 
 Session::~Session()
@@ -55,7 +57,9 @@ void Session::update()
 
     sources.collectFinishedLoads();
 
-    if (arrangementOutOfDate)
+    // Also when something removed has faded out long enough to go.
+    if (arrangementOutOfDate ||
+        fadeOutKeeper.isDue(juce::Time::getMillisecondCounterHiRes() / 1000.0))
         rebuildArrangement();
 
     streamingTick();
@@ -104,6 +108,9 @@ void Session::setSampleRate(double sampleRate)
         return;
 
     sources.setSampleRate(sampleRate);
+    effectInstances.prepare(sampleRate, effectBlockSize);
+    freshEffects = true;
+    fadeOutKeeper.clear();
     dropoutsSeen = 0;
     pendingArrangement.reset();
     arrangementOutOfDate = true;
@@ -290,6 +297,9 @@ void Session::replaceProject(model::Project newProject)
     unsavedChanges = false;
     sources.clear();
     meters.clear();
+    effectInstances.clear();
+    fadeOutKeeper.clear();
+    freshEffects = true;
 
     engine.resetTransport();
     engine.setLooping(project.isLoopEnabled());
@@ -899,14 +909,27 @@ void Session::rebuildArrangement()
         return source != nullptr ? source->audio : nullptr;
     };
     const auto meterFor = [this](model::ObjectId trackId) { return getTrackMeter(trackId); };
+    const bool fadeIn = !freshEffects;
+    const auto effectsFor = [this, fadeIn](const ChainOwner& owner, const model::EffectList& list) {
+        return effectInstances.chainFor(owner, list, fadeIn);
+    };
 
-    auto arrangement = buildArrangement(project, sources.getSampleRate(), lookup, meterFor);
+    auto arrangement =
+        buildArrangement(project, sources.getSampleRate(), lookup, meterFor, effectsFor);
+    effectInstances.forgetUnused();
+    freshEffects = false;
 
-    // While playing, what the new arrangement plays at the playhead must be loaded
-    // before it takes over; meanwhile the read-ahead serves both.
+    // What an edit removed fades out before it goes.
+    fadeOutKeeper.keep(*arrangement, playingArrangement.get(),
+                       juce::Time::getMillisecondCounterHiRes() / 1000.0);
+
+    // While playing, what the new arrangement plays at the playhead (read ahead of
+    // what is heard by the effects' latency) must be loaded before it takes over;
+    // meanwhile the read-ahead serves both.
     const bool playing = engine.getTransportState() == engine::TransportState::playing;
     if (playing && playingArrangement != nullptr &&
-        !engine::isArrangementReady(*arrangement, engine.getPlayheadPosition(),
+        !engine::isArrangementReady(*arrangement,
+                                    engine.getPlayheadPosition() + engine.getLatency(),
                                     static_cast<juce::int64>(engine::Engine::readyAheadSeconds *
                                                              arrangement->sampleRate)))
     {
@@ -931,6 +954,314 @@ void Session::handOver(std::unique_ptr<engine::Arrangement> arrangement)
 double Session::engineRate() const noexcept
 {
     return engine.getSampleRate() > 0.0 ? engine.getSampleRate() : sources.getSampleRate();
+}
+
+// Effects, buses and sends ---------------------------------------------------------------
+
+model::EffectList Session::getEffects(const ChainOwner& owner) const
+{
+    if (owner.kind == ChainOwner::Kind::track)
+        if (const auto track = findTrack(owner.id))
+            return track->getEffects();
+    if (owner.kind == ChainOwner::Kind::bus)
+        if (const auto bus = findBus(owner.id))
+            return bus->getEffects();
+    return project.getMasterEffects();
+}
+
+std::optional<EffectLocation> Session::findEffect(model::ObjectId effectId) const
+{
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        const auto track = project.getTrack(t);
+        if (const int index = track.getEffects().indexOf(effectId); index >= 0)
+            return EffectLocation{ChainOwner::track(track.getId()), index};
+    }
+    for (int b = 0; b < project.getNumBuses(); ++b)
+    {
+        const auto bus = project.getBus(b);
+        if (const int index = bus.getEffects().indexOf(effectId); index >= 0)
+            return EffectLocation{ChainOwner::bus(bus.getId()), index};
+    }
+    if (const int index = project.getMasterEffects().indexOf(effectId); index >= 0)
+        return EffectLocation{ChainOwner::master(), index};
+    return std::nullopt;
+}
+
+std::optional<model::Effect> Session::getEffect(model::ObjectId effectId) const
+{
+    if (const auto location = findEffect(effectId))
+        return getEffects(location->owner).getEffect(location->index);
+    return std::nullopt;
+}
+
+std::shared_ptr<engine::fx::EffectInstance> Session::getEffectInstance(model::ObjectId effectId) const
+{
+    return effectInstances.find(effectId);
+}
+
+juce::String Session::takeEditProblem()
+{
+    return std::exchange(editProblem, {});
+}
+
+bool Session::refusesLatencyChange(int latency)
+{
+    if (latency <= 0 || !isRecording())
+        return false;
+    editProblem = latencyWhileRecordingMessage;
+    return true;
+}
+
+model::ObjectId Session::addEffect(const ChainOwner& owner, const juce::String& type, int index)
+{
+    const bool ownerExists = owner.kind == ChainOwner::Kind::master ||
+                             (owner.kind == ChainOwner::Kind::track && findTrack(owner.id)) ||
+                             (owner.kind == ChainOwner::Kind::bus && findBus(owner.id));
+    const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
+                                                     false);
+    if (!ownerExists || probe == nullptr || refusesLatencyChange(probe->getLatency()))
+        return 0;
+
+    // Delay and reverb on a bus: the bus carries only the effect, fully wet.
+    std::vector<std::pair<juce::String, double>> parameters;
+    if (owner.kind == ChainOwner::Kind::bus && probe->getDescription().indexOf("mix") >= 0 &&
+        (type == "delay" || type == "reverb"))
+        parameters.emplace_back("mix", 100.0);
+
+    startEdit("Add " + probe->getDescription().name);
+    return getEffects(owner).add(type, index, parameters, &undoManager).getId();
+}
+
+bool Session::removeEffect(model::ObjectId effectId)
+{
+    const auto location = findEffect(effectId);
+    if (!location)
+        return false;
+
+    const auto instance = effectInstances.find(effectId);
+    if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
+        return false;
+
+    startEdit("Remove Effect");
+    getEffects(location->owner).remove(location->index, &undoManager);
+    return true;
+}
+
+bool Session::moveEffect(model::ObjectId effectId, int toIndex)
+{
+    const auto location = findEffect(effectId);
+    if (!location || location->index == toIndex)
+        return false;
+
+    const auto instance = effectInstances.find(effectId);
+    if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
+        return false;
+
+    auto effects = getEffects(location->owner);
+    effectInstances.markMoved(effectId);
+    startEdit("Move Effect");
+    effects.move(location->index, std::clamp(toIndex, 0, effects.getNumEffects() - 1), &undoManager);
+    return true;
+}
+
+void Session::setEffectBypassed(model::ObjectId effectId, bool bypassed)
+{
+    if (auto effect = getEffect(effectId))
+    {
+        startEdit(bypassed ? "Bypass Effect" : "Enable Effect");
+        effect->setBypassed(bypassed, &undoManager);
+    }
+}
+
+void Session::setEffectParameter(model::ObjectId effectId, const juce::String& parameterId,
+                                 double value)
+{
+    if (auto effect = getEffect(effectId))
+    {
+        startEdit("Change " + parameterId);
+        effect->setParameter(parameterId, value, &undoManager);
+    }
+}
+
+void Session::reviveEffect(model::ObjectId effectId)
+{
+    effectInstances.revive(effectId);
+    arrangementOutOfDate = true;
+}
+
+std::optional<model::Bus> Session::findBus(model::ObjectId busId) const
+{
+    const int index = project.indexOfBus(busId);
+    return index >= 0 ? std::optional<model::Bus>(project.getBus(index)) : std::nullopt;
+}
+
+model::ObjectId Session::addBus(const juce::String& name)
+{
+    startEdit("New Bus");
+    const auto busName = name.isNotEmpty() ? name : "Bus " + juce::String(project.getNumBuses() + 1);
+    return project.addBus(busName, &undoManager).getId();
+}
+
+void Session::removeBus(model::ObjectId busId)
+{
+    if (const int index = project.indexOfBus(busId); index >= 0)
+    {
+        startEdit("Delete Bus");
+        project.removeBus(index, &undoManager);
+    }
+}
+
+void Session::renameBus(model::ObjectId busId, const juce::String& name)
+{
+    if (auto bus = findBus(busId))
+    {
+        startEdit("Rename Bus");
+        bus->setName(name, &undoManager);
+    }
+}
+
+void Session::setBusVolume(model::ObjectId busId, double gain)
+{
+    if (auto bus = findBus(busId))
+    {
+        startEdit("Bus Volume");
+        bus->setVolume(gain, &undoManager);
+    }
+}
+
+void Session::setBusPan(model::ObjectId busId, double pan)
+{
+    if (auto bus = findBus(busId))
+    {
+        startEdit("Bus Pan");
+        bus->setPan(pan, &undoManager);
+    }
+}
+
+void Session::setBusMuted(model::ObjectId busId, bool muted)
+{
+    if (auto bus = findBus(busId))
+    {
+        startEdit(muted ? "Mute Bus" : "Unmute Bus");
+        bus->setMuted(muted, &undoManager);
+    }
+}
+
+std::shared_ptr<engine::dsp::PeakLevelMeter> Session::getBusMeter(model::ObjectId busId)
+{
+    return getTrackMeter(busId); // ids are unique across tracks and buses
+}
+
+model::ObjectId Session::addSend(model::ObjectId trackId, model::ObjectId busId)
+{
+    auto track = findTrack(trackId);
+    if (!track || !findBus(busId))
+        return 0;
+
+    if (const int existing = track->indexOfSendTo(busId); existing >= 0)
+        return track->getSend(existing).getId();
+
+    startEdit("Add Send");
+    return track->addSend(busId, &undoManager).getId();
+}
+
+void Session::removeSend(model::ObjectId trackId, model::ObjectId sendId)
+{
+    if (auto track = findTrack(trackId))
+        if (const int index = track->indexOfSend(sendId); index >= 0)
+        {
+            startEdit("Remove Send");
+            track->removeSend(index, &undoManager);
+        }
+}
+
+void Session::setSendLevel(model::ObjectId trackId, model::ObjectId sendId, double gain)
+{
+    if (auto track = findTrack(trackId))
+        if (const int index = track->indexOfSend(sendId); index >= 0)
+        {
+            startEdit("Send Level");
+            track->getSend(index).setLevel(gain, &undoManager);
+        }
+}
+
+void Session::setSendPreFader(model::ObjectId trackId, model::ObjectId sendId, bool preFader)
+{
+    if (auto track = findTrack(trackId))
+        if (const int index = track->indexOfSend(sendId); index >= 0)
+        {
+            startEdit(preFader ? "Pre-Fader Send" : "Post-Fader Send");
+            track->getSend(index).setPreFader(preFader, &undoManager);
+        }
+}
+
+// Automation ------------------------------------------------------------------------------
+
+model::Automation Session::getAutomation(const ChainOwner& owner) const
+{
+    if (owner.kind == ChainOwner::Kind::track)
+        if (const auto track = findTrack(owner.id))
+            return track->getAutomation();
+    if (owner.kind == ChainOwner::Kind::bus)
+        if (const auto bus = findBus(owner.id))
+            return bus->getAutomation();
+    return project.getMasterAutomation();
+}
+
+void Session::setAutomationMode(const ChainOwner& owner, model::AutomationMode mode)
+{
+    getAutomation(owner).setMode(mode);
+}
+
+int Session::addAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                                model::AutomationPointData point)
+{
+    startEdit("Add Automation Point");
+    return getAutomation(owner).getOrAddLane(target, &undoManager).addPoint(point, &undoManager);
+}
+
+int Session::setAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                                int index, model::AutomationPointData point)
+{
+    auto automation = getAutomation(owner);
+    const int lane = automation.indexOfLane(target);
+    if (lane < 0)
+        return -1;
+
+    startEdit("Move Automation Point");
+    return automation.getLane(lane).setPoint(index, point, &undoManager);
+}
+
+void Session::removeAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
+                                    int index)
+{
+    auto automation = getAutomation(owner);
+    if (const int lane = automation.indexOfLane(target); lane >= 0)
+    {
+        startEdit("Delete Automation Point");
+        automation.getLane(lane).removePoint(index, &undoManager);
+    }
+}
+
+void Session::clearAutomation(const ChainOwner& owner, const model::AutomationTarget& target)
+{
+    auto automation = getAutomation(owner);
+    if (const int lane = automation.indexOfLane(target); lane >= 0)
+    {
+        startEdit("Clear Automation");
+        automation.removeLane(lane, &undoManager);
+    }
+}
+
+std::optional<double> Session::getAutomatedValue(const ChainOwner& owner,
+                                                 const model::AutomationTarget& target) const
+{
+    const auto automation = getAutomation(owner);
+    const int lane = automation.indexOfLane(target);
+    if (automation.getMode() != model::AutomationMode::read || lane < 0)
+        return std::nullopt;
+    return automationValueAt(automation.getLane(lane), getPlayhead());
 }
 
 std::optional<model::Track> Session::findTrack(model::ObjectId trackId) const

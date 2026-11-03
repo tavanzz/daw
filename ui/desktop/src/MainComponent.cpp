@@ -39,9 +39,10 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
     addAndMakeVisible(arrangeView);
     masterMeter.setTooltip("Master output level (click to clear the clip indicators)");
     addAndMakeVisible(masterMeter);
+    mixerView.openEffect = [this](model::ObjectId effectId) { effectEditors.open(effectId); };
     addAndMakeVisible(mixerView);
 
-    setSize(1280, 760);
+    setSize(1280, 900);
     lastRefreshSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
     startTimerHz(refreshRateHz);
 }
@@ -158,6 +159,7 @@ void MainComponent::timerCallback()
     masterMeter.update(left, right, elapsed);
     if (mixerVisible)
         mixerView.refresh(left, right, elapsed);
+    effectEditors.refresh(elapsed);
 
     // Menu items show play/pause state, ticks and what can be undone.
     const auto state = session.getTransportState();
@@ -335,7 +337,8 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        exportMix,        audioSettings,   undo,          redo,          newTrack,
                        deleteSelection,  playPause,       stop,          toggleLoop,    toggleSnap,
                        zoomIn,           zoomOut,         zoomToFit,     toggleMixer,   record,
-                       discardRecording, toggleMetronome, toggleCountIn, togglePunch});
+                       discardRecording, toggleMetronome, toggleCountIn, togglePunch,
+                       newBus,           toggleAutomation});
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationCommandInfo& result)
@@ -396,6 +399,16 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setInfo("New Track", "Adds an empty track", "Track", 0);
         result.addDefaultKeypress('t', command);
         break;
+    case newBus:
+        result.setInfo("New Bus", "Adds an aux bus for tracks to send to", "Track", 0);
+        result.addDefaultKeypress('t', shiftCommand);
+        break;
+    case toggleAutomation:
+        result.setInfo("Automation", "Shows or hides the automation over the tracks", "View", 0);
+        result.addDefaultKeypress('a', 0);
+        result.setTicked(arrangeView.isShowingAutomation());
+        break;
+
     case deleteSelection:
         result.setInfo("Delete", "Deletes the selected clips", "Edit", 0);
         result.addDefaultKeypress(juce::KeyPress::backspaceKey, 0);
@@ -486,6 +499,7 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
     case undo:
     case redo:
     case newTrack:
+    case newBus:
     case deleteSelection:
         if (recording)
             result.setActive(false);
@@ -529,6 +543,16 @@ bool MainComponent::perform(const InvocationInfo& info)
     case newTrack:
         session.addTrack();
         break;
+    case newBus:
+        session.addBus();
+        if (!mixerVisible)
+            perform(InvocationInfo(toggleMixer));
+        break;
+    case toggleAutomation:
+        arrangeView.setShowingAutomation(!arrangeView.isShowingAutomation());
+        commandManager.commandStatusChanged();
+        break;
+
     case deleteSelection:
         arrangeView.deleteSelection();
         break;

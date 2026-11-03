@@ -5,6 +5,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -12,17 +13,23 @@ namespace daw::ui::desktop
 {
 
 /**
-    The mixer: a strip per track (fader, pan, mute, solo, meter) and the master
-    strip. Faders show dB, from −∞ to +6; double-click a fader or the pan knob to
-    reset it. A fader or knob drag is one undo step.
+    The mixer: a strip per track (inserts, sends, fader, pan, mute, solo, meter),
+    then one per aux bus (inserts, fader, pan, mute, meter; double-click the name to
+    rename it, right-click to delete it), and the master strip (inserts after its
+    fader). Faders show dB, from −∞ to +6; double-click a fader or the pan knob to
+    reset it. A fader or knob drag is one undo step. Automated faders and knobs
+    follow their automation and cannot be dragged.
 */
 class MixerView final : public juce::Component
 {
 public:
-    static constexpr int preferredHeight = 300;
+    static constexpr int preferredHeight = 470;
 
     explicit MixerView(controller::Session& sessionToEdit);
     ~MixerView() override;
+
+    /** Opens an effect's editor (clicked in a strip). */
+    std::function<void(model::ObjectId effectId)> openEffect;
 
     /** Call from the UI's refresh timer with the master output peaks (the meter
         reader takes them, so they are read in one place) and the time passed. */
@@ -34,7 +41,7 @@ public:
 private:
     class Strip;
 
-    void rebuildStrips();
+    void rebuildStrips(bool projectChanged);
 
     controller::Session& session;
     juce::Viewport stripViewport;

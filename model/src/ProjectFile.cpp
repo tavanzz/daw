@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <limits>
 #include <set>
 
@@ -56,6 +57,23 @@ constexpr const char* bars = "bars";
 constexpr const char* punch = "punch";
 constexpr const char* recording = "recording";
 constexpr const char* bitsPerSample = "bitsPerSample";
+constexpr const char* buses = "buses";
+constexpr const char* effects = "effects";
+constexpr const char* type = "type";
+constexpr const char* bypass = "bypass";
+constexpr const char* parameters = "parameters";
+constexpr const char* data = "data";
+constexpr const char* sends = "sends";
+constexpr const char* bus = "bus";
+constexpr const char* level = "level";
+constexpr const char* preFader = "preFader";
+constexpr const char* automation = "automation";
+constexpr const char* mode = "mode";
+constexpr const char* lanes = "lanes";
+constexpr const char* target = "target";
+constexpr const char* points = "points";
+constexpr const char* value = "value";
+constexpr const char* curve = "curve";
 
 // Fields of older versions, read only by migrations.
 constexpr const char* loopEnabledVersion1 = "loopEnabled";
@@ -171,10 +189,48 @@ juce::var migrateVersion2To3(juce::var root)
     return root;
 }
 
+juce::var emptyAutomation()
+{
+    return makeObject({{json::mode, toString(AutomationMode::read)},
+                       {json::lanes, juce::Array<juce::var>{}}});
+}
+
+// Version 4 (Phase 4, effects and automation) adds the aux buses, and effects and
+// automation on the master and on every track, which also gets its sends. A
+// version 3 project has none of them.
+juce::var migrateVersion3To4(juce::var root)
+{
+    auto* project = root[json::project].getDynamicObject();
+    if (project == nullptr)
+        return root;
+
+    if (auto* master = project->getProperty(json::master).getDynamicObject())
+    {
+        master->setProperty(json::effects, juce::Array<juce::var>{});
+        master->setProperty(json::automation, emptyAutomation());
+    }
+    project->setProperty(json::buses, juce::Array<juce::var>{});
+
+    if (auto* tracks = project->getProperty(json::tracks).getArray())
+    {
+        for (auto& track : *tracks)
+        {
+            if (auto* trackObject = track.getDynamicObject())
+            {
+                trackObject->setProperty(json::effects, juce::Array<juce::var>{});
+                trackObject->setProperty(json::sends, juce::Array<juce::var>{});
+                trackObject->setProperty(json::automation, emptyAutomation());
+            }
+        }
+    }
+
+    return root;
+}
+
 // The migration chain of this build: entry i upgrades format version i + 1 to i + 2.
 // When the format changes, bump currentFormatVersion and append a migration.
-constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{migrateVersion1To2,
-                                                                           migrateVersion2To3};
+constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{
+    migrateVersion1To2, migrateVersion2To3, migrateVersion3To4};
 static_assert(migrations.size() + 1 == static_cast<std::size_t>(currentFormatVersion));
 
 juce::String pathForFile(const juce::File& file, const juce::File& projectDirectory)
@@ -226,6 +282,56 @@ std::optional<int> readVersion(const juce::var& value)
 
 } // namespace
 
+namespace
+{
+
+juce::var effectsToJson(const EffectList& list)
+{
+    juce::Array<juce::var> effects;
+    for (int i = 0; i < list.getNumEffects(); ++i)
+    {
+        const auto effect = list.getEffect(i);
+        auto parameters = makeObject();
+        for (const auto& [id, value] : effect.getParameters())
+            parameters.getDynamicObject()->setProperty(id, value);
+
+        auto object = makeObject({{json::id, effect.getId()},
+                                  {json::type, effect.getType()},
+                                  {json::bypass, effect.isBypassed()},
+                                  {json::parameters, parameters}});
+        if (const auto extra = effect.getExtraState(); !extra.isEmpty())
+            object.getDynamicObject()->setProperty(
+                json::data, juce::Base64::toBase64(extra.getData(), extra.getSize()));
+        effects.add(object);
+    }
+    return effects;
+}
+
+juce::var automationToJson(const Automation& automation)
+{
+    juce::Array<juce::var> lanes;
+    for (int i = 0; i < automation.getNumLanes(); ++i)
+    {
+        const auto lane = automation.getLane(i);
+        const auto target = lane.getTarget();
+        if (!target)
+            continue;
+
+        juce::Array<juce::var> points;
+        for (int p = 0; p < lane.getNumPoints(); ++p)
+        {
+            const auto point = lane.getPoint(p);
+            points.add(makeObject({{json::position, point.position},
+                                   {json::value, point.value},
+                                   {json::curve, point.curve}}));
+        }
+        lanes.add(makeObject({{json::target, target->toString()}, {json::points, points}}));
+    }
+    return makeObject({{json::mode, toString(automation.getMode())}, {json::lanes, lanes}});
+}
+
+} // namespace
+
 juce::String toJson(const Project& project, const juce::File& projectDirectory)
 {
     juce::Array<juce::var> tracks;
@@ -249,6 +355,16 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
             clips.add(clipObject);
         }
 
+        juce::Array<juce::var> sends;
+        for (int i = 0; i < track.getNumSends(); ++i)
+        {
+            const auto send = track.getSend(i);
+            sends.add(makeObject({{json::id, send.getId()},
+                                  {json::bus, send.getBus()},
+                                  {json::level, send.getLevel()},
+                                  {json::preFader, send.isPreFader()}}));
+        }
+
         tracks.add(makeObject({
             {json::id, track.getId()},
             {json::name, track.getName()},
@@ -259,7 +375,25 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
             {json::input, inputToJson(track.getInput())},
             {json::monitoring, toString(track.getMonitoring())},
             {json::armed, track.isArmed()},
+            {json::effects, effectsToJson(track.getEffects())},
+            {json::sends, sends},
+            {json::automation, automationToJson(track.getAutomation())},
             {json::clips, clips},
+        }));
+    }
+
+    juce::Array<juce::var> buses;
+    for (int b = 0; b < project.getNumBuses(); ++b)
+    {
+        const auto bus = project.getBus(b);
+        buses.add(makeObject({
+            {json::id, bus.getId()},
+            {json::name, bus.getName()},
+            {json::volume, bus.getVolume()},
+            {json::pan, bus.getPan()},
+            {json::mute, bus.isMuted()},
+            {json::effects, effectsToJson(bus.getEffects())},
+            {json::automation, automationToJson(bus.getAutomation())},
         }));
     }
 
@@ -275,13 +409,17 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
                                  {json::end, project.getLoopEnd()}})},
         {json::snap, makeObject({{json::enabled, project.isSnapEnabled()},
                                  {json::grid, toString(project.getGridDivision())}})},
-        {json::master, makeObject({{json::volume, project.getMasterVolume()}})},
+        {json::master, makeObject({{json::volume, project.getMasterVolume()},
+                                   {json::effects, effectsToJson(project.getMasterEffects())},
+                                   {json::automation,
+                                    automationToJson(project.getMasterAutomation())}})},
         {json::metronome, makeObject({{json::enabled, project.isMetronomeEnabled()},
                                       {json::volume, project.getMetronomeVolume()}})},
         {json::countIn, makeObject({{json::enabled, project.isCountInEnabled()},
                                     {json::bars, project.getCountInBars()}})},
         {json::punch, makeObject({{json::enabled, project.isPunchEnabled()}})},
         {json::recording, makeObject({{json::bitsPerSample, project.getRecordingBitsPerSample()}})},
+        {json::buses, buses},
         {json::tracks, tracks},
     });
 
@@ -362,12 +500,153 @@ ObjectId acceptId(const juce::var& object, std::set<ObjectId>& used)
 
 void assignMissingIds(juce::ValueTree tree)
 {
-    if ((tree.hasType(ids::track) || tree.hasType(ids::clip)) &&
-        static_cast<ObjectId>(tree[ids::id]) == 0)
+    const bool hasId = tree.hasType(ids::track) || tree.hasType(ids::clip) ||
+                       tree.hasType(ids::bus) || tree.hasType(ids::effect) ||
+                       tree.hasType(ids::send);
+    if (hasId && static_cast<ObjectId>(tree[ids::id]) == 0)
         tree.setProperty(ids::id, detail::nextObjectId(tree), nullptr);
 
     for (auto child : tree)
         assignMissingIds(child);
+}
+
+bool isNumber(const juce::var& value)
+{
+    return value.isInt() || value.isInt64() || value.isDouble();
+}
+
+// Reads an owner's effects into list: a message for the user if they are damaged.
+juce::String readEffects(const juce::var& owner, EffectList list, std::set<ObjectId>& usedIds)
+{
+    const auto& effects = owner[json::effects];
+    if (effects.isVoid())
+        return {};
+    if (!effects.isArray())
+        return "the effects are not a list";
+
+    for (const auto& effectJson : *effects.getArray())
+    {
+        if (!effectJson.isObject())
+            return "an effect is not an object";
+        const auto& type = effectJson[json::type];
+        if (!type.isString() || type.toString().isEmpty())
+            return "an effect has no type";
+        const auto bypass = readBool(effectJson, json::bypass, false);
+        if (!bypass)
+            return "an effect bypass is not true or false";
+
+        const auto& parameters = effectJson[json::parameters];
+        if (!parameters.isVoid() && !parameters.isObject())
+            return "the parameters of an effect are not an object";
+        std::vector<std::pair<juce::String, double>> values;
+        if (const auto* object = parameters.getDynamicObject())
+        {
+            for (const auto& property : object->getProperties())
+            {
+                if (!isNumber(property.value))
+                    return "an effect parameter is not a number";
+                values.emplace_back(property.name.toString(), static_cast<double>(property.value));
+            }
+        }
+
+        const auto& data = effectJson[json::data];
+        juce::MemoryOutputStream extra;
+        if (!data.isVoid() &&
+            (!data.isString() || !juce::Base64::convertFromBase64(extra, data.toString())))
+            return "the data of an effect is not valid";
+
+        auto effect = list.add(type.toString(), -1, values);
+        effect.setBypassed(*bypass);
+        effect.setExtraState(extra.getMemoryBlock());
+        juce::ValueTree(effect.getState()).setProperty(ids::id, acceptId(effectJson, usedIds), nullptr);
+    }
+    return {};
+}
+
+// Reads an owner's automation; lanes of targets this version does not know are left
+// out (a newer kind of target, or a damaged one).
+juce::String readAutomation(const juce::var& owner, Automation automation)
+{
+    const auto& automationJson = owner[json::automation];
+    if (automationJson.isVoid())
+        return {};
+    if (!automationJson.isObject())
+        return "automation is not an object";
+
+    automation.setMode(automationModeFromString(automationJson[json::mode].toString())
+                           .value_or(AutomationMode::read));
+
+    const auto& lanes = automationJson[json::lanes];
+    if (lanes.isVoid())
+        return {};
+    if (!lanes.isArray())
+        return "the automation lanes are not a list";
+
+    for (const auto& laneJson : *lanes.getArray())
+    {
+        if (!laneJson.isObject())
+            return "an automation lane is not an object";
+        const auto& points = laneJson[json::points];
+        if (!points.isVoid() && !points.isArray())
+            return "the points of an automation lane are not a list";
+
+        const auto target = AutomationTarget::fromString(laneJson[json::target].toString());
+        if (!target)
+            continue;
+
+        auto lane = automation.getOrAddLane(*target);
+        for (const auto& pointJson : points.isArray() ? *points.getArray() : juce::Array<juce::var>{})
+        {
+            const auto position = readInteger(pointJson, json::position, 0);
+            const auto value = readNumber(pointJson, json::value, 0.0);
+            const auto curve = readNumber(pointJson, json::curve, 0.0);
+            if (!pointJson.isObject() || !position || !value || !curve)
+                return "an automation point is not valid";
+            lane.addPoint({*position, *value, *curve});
+        }
+    }
+    return {};
+}
+
+// Sends to buses that are not there, and lanes of sends or effects that are not
+// there (or of targets the owner cannot have), are dropped.
+void removeDanglingReferences(Project& project)
+{
+    const auto pruneLanes = [](Automation automation, const EffectList& effects,
+                               const std::function<bool(ObjectId)>& hasSend, bool hasPan) {
+        for (int i = automation.getNumLanes() - 1; i >= 0; --i)
+        {
+            const auto target = automation.getLane(i).getTarget();
+            bool valid = target.has_value();
+            if (valid && target->kind == AutomationTarget::Kind::pan)
+                valid = hasPan;
+            if (valid && target->kind == AutomationTarget::Kind::sendLevel)
+                valid = hasSend(target->object);
+            if (valid && target->kind == AutomationTarget::Kind::effectParameter)
+                valid = effects.indexOf(target->object) >= 0;
+            if (!valid)
+                automation.removeLane(i);
+        }
+    };
+
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        auto track = project.getTrack(t);
+        for (int i = track.getNumSends() - 1; i >= 0; --i)
+            if (project.indexOfBus(track.getSend(i).getBus()) < 0)
+                track.removeSend(i);
+        pruneLanes(track.getAutomation(), track.getEffects(),
+                   [&track](ObjectId id) { return track.indexOfSend(id) >= 0; }, true);
+    }
+
+    for (int b = 0; b < project.getNumBuses(); ++b)
+    {
+        const auto bus = project.getBus(b);
+        pruneLanes(bus.getAutomation(), bus.getEffects(), [](ObjectId) { return false; }, true);
+    }
+
+    pruneLanes(project.getMasterAutomation(), project.getMasterEffects(),
+               [](ObjectId) { return false; }, false);
 }
 
 } // namespace
@@ -460,6 +739,14 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         return damaged(*version, "the master volume is not a number");
     project.setMasterVolume(*masterVolume);
 
+    std::set<ObjectId> usedIds;
+    if (const auto error = readEffects(*masterJson, project.getMasterEffects(), usedIds);
+        error.isNotEmpty())
+        return damaged(*version, "master: " + error);
+    if (const auto error = readAutomation(*masterJson, project.getMasterAutomation());
+        error.isNotEmpty())
+        return damaged(*version, "master: " + error);
+
     // Recording
     const auto metronomeJson = readObject(projectJson, json::metronome);
     const auto metronomeEnabled =
@@ -500,12 +787,38 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
     project.setRecordingBitsPerSample(
         static_cast<int>(std::clamp<juce::int64>(*bitsPerSample, 0, 64)));
 
+    // Aux buses
+    const auto& buses = projectJson[json::buses];
+    if (!buses.isVoid() && !buses.isArray())
+        return damaged(*version, "buses is not a list");
+
+    for (const auto& busJson : buses.isArray() ? *buses.getArray() : juce::Array<juce::var>{})
+    {
+        if (!busJson.isObject())
+            return damaged(*version, "a bus is not an object");
+        const auto& name = busJson[json::name];
+        const auto volume = readNumber(busJson, json::volume, 1.0);
+        const auto pan = readNumber(busJson, json::pan, 0.0);
+        const auto mute = readBool(busJson, json::mute, false);
+        if ((!name.isVoid() && !name.isString()) || !volume || !pan || !mute)
+            return damaged(*version, "a bus name, volume, pan or mute is not valid");
+
+        auto bus = project.addBus(name.toString());
+        juce::ValueTree(bus.getState()).setProperty(ids::id, acceptId(busJson, usedIds), nullptr);
+        bus.setVolume(*volume);
+        bus.setPan(*pan);
+        bus.setMuted(*mute);
+        if (const auto error = readEffects(busJson, bus.getEffects(), usedIds); error.isNotEmpty())
+            return damaged(*version, "a bus: " + error);
+        if (const auto error = readAutomation(busJson, bus.getAutomation()); error.isNotEmpty())
+            return damaged(*version, "a bus: " + error);
+    }
+
     // Tracks and clips
     const auto& tracks = projectJson[json::tracks];
     if (!tracks.isVoid() && !tracks.isArray())
         return damaged(*version, "tracks is not a list");
 
-    std::set<ObjectId> usedIds;
     const auto* trackList = tracks.getArray();
 
     for (const auto& trackJson : trackList != nullptr ? *trackList : juce::Array<juce::var>{})
@@ -553,6 +866,32 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         track.setMonitoring(monitoring);
         track.setArmed(*armed);
 
+        if (const auto error = readEffects(trackJson, track.getEffects(), usedIds);
+            error.isNotEmpty())
+            return damaged(*version, "a track: " + error);
+
+        const auto& sends = trackJson[json::sends];
+        if (!sends.isVoid() && !sends.isArray())
+            return damaged(*version, "the sends of a track are not a list");
+        for (const auto& sendJson : sends.isArray() ? *sends.getArray() : juce::Array<juce::var>{})
+        {
+            const auto busId = readInteger(sendJson, json::bus, 0);
+            const auto level = readNumber(sendJson, json::level, 1.0);
+            const auto preFader = readBool(sendJson, json::preFader, false);
+            if (!sendJson.isObject() || !busId || !level || !preFader)
+                return damaged(*version, "a send is not valid");
+            if (track.indexOfSendTo(*busId) >= 0)
+                continue; // one send per bus
+
+            auto send = track.addSend(*busId);
+            juce::ValueTree(send.getState()).setProperty(ids::id, acceptId(sendJson, usedIds), nullptr);
+            send.setLevel(*level);
+            send.setPreFader(*preFader);
+        }
+
+        if (const auto error = readAutomation(trackJson, track.getAutomation()); error.isNotEmpty())
+            return damaged(*version, "a track: " + error);
+
         const auto& clips = trackJson[json::clips];
         if (!clips.isVoid() && !clips.isArray())
             return damaged(*version, "the clips of a track are not a list");
@@ -586,6 +925,7 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
     }
 
     assignMissingIds(project.getState());
+    removeDanglingReferences(project);
 
     LoadedProject result;
     result.project = std::move(project);

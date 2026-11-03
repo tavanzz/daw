@@ -1,19 +1,133 @@
 #include "daw/ui/desktop/TrackHeaderList.h"
 
 #include "daw/ui/desktop/ArrangeState.h"
+#include "daw/ui/desktop/AutomationLanes.h"
 #include "daw/ui/desktop/LevelMeter.h"
 #include "daw/ui/desktop/TrackInputControls.h"
 
 namespace daw::ui::desktop
 {
 
+// The lane's target and the owner's automation mode, for a row of the automation view.
+class TrackHeaderList::AutomationControls
+{
+public:
+    AutomationControls(ArrangeState& sharedState, controller::ChainOwner chainOwner)
+        : state(sharedState)
+        , owner(chainOwner)
+    {
+        target.setTooltip("What the automation lane shows (* : it has points)");
+        target.onClick = [this] {
+            AutomationLanes::showTargetMenu(state.session, owner, &target,
+                                            [this](const model::AutomationTarget& chosen) {
+                                                state.automationTargets[owner] = chosen;
+                                                state.viewChanged();
+                                                show();
+                                            });
+        };
+        mode.setTooltip("Read: the automation moves its targets; Off: it is ignored");
+        mode.setClickingTogglesState(false);
+        mode.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff8d6e00));
+        mode.onClick = [this] {
+            const bool reads = state.session.getAutomation(owner).getMode() == model::AutomationMode::read;
+            state.session.setAutomationMode(owner, reads ? model::AutomationMode::off
+                                                         : model::AutomationMode::read);
+            show();
+        };
+        for (auto* button : {&target, &mode})
+            button->setWantsKeyboardFocus(false);
+    }
+
+    void addTo(juce::Component& parent)
+    {
+        parent.addChildComponent(target);
+        parent.addChildComponent(mode);
+    }
+
+    void setVisible(bool visible)
+    {
+        target.setVisible(visible);
+        mode.setVisible(visible);
+    }
+
+    void show()
+    {
+        target.setButtonText(AutomationLanes::targetName(state.session, owner, state.targetOf(owner)));
+        const bool reads = state.session.getAutomation(owner).getMode() == model::AutomationMode::read;
+        mode.setButtonText(reads ? "Read" : "Off");
+        mode.setToggleState(reads, juce::dontSendNotification);
+    }
+
+    void place(juce::Rectangle<int> row)
+    {
+        mode.setBounds(row.removeFromRight(46));
+        row.removeFromRight(4);
+        target.setBounds(row);
+    }
+
+private:
+    ArrangeState& state;
+    const controller::ChainOwner owner;
+    juce::TextButton target;
+    juce::TextButton mode;
+};
+
+// A bus's or the master's row header, in the automation view.
+class TrackHeaderList::OwnerHeader final : public juce::Component
+{
+public:
+    OwnerHeader(ArrangeState& sharedState, controller::ChainOwner chainOwner)
+        : owner(chainOwner)
+        , controls(sharedState, chainOwner)
+    {
+        name.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+        name.setInterceptsMouseClicks(false, false);
+        addAndMakeVisible(name);
+        controls.addTo(*this);
+        controls.setVisible(true);
+    }
+
+    [[nodiscard]] const controller::ChainOwner& getOwner() const noexcept { return owner; }
+
+    void show(const juce::String& text)
+    {
+        name.setText(text, juce::dontSendNotification);
+        controls.show();
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8, 6);
+        name.setBounds(area.removeFromTop(24));
+        area.removeFromTop(6);
+        controls.place(area.removeFromTop(24));
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour(0xff27303a));
+        g.setColour(juce::Colour(0xff1a1a1a));
+        g.drawHorizontalLine(getHeight() - 1, 0.0f, static_cast<float>(getWidth()));
+    }
+
+private:
+    const controller::ChainOwner owner;
+    juce::Label name;
+    AutomationControls controls;
+};
+
 class TrackHeaderList::Header final : public juce::Component
 {
 public:
-    Header(controller::Session& sessionToEdit, model::ObjectId id)
-        : session(sessionToEdit), trackId(id), recording(sessionToEdit, id)
+    Header(ArrangeState& sharedState, model::ObjectId id)
+        : state(sharedState)
+        , session(sharedState.session)
+        , trackId(id)
+        , recording(sharedState.session, id)
+        , automation(sharedState, controller::ChainOwner::track(id))
     {
         recording.addTo(*this);
+        automation.addTo(*this);
         inputMeter.setScaleVisible(false);
         inputMeter.setTooltip("Input level, before the fader (click to clear the clip indicators)");
         addAndMakeVisible(inputMeter);
@@ -50,6 +164,17 @@ public:
         recording.show(track);
         name.setColour(juce::Label::textColourId,
                        audible ? juce::Colours::white : juce::Colours::grey);
+
+        // The automation view swaps the recording controls for the automation's.
+        const bool automated = state.showAutomation;
+        for (auto* control : std::initializer_list<juce::Component*>{&recording.arm, &recording.monitoring,
+                                                                     &recording.input})
+            control->setVisible(!automated);
+        automation.setVisible(automated);
+        if (automated)
+            automation.show();
+        if (automated != laidOutForAutomation)
+            resized();
     }
 
     void updateMeter(double elapsedSeconds)
@@ -75,6 +200,8 @@ public:
         place(mute, 28);
         place(solo, 28);
         row.removeFromLeft(4);
+        laidOutForAutomation = state.showAutomation;
+        automation.place(row);
         place(recording.arm, 28);
         place(recording.monitoring, 42);
         recording.input.setBounds(row);
@@ -108,17 +235,21 @@ public:
     }
 
 private:
+    ArrangeState& state;
     controller::Session& session;
     const model::ObjectId trackId;
     juce::Label name;
     juce::TextButton mute{"M"};
     juce::TextButton solo{"S"};
     TrackInputControls recording;
+    AutomationControls automation;
+    bool laidOutForAutomation = false;
     LevelMeter inputMeter;
 };
 
-TrackHeaderList::TrackHeaderList(controller::Session& sessionToEdit)
-    : session(sessionToEdit)
+TrackHeaderList::TrackHeaderList(ArrangeState& sharedState)
+    : state(sharedState)
+    , session(sharedState.session)
 {
     refresh();
 }
@@ -141,7 +272,7 @@ void TrackHeaderList::refresh()
         headers.clear();
         for (int i = 0; i < project.getNumTracks(); ++i)
         {
-            headers.push_back(std::make_unique<Header>(session, project.getTrack(i).getId()));
+            headers.push_back(std::make_unique<Header>(state, project.getTrack(i).getId()));
             addAndMakeVisible(*headers.back());
         }
         resized();
@@ -149,6 +280,31 @@ void TrackHeaderList::refresh()
 
     for (int i = 0; i < project.getNumTracks(); ++i)
         headers[static_cast<std::size_t>(i)]->show(project.getTrack(i), project.isTrackAudible(i));
+
+    // The buses' and the master's rows, in the automation view.
+    std::vector<controller::ChainOwner> owners;
+    for (int row = project.getNumTracks(); row < state.numRows(); ++row)
+        owners.push_back(state.ownerOfRow(row));
+    bool sameOwners = owners.size() == ownerHeaders.size();
+    for (std::size_t i = 0; sameOwners && i < owners.size(); ++i)
+        sameOwners = ownerHeaders[i]->getOwner() == owners[i];
+    if (!sameOwners || showingAutomation != state.showAutomation)
+    {
+        showingAutomation = state.showAutomation;
+        ownerHeaders.clear();
+        for (const auto& owner : owners)
+        {
+            ownerHeaders.push_back(std::make_unique<OwnerHeader>(state, owner));
+            addAndMakeVisible(*ownerHeaders.back());
+        }
+        resized();
+    }
+    for (std::size_t i = 0; i < owners.size(); ++i)
+    {
+        const auto& owner = owners[i];
+        const int bus = owner.kind == controller::ChainOwner::Kind::bus ? project.indexOfBus(owner.id) : -1;
+        ownerHeaders[i]->show(bus >= 0 ? project.getBus(bus).getName() : juce::String("Master"));
+    }
 }
 
 void TrackHeaderList::updateMeters(double elapsedSeconds)
@@ -162,6 +318,9 @@ void TrackHeaderList::resized()
     for (std::size_t i = 0; i < headers.size(); ++i)
         headers[i]->setBounds(0, static_cast<int>(i) * ArrangeState::laneHeight, getWidth(),
                               ArrangeState::laneHeight);
+    for (std::size_t i = 0; i < ownerHeaders.size(); ++i)
+        ownerHeaders[i]->setBounds(0, static_cast<int>(headers.size() + i) * ArrangeState::laneHeight,
+                                   getWidth(), ArrangeState::laneHeight);
 }
 
 void TrackHeaderList::paint(juce::Graphics& g)
