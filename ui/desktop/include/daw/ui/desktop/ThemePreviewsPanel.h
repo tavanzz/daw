@@ -23,7 +23,7 @@ public:
     void resized() override;
 
     /** Paints a miniature of an arrangement in a theme (tests use it too). */
-    static void paintMiniature(juce::Graphics& g, const ThemedLookAndFeel& lookAndFeel,
+    static void paintMiniature(juce::Graphics& g, const ThemedLookAndFeel& look,
                                juce::Rectangle<float> area);
 
 private:

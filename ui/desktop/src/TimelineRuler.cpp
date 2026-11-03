@@ -30,15 +30,15 @@ void TimelineRuler::paint(juce::Graphics& g)
     const auto& viewport = state.viewport;
     const auto& project = state.session.getProject();
     const auto tempoMap = project.getTempoMap();
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    const auto& look = ThemedLookAndFeel::get(*this);
     const auto rulerHeight = static_cast<float>(getHeight());
     const float half = std::floor(rulerHeight / 2.0f);
 
-    lookAndFeel.drawRulerBackground(g, getLocalBounds().toFloat());
+    look.drawRulerBackground(g, getLocalBounds().toFloat());
 
     // Loop region, across both rows.
     if (project.getLoopEnd() > project.getLoopStart())
-        lookAndFeel.drawRulerLoop(g, static_cast<float>(viewport.ticksToX(project.getLoopStart())),
+        look.drawRulerLoop(g, static_cast<float>(viewport.ticksToX(project.getLoopStart())),
                                   static_cast<float>(viewport.ticksToX(project.getLoopEnd())),
                                   rulerHeight, project.isLoopEnabled());
 
@@ -46,27 +46,27 @@ void TimelineRuler::paint(juce::Graphics& g)
     for (const auto& mark : controller::barRulerMarks(viewport, tempoMap))
     {
         const auto x = static_cast<float>(viewport.ticksToX(mark.position));
-        lookAndFeel.drawRulerMark(g, x, mark.major ? 2.0f : 12.0f, half, mark.major);
+        look.drawRulerMark(g, x, mark.major ? 2.0f : 12.0f, half, mark.major);
         if (mark.label.isNotEmpty())
-            lookAndFeel.drawRulerLabel(g, mark.label, {x + 3.0f, 1.0f, 60.0f, half - 3.0f},
+            look.drawRulerLabel(g, mark.label, {x + 3.0f, 1.0f, 60.0f, half - 3.0f},
                                        mark.major);
     }
 
-    g.setColour(lookAndFeel.colour(appearance::ColourRole::separator));
+    g.setColour(look.colour(appearance::ColourRole::separator));
     g.fillRect(0.0f, half, static_cast<float>(getWidth()), 1.0f);
 
     for (const auto& mark : controller::timeRulerMarks(viewport))
     {
         const auto x = static_cast<float>(viewport.ticksToX(mark.position));
-        lookAndFeel.drawRulerMark(g, x, mark.major ? half + 2.0f : rulerHeight - 6.0f, rulerHeight,
+        look.drawRulerMark(g, x, mark.major ? half + 2.0f : rulerHeight - 6.0f, rulerHeight,
                                   mark.major);
         if (mark.label.isNotEmpty())
-            lookAndFeel.drawRulerLabel(g, mark.label, {x + 3.0f, half + 1.0f, 80.0f, half - 3.0f},
+            look.drawRulerLabel(g, mark.label, {x + 3.0f, half + 1.0f, 80.0f, half - 3.0f},
                                        false);
     }
 
     // The playhead: a small triangle pointing down at the tracks.
-    lookAndFeel.drawPlayheadMarker(g, static_cast<float>(viewport.ticksToX(playhead)), rulerHeight);
+    look.drawPlayheadMarker(g, static_cast<float>(viewport.ticksToX(playhead)), rulerHeight);
 }
 
 void TimelineRuler::mouseDown(const juce::MouseEvent& event)

@@ -78,6 +78,11 @@ public:
     /** Opens a project or imports an audio file (e.g. given on the command line). */
     void openFile(const juce::File& file);
 
+    /** Opens windows for a review of the interface (the app's --show option):
+        "previews" (the themes), "animations" (their settings), "editors" (those of the
+        first track with effects). */
+    void showForReview(const juce::StringArray& what);
+
     void showError(const juce::String& title, const juce::String& message);
 
     /** If the project has unsaved changes, asks whether to save them first; then

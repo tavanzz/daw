@@ -29,7 +29,7 @@ public:
 
     void paintRow(juce::Graphics& g, juce::Rectangle<float> row,
                   const controller::ChainOwner& owner,
-                  const ThemedLookAndFeel& lookAndFeel) const;
+                  const ThemedLookAndFeel& look) const;
 
     void mouseDown(const juce::MouseEvent& event, juce::Rectangle<float> row,
                    const controller::ChainOwner& owner);

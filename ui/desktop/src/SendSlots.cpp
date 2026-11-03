@@ -63,8 +63,8 @@ int SendSlots::rowAt(float y) const noexcept
 
 void SendSlots::paint(juce::Graphics& g)
 {
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
-    lookAndFeel.drawSlotList(g, getLocalBounds().toFloat());
+    const auto& look = ThemedLookAndFeel::get(*this);
+    look.drawSlotList(g, getLocalBounds().toFloat());
 
     const int count = static_cast<int>(rows.size());
     for (int index = 0; index <= count && (index + 1) * rowHeight <= getHeight(); ++index)
@@ -72,12 +72,12 @@ void SendSlots::paint(juce::Graphics& g)
         const auto area = juce::Rectangle<int>(0, index * rowHeight, getWidth(), rowHeight).reduced(1);
         if (index == count)
         {
-            lookAndFeel.drawEmptySlot(g, area.toFloat(), "+ Send");
+            look.drawEmptySlot(g, area.toFloat(), "+ Send");
             break;
         }
 
         const auto& row = rows[static_cast<std::size_t>(index)];
-        lookAndFeel.drawSendSlot(g, area.toFloat(), row.bus + (row.preFader ? " (pre)" : ""),
+        look.drawSendSlot(g, area.toFloat(), row.bus + (row.preFader ? " (pre)" : ""),
                                  static_cast<float>(engine::dsp::faderPosition(row.level)),
                                  row.automated);
     }

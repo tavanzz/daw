@@ -56,17 +56,17 @@ void CompressorView::refresh(double elapsedSeconds)
 
 void CompressorView::paintCurve(juce::Graphics& g, juce::Rectangle<float> area) const
 {
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
-    lookAndFeel.drawGraphBackground(g, area);
+    const auto& look = ThemedLookAndFeel::get(*this);
+    look.drawGraphBackground(g, area);
     const auto x = [&](float db) { return area.getX() + (db - lowestDb) / -lowestDb * area.getWidth(); };
     const auto y = [&](float db) { return area.getBottom() - (db - lowestDb) / -lowestDb * area.getHeight(); };
 
     for (float db = lowestDb; db <= 0.0f; db += 12.0f)
     {
-        lookAndFeel.drawGraphLine(g, {x(db), area.getY(), x(db), area.getBottom()}, false);
-        lookAndFeel.drawGraphLine(g, {area.getX(), y(db), area.getRight(), y(db)}, false);
+        look.drawGraphLine(g, {x(db), area.getY(), x(db), area.getBottom()}, false);
+        look.drawGraphLine(g, {area.getX(), y(db), area.getRight(), y(db)}, false);
     }
-    lookAndFeel.drawGraphLine(g, {x(lowestDb), y(lowestDb), x(0.0f), y(0.0f)}, true); // unity
+    look.drawGraphLine(g, {x(lowestDb), y(lowestDb), x(0.0f), y(0.0f)}, true); // unity
 
     juce::Path curve;
     for (int i = 0; i <= 120; ++i)
@@ -78,19 +78,19 @@ void CompressorView::paintCurve(juce::Graphics& g, juce::Rectangle<float> area) 
         else
             curve.lineTo(x(in), y(std::max(lowestDb, out)));
     }
-    lookAndFeel.drawCurve(g, curve, area.getBottom(), false);
+    look.drawCurve(g, curve, area.getBottom(), false);
 
     if (inputLevel > lowestDb)
     {
         const auto out = static_cast<float>(engine::fx::Compressor::staticCurve(inputLevel, threshold, ratio, knee));
-        lookAndFeel.drawLevelDot(g, {x(std::min(0.0f, inputLevel)), y(std::min(0.0f, out))});
+        look.drawLevelDot(g, {x(std::min(0.0f, inputLevel)), y(std::min(0.0f, out))});
     }
 }
 
 void CompressorView::paint(juce::Graphics& g)
 {
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
-    lookAndFeel.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::panel, false);
+    const auto& look = ThemedLookAndFeel::get(*this);
+    look.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::panel, false);
     auto area = getLocalBounds().toFloat().reduced(8.0f);
 
     if (!isLimiter)
@@ -101,11 +101,11 @@ void CompressorView::paint(juce::Graphics& g)
 
     // The bar: reduction from the top.
     auto bar = area.removeFromRight(16.0f);
-    lookAndFeel.drawGainReductionBar(g, bar, reduction / mostReduction);
+    look.drawGainReductionBar(g, bar, reduction / mostReduction);
     area.removeFromRight(8.0f);
 
     // The history, newest on the right.
-    lookAndFeel.drawGraphBackground(g, area);
+    look.drawGraphBackground(g, area);
     juce::Path trace;
     for (int i = 0; i < historyLength; ++i)
     {
@@ -117,8 +117,8 @@ void CompressorView::paint(juce::Graphics& g)
         else
             trace.lineTo(px, py);
     }
-    lookAndFeel.drawGainReductionTrace(g, trace);
-    lookAndFeel.drawGraphLabel(g, "Gain reduction " + juce::String(reduction, 1) + " dB",
+    look.drawGainReductionTrace(g, trace);
+    look.drawGraphLabel(g, "Gain reduction " + juce::String(reduction, 1) + " dB",
                                area.reduced(4.0f), juce::Justification::bottomLeft);
 }
 

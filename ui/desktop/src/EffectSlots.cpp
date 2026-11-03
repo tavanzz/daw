@@ -66,8 +66,8 @@ int EffectSlots::rowAt(float y) const noexcept
 
 void EffectSlots::paint(juce::Graphics& g)
 {
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
-    lookAndFeel.drawSlotList(g, getLocalBounds().toFloat());
+    const auto& look = ThemedLookAndFeel::get(*this);
+    look.drawSlotList(g, getLocalBounds().toFloat());
 
     const int count = static_cast<int>(rows.size());
     for (int visible = 0; visible < visibleRows(); ++visible)
@@ -78,11 +78,11 @@ void EffectSlots::paint(juce::Graphics& g)
         if (index < count)
         {
             const auto& row = rows[static_cast<std::size_t>(index)];
-            lookAndFeel.drawEffectSlot(g, area.toFloat(), row.name, row.bypassed, row.failed);
+            look.drawEffectSlot(g, area.toFloat(), row.name, row.bypassed, row.failed);
         }
         else if (index == count)
         {
-            lookAndFeel.drawEmptySlot(g, area.toFloat(), "+ Effect");
+            look.drawEmptySlot(g, area.toFloat(), "+ Effect");
         }
     }
 }

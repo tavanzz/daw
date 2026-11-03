@@ -50,9 +50,9 @@ void TrackLanes::resized()
 
 void TrackLanes::updateAnimations()
 {
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
-    backgroundLink.setWantsFrames(lookAndFeel.hasTimelineBackground());
-    playheadLink.setWantsFrames(lookAndFeel.playheadAnimates(playing));
+    const auto& look = ThemedLookAndFeel::get(*this);
+    backgroundLink.setWantsFrames(look.hasTimelineBackground());
+    playheadLink.setWantsFrames(look.playheadAnimates(playing));
 }
 
 juce::Rectangle<int> TrackLanes::visibleArea() const
@@ -93,10 +93,10 @@ void TrackLanes::paint(juce::Graphics& g)
     // The lanes, grid and clips change only with edits and the view: they are painted
     // into an image of the visible area once, and each frame of an animation (the
     // background, the playhead) puts that image back instead of painting them again.
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    const auto& look = ThemedLookAndFeel::get(*this);
     const auto visible = visibleArea();
-    const bool background = backgroundLink.isActive() && lookAndFeel.hasTimelineBackground();
-    const bool under = background && lookAndFeel.timelineBackgroundIsUnder();
+    const bool background = backgroundLink.isActive() && look.hasTimelineBackground();
+    const bool under = background && look.timelineBackgroundIsUnder();
     const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
 
     if (!contentValid || cacheArea != visible || !juce::exactlyEqual(cacheScale, scale) ||
@@ -119,8 +119,8 @@ void TrackLanes::paint(juce::Graphics& g)
 
     if (under)
     {
-        lookAndFeel.drawPanel(g, visible.toFloat(), appearance::ColourRole::window, false);
-        lookAndFeel.drawTimelineBackground(g, visible.toFloat(), backgroundLink.getTime());
+        look.drawPanel(g, visible.toFloat(), appearance::ColourRole::window, false);
+        look.drawTimelineBackground(g, visible.toFloat(), backgroundLink.getTime());
     }
 
     // Images are drawn at the context's opacity: the background may have left it low.
@@ -130,9 +130,9 @@ void TrackLanes::paint(juce::Graphics& g)
                                                   static_cast<float>(visible.getY())));
 
     if (background && !under)
-        lookAndFeel.drawTimelineBackground(g, visible.toFloat(), backgroundLink.getTime());
+        look.drawTimelineBackground(g, visible.toFloat(), backgroundLink.getTime());
 
-    lookAndFeel.drawPlayhead(g, static_cast<float>(state.viewport.ticksToX(playhead)), 0.0f,
+    look.drawPlayhead(g, static_cast<float>(state.viewport.ticksToX(playhead)), 0.0f,
                              static_cast<float>(getHeight()),
                              {playheadLink.getTime(), playheadLink.isActive(), playing});
 }
@@ -141,15 +141,15 @@ void TrackLanes::paintContent(juce::Graphics& g, bool translucent) const
 {
     const auto& project = state.session.getProject();
     const auto& viewport = state.viewport;
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    const auto& look = ThemedLookAndFeel::get(*this);
     const auto width = static_cast<float>(getWidth());
     const auto height = static_cast<float>(getHeight());
 
     if (!translucent)
-        lookAndFeel.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::window, false);
+        look.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::window, false);
 
     for (int t = 0; t < state.numRows(); ++t)
-        lookAndFeel.drawLane(g, rowBounds(t), t, t < project.getNumTracks(), translucent);
+        look.drawLane(g, rowBounds(t), t, t < project.getNumTracks(), translucent);
 
     // Grid: the snapping grid at this zoom, bar lines brighter. Too dense a grid
     // (a fine division zoomed far out) falls back to bars, then to nothing.
@@ -168,7 +168,7 @@ void TrackLanes::paintContent(juce::Graphics& g, bool translucent) const
         for (const auto line : grid.linesBetween(viewport.getStart(), viewport.getEnd() + 1))
         {
             const bool barLine = tempoMap.barStart(tempoMap.barAt(line)) == line;
-            lookAndFeel.drawGridLine(g, static_cast<float>(viewport.ticksToX(line)), 0.0f, height,
+            look.drawGridLine(g, static_cast<float>(viewport.ticksToX(line)), 0.0f, height,
                                      barLine);
         }
     }
@@ -178,7 +178,7 @@ void TrackLanes::paintContent(juce::Graphics& g, bool translucent) const
     {
         const auto x0 = static_cast<float>(viewport.ticksToX(project.getLoopStart()));
         const auto x1 = static_cast<float>(viewport.ticksToX(project.getLoopEnd()));
-        lookAndFeel.drawLoopShade(g, {x0, 0.0f, x1 - x0, height}, project.isLoopEnabled());
+        look.drawLoopShade(g, {x0, 0.0f, x1 - x0, height}, project.isLoopEnabled());
     }
 
     // Clips, bottom of each stack first so the one on top is drawn last.
@@ -193,10 +193,10 @@ void TrackLanes::paintContent(juce::Graphics& g, bool translucent) const
 
     if (state.showAutomation)
         for (int row = 0; row < state.numRows(); ++row)
-            automation.paintRow(g, rowBounds(row), state.ownerOfRow(row), lookAndFeel);
+            automation.paintRow(g, rowBounds(row), state.ownerOfRow(row), look);
 
     if (dropIndicator)
-        lookAndFeel.drawDropIndicator(g, *dropIndicator);
+        look.drawDropIndicator(g, *dropIndicator);
 }
 
 juce::Rectangle<float> TrackLanes::clipBounds(int trackIndex, const model::Clip& clip) const
@@ -222,18 +222,18 @@ void TrackLanes::drawClip(juce::Graphics& g, int trackIndex, const model::Clip& 
     const bool failed = source != nullptr && source->status == Status::failed;
     const bool selected = state.selection.contains(clip.getId());
 
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
-    const auto style = lookAndFeel.clipStyle(
+    const auto& look = ThemedLookAndFeel::get(*this);
+    const auto style = look.clipStyle(
         trackIndex, failed ? ClipState::failed : ready ? ClipState::ready : ClipState::loading,
         trackIndex);
-    const float nameHeight = lookAndFeel.clipHeaderHeight();
+    const float nameHeight = look.clipHeaderHeight();
 
     {
         // Keep everything inside the clip: long clips may reach far outside the view.
         juce::Graphics::ScopedSaveState saved(g);
         g.reduceClipRegion(bounds.toNearestInt());
 
-        lookAndFeel.drawClipFrame(g, bounds, style);
+        look.drawClipFrame(g, bounds, style);
 
         if (ready && source->peaks != nullptr)
         {
@@ -248,18 +248,18 @@ void TrackLanes::drawClip(juce::Graphics& g, int trackIndex, const model::Clip& 
             name = "Loading " + name + "...";
 
         const auto textArea = bounds.withHeight(nameHeight).reduced(4.0f, 0.0f);
-        lookAndFeel.drawClipName(g, textArea.withX(std::max(textArea.getX(), 2.0f)), name, style);
+        look.drawClipName(g, textArea.withX(std::max(textArea.getX(), 2.0f)), name, style);
     }
 
-    lookAndFeel.drawClipOutline(g, bounds, style, selected);
+    look.drawClipOutline(g, bounds, style, selected);
 }
 
 void TrackLanes::drawRecordings(juce::Graphics& g) const
 {
     const auto& project = state.session.getProject();
     const double rate = state.session.getSampleRate();
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
-    const float nameHeight = lookAndFeel.clipHeaderHeight();
+    const auto& look = ThemedLookAndFeel::get(*this);
+    const float nameHeight = look.clipHeaderHeight();
 
     for (const auto& take : state.session.getRecording().getLiveTakes())
     {
@@ -277,11 +277,11 @@ void TrackLanes::drawRecordings(juce::Graphics& g) const
             x0, static_cast<float>(trackIndex * ArrangeState::laneHeight + 3),
             std::max(1.0f, x1 - x0), static_cast<float>(ArrangeState::laneHeight - 6));
 
-        const auto style = lookAndFeel.clipStyle(trackIndex, ClipState::recording, trackIndex);
+        const auto style = look.clipStyle(trackIndex, ClipState::recording, trackIndex);
 
         juce::Graphics::ScopedSaveState saved(g);
         g.reduceClipRegion(bounds.toNearestInt());
-        lookAndFeel.drawClipFrame(g, bounds, style);
+        look.drawClipFrame(g, bounds, style);
 
         // The waveform written so far: file sample s is at take.firstPosition + s.
         if (take.peaks != nullptr && take.peaks->getNumSamples() > 0)
@@ -312,15 +312,15 @@ void TrackLanes::drawRecordings(juce::Graphics& g) const
             }
         }
 
-        lookAndFeel.drawClipName(g, bounds.withHeight(nameHeight).reduced(4.0f, 0.0f),
+        look.drawClipName(g, bounds.withHeight(nameHeight).reduced(4.0f, 0.0f),
                                  "Recording " + take.file.getFileNameWithoutExtension(), style);
-        lookAndFeel.drawClipOutline(g, bounds, style, false);
+        look.drawClipOutline(g, bounds, style, false);
 
         // Recording clips pulse (recordings repaint at every refresh: no frames needed).
-        if (lookAndFeel.isAnimating(appearance::AnimationEffect::recordPulse))
-            lookAndFeel.drawRecordPulse(g, bounds, style.header,
+        if (look.isAnimating(appearance::AnimationEffect::recordPulse))
+            look.drawRecordPulse(g, bounds, style.header,
                                         ThemedLookAndFeel::pulseAt(
-                                            lookAndFeel.getAnimationClock()->getTime()));
+                                            look.getAnimationClock()->getTime()));
     }
 }
 

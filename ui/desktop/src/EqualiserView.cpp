@@ -106,25 +106,25 @@ int EqualiserView::bandAt(juce::Point<float> point) const
 void EqualiserView::paint(juce::Graphics& g)
 {
     const auto area = plot();
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
-    lookAndFeel.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::panel, false);
-    lookAndFeel.drawGraphBackground(g, area);
+    const auto& look = ThemedLookAndFeel::get(*this);
+    look.drawPanel(g, getLocalBounds().toFloat(), appearance::ColourRole::panel, false);
+    look.drawGraphBackground(g, area);
 
     // Grid: decades and their halves, every 6 dB.
     for (const double frequency : {50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0})
     {
         const float x = xOf(frequency);
-        lookAndFeel.drawGraphLine(g, {x, area.getY(), x, area.getBottom()}, false);
-        lookAndFeel.drawGraphLabel(
+        look.drawGraphLine(g, {x, area.getY(), x, area.getBottom()}, false);
+        look.drawGraphLabel(
             g, frequency >= 1000.0 ? juce::String(frequency / 1000.0) + "k" : juce::String(frequency),
             {x - 20.0f, area.getBottom() + 1.0f, 40.0f, 12.0f}, juce::Justification::centred);
     }
     for (double decibels = -range; decibels <= range; decibels += 6.0)
     {
         const float y = yOf(decibels);
-        lookAndFeel.drawGraphLine(g, {area.getX(), y, area.getRight(), y},
+        look.drawGraphLine(g, {area.getX(), y, area.getRight(), y},
                                   juce::exactlyEqual(decibels, 0.0));
-        lookAndFeel.drawGraphLabel(g, juce::String(static_cast<int>(decibels)),
+        look.drawGraphLabel(g, juce::String(static_cast<int>(decibels)),
                                    {0.0f, y - 6.0f, area.getX() - 4.0f, 12.0f},
                                    juce::Justification::centredRight);
     }
@@ -149,12 +149,12 @@ void EqualiserView::paint(juce::Graphics& g)
     };
 
     // The selected band alone, faint; then the whole response.
-    lookAndFeel.drawSeriesCurve(g, curve([&](double f) {
+    look.drawSeriesCurve(g, curve([&](double f) {
                                     return engine::fx::Equaliser::bandMagnitude(values, selected, f,
                                                                                 sampleRate);
                                 }),
                                 selected);
-    lookAndFeel.drawCurve(
+    look.drawCurve(
         g, curve([&](double f) { return engine::fx::Equaliser::magnitude(values, f, sampleRate); }),
         yOf(0.0), true);
 
@@ -162,7 +162,7 @@ void EqualiserView::paint(juce::Graphics& g)
     {
         const auto parameters = engine::fx::Equaliser::parametersOf(band);
         const bool on = valueOf(parameters.on) >= 0.5f;
-        lookAndFeel.drawCurveHandle(g, handleOf(band), band, on, band == selected,
+        look.drawCurveHandle(g, handleOf(band), band, on, band == selected,
                                     juce::String(band + 1));
     }
 }

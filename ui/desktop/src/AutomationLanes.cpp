@@ -202,12 +202,12 @@ double AutomationLanes::fixedValue(const controller::ChainOwner& owner,
 
 void AutomationLanes::paintRow(juce::Graphics& g, juce::Rectangle<float> row,
                                const controller::ChainOwner& owner,
-                               const ThemedLookAndFeel& lookAndFeel) const
+                               const ThemedLookAndFeel& look) const
 {
     const auto target = state.targetOf(owner);
     const auto& viewport = state.viewport;
     const bool reads = state.session.getAutomation(owner).getMode() == model::AutomationMode::read;
-    lookAndFeel.drawAutomationShade(g, row);
+    look.drawAutomationShade(g, row);
 
     const auto lane = laneOf(owner, target);
     if (!lane || lane->getNumPoints() == 0)
@@ -217,8 +217,8 @@ void AutomationLanes::paintRow(juce::Graphics& g, juce::Rectangle<float> row,
         juce::Path line;
         line.startNewSubPath(row.getX(), y);
         line.lineTo(row.getRight(), y);
-        lookAndFeel.drawAutomationLevel(g, line, reads);
-        lookAndFeel.drawAutomationLabel(g, targetName(state.session, owner, target) +
+        look.drawAutomationLevel(g, line, reads);
+        look.drawAutomationLabel(g, targetName(state.session, owner, target) +
                                                ": click to add points",
                                         row.reduced(8.0f, 4.0f), false);
         return;
@@ -237,7 +237,7 @@ void AutomationLanes::paintRow(juce::Graphics& g, juce::Rectangle<float> row,
             path.lineTo(static_cast<float>(x), y);
         started = true;
     }
-    lookAndFeel.drawAutomationCurve(g, path, reads);
+    look.drawAutomationCurve(g, path, reads);
 
     for (int i = 0; i < lane->getNumPoints(); ++i)
     {
@@ -245,17 +245,17 @@ void AutomationLanes::paintRow(juce::Graphics& g, juce::Rectangle<float> row,
         const auto x = static_cast<float>(viewport.ticksToX(point.position));
         if (x < row.getX() - pointRadius || x > row.getRight() + pointRadius)
             continue;
-        lookAndFeel.drawAutomationPoint(g, {x, yOf(row, point.value)}, pointRadius, reads);
+        look.drawAutomationPoint(g, {x, yOf(row, point.value)}, pointRadius, reads);
     }
 
-    lookAndFeel.drawAutomationLabel(g, targetName(state.session, owner, target),
+    look.drawAutomationLabel(g, targetName(state.session, owner, target),
                                     row.reduced(8.0f, 4.0f), true);
 
     if (drag && drag->owner == owner && drag->index >= 0 && drag->index < lane->getNumPoints())
     {
         const auto point = lane->getPoint(drag->index);
         const auto x = static_cast<float>(viewport.ticksToX(point.position));
-        lookAndFeel.drawAutomationLabel(g, valueText(state.session, target, point.value),
+        look.drawAutomationLabel(g, valueText(state.session, target, point.value),
                                         {x + 8.0f, yOf(row, point.value) - 16.0f, 90.0f, 14.0f},
                                         true);
     }

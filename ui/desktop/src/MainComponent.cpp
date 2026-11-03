@@ -71,6 +71,28 @@ void MainComponent::openFile(const juce::File& file)
         session.importAudio({file}, arrangeView.getInsertPosition());
 }
 
+void MainComponent::showForReview(const juce::StringArray& what)
+{
+    if (what.contains("previews"))
+        perform(InvocationInfo(showThemePreviews));
+    if (what.contains("animations"))
+        perform(InvocationInfo(showAnimations));
+
+    if (what.contains("editors"))
+    {
+        const auto& project = session.getProject();
+        for (int index = 0; index < project.getNumTracks(); ++index)
+        {
+            const auto effects =
+                session.getEffects(controller::ChainOwner::track(project.getTrack(index).getId()));
+            for (int effect = 0; effect < effects.getNumEffects(); ++effect)
+                effectEditors.open(effects.getEffect(effect).getId());
+            if (effects.getNumEffects() > 0)
+                break;
+        }
+    }
+}
+
 void MainComponent::showError(const juce::String& title, const juce::String& message)
 {
     showAlert(

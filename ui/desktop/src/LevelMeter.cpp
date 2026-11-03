@@ -42,29 +42,29 @@ void LevelMeter::setScaleVisible(bool shouldShowScale)
 
 void LevelMeter::paint(juce::Graphics& g)
 {
-    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    const auto& look = ThemedLookAndFeel::get(*this);
     auto area = getLocalBounds().toFloat();
     auto scaleArea = area.removeFromRight(scaleVisible ? static_cast<float>(scaleWidth) : 0.0f);
     const auto clipArea = area.removeFromTop(static_cast<float>(clipIndicatorHeight));
     area.removeFromTop(2.0f);
 
     const float barWidth = (area.getWidth() - 2.0f) / 2.0f;
-    const bool animated = lookAndFeel.isAnimating(appearance::AnimationEffect::animatedMeters);
+    const bool animated = look.isAnimating(appearance::AnimationEffect::animatedMeters);
 
     for (int channel = 0; channel < 2; ++channel)
     {
         const auto& meter = channels[static_cast<std::size_t>(channel)];
         const float x = area.getX() + static_cast<float>(channel) * (barWidth + 2.0f);
 
-        lookAndFeel.drawMeterBar(g, {x, area.getY(), barWidth, area.getHeight()},
+        look.drawMeterBar(g, {x, area.getY(), barWidth, area.getHeight()},
                                  meter.getLevelDb(), meter.getPeakHoldDb(),
                                  {animated, afterglowDb[static_cast<std::size_t>(channel)]});
-        lookAndFeel.drawClipIndicator(g, {x, clipArea.getY(), barWidth, clipArea.getHeight()},
+        look.drawClipIndicator(g, {x, clipArea.getY(), barWidth, clipArea.getHeight()},
                                       meter.isClipping());
     }
 
     if (scaleVisible)
-        lookAndFeel.drawMeterScale(g, scaleArea.withTrimmedTop(clipArea.getHeight() + 2.0f),
+        look.drawMeterScale(g, scaleArea.withTrimmedTop(clipArea.getHeight() + 2.0f),
                                    scaleMarksDb);
 }
 
