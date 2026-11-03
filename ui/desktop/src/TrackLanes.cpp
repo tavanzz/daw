@@ -97,7 +97,7 @@ void TrackLanes::paint(juce::Graphics& g)
 
     if (state.showAutomation)
         for (int row = 0; row < state.numRows(); ++row)
-            automation.paintRow(g, rowBounds(row), state.ownerOfRow(row));
+            automation.paintRow(g, rowBounds(row), state.ownerOfRow(row), lookAndFeel);
 
     if (dropIndicator)
         lookAndFeel.drawDropIndicator(g, *dropIndicator);

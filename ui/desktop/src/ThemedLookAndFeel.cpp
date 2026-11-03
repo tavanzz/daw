@@ -1274,4 +1274,214 @@ void ThemedLookAndFeel::drawStatusBar(juce::Graphics& g, juce::Rectangle<float> 
     }
 }
 
+void ThemedLookAndFeel::drawMixerStrip(juce::Graphics& g, juce::Rectangle<float> area,
+                                       StripKind kind) const
+{
+    g.setColour(colour(kind == StripKind::track ? ColourRole::panel
+                       : kind == StripKind::bus ? ColourRole::panelAlt
+                                                : ColourRole::raised));
+    g.fillRect(area);
+    g.setColour(colour(ColourRole::separator));
+    g.fillRect(area.withLeft(area.getRight() - 1.0f));
+}
+
+void ThemedLookAndFeel::drawSlotList(juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    g.setColour(colour(ColourRole::inset));
+    g.fillPath(shapeOf(area, CornerSize::small));
+}
+
+void ThemedLookAndFeel::drawEffectSlot(juce::Graphics& g, juce::Rectangle<float> area,
+                                       const juce::String& name, bool bypassed, bool failed) const
+{
+    const auto fill = failed ? colour(ColourRole::error) : colour(ColourRole::raised);
+    g.setColour(fill);
+    g.fillPath(shapeOf(area, CornerSize::small));
+
+    g.setColour(failed     ? textColourOn(fill)
+                : bypassed ? colour(ColourRole::textDisabled)
+                           : colour(ColourRole::text));
+    g.setFont(font(FontRole::caption));
+    g.drawText(labelText(FontRole::caption, (failed ? "! " : "") + name), area.reduced(4.0f, 0.0f),
+               juce::Justification::centredLeft, true);
+}
+
+void ThemedLookAndFeel::drawSendSlot(juce::Graphics& g, juce::Rectangle<float> area,
+                                     const juce::String& name, float levelProportion,
+                                     bool automated) const
+{
+    const auto shape = shapeOf(area, CornerSize::small);
+    g.setColour(colour(ColourRole::raised));
+    g.fillPath(shape);
+
+    // The level: a faint band behind the name and a line along the bottom.
+    const auto level = colour(automated ? ColourRole::automation : ColourRole::accentAlt);
+    const auto filled = area.withWidth(area.getWidth() * std::clamp(levelProportion, 0.0f, 1.0f));
+    {
+        juce::Graphics::ScopedSaveState saved(g);
+        g.reduceClipRegion(shape);
+        g.setColour(level.withAlpha(0.22f));
+        g.fillRect(filled);
+        g.setColour(level);
+        g.fillRect(filled.withTop(filled.getBottom() - 2.0f));
+    }
+
+    g.setColour(colour(ColourRole::text));
+    g.setFont(font(FontRole::caption));
+    g.drawText(labelText(FontRole::caption, name), area.reduced(4.0f, 0.0f),
+               juce::Justification::centredLeft, true);
+}
+
+void ThemedLookAndFeel::drawEmptySlot(juce::Graphics& g, juce::Rectangle<float> area,
+                                      const juce::String& text) const
+{
+    g.setColour(colour(ColourRole::textSecondary));
+    g.setFont(font(FontRole::caption));
+    g.drawText(labelText(FontRole::caption, text), area.reduced(4.0f, 0.0f),
+               juce::Justification::centredLeft, true);
+}
+
+void ThemedLookAndFeel::drawGraphBackground(juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    const auto shape = shapeOf(area, CornerSize::small);
+    g.setColour(colour(ColourRole::inset));
+    g.fillPath(shape);
+    g.setColour(colour(ColourRole::separator));
+    g.strokePath(shape, juce::PathStrokeType(1.0f));
+}
+
+void ThemedLookAndFeel::drawGraphLine(juce::Graphics& g, juce::Line<float> line,
+                                      bool emphasised) const
+{
+    g.setColour(colour(emphasised ? ColourRole::gridBar : ColourRole::gridBeat));
+    g.drawLine(line, 1.0f);
+}
+
+void ThemedLookAndFeel::drawGraphLabel(juce::Graphics& g, const juce::String& text,
+                                       juce::Rectangle<float> area,
+                                       juce::Justification justification) const
+{
+    g.setColour(colour(ColourRole::textSecondary));
+    g.setFont(font(FontRole::caption, theme.font(FontRole::caption).size * 0.9f));
+    g.drawText(text, area, justification, false);
+}
+
+void ThemedLookAndFeel::drawCurve(juce::Graphics& g, const juce::Path& curve, float baselineY,
+                                  bool filled) const
+{
+    if (curve.isEmpty())
+        return;
+
+    if (filled)
+    {
+        const auto bounds = curve.getBounds();
+        auto area = curve;
+        area.lineTo(bounds.getRight(), baselineY);
+        area.lineTo(bounds.getX(), baselineY);
+        area.closeSubPath();
+        g.setColour(colour(ColourRole::curveFill));
+        g.fillPath(area);
+    }
+
+    g.setColour(colour(ColourRole::curve));
+    g.strokePath(curve, juce::PathStrokeType(2.0f));
+}
+
+juce::Colour ThemedLookAndFeel::seriesColour(int index) const
+{
+    return toJuce(theme.clips.colourFor(index).withAlpha(1.0f));
+}
+
+void ThemedLookAndFeel::drawSeriesCurve(juce::Graphics& g, const juce::Path& curve,
+                                        int series) const
+{
+    g.setColour(seriesColour(series).withAlpha(0.5f));
+    g.strokePath(curve, juce::PathStrokeType(1.5f));
+}
+
+void ThemedLookAndFeel::drawCurveHandle(juce::Graphics& g, juce::Point<float> centre, int series,
+                                        bool on, bool selected, const juce::String& label) const
+{
+    const auto fill = seriesColour(series);
+    const auto disc = juce::Rectangle<float>(14.0f, 14.0f).withCentre(centre);
+
+    if (selected)
+    {
+        juce::Path ring;
+        ring.addEllipse(disc.expanded(2.5f));
+        drawGlow(g, ring, fill);
+        g.setColour(colour(ColourRole::selection));
+        g.strokePath(ring, juce::PathStrokeType(1.5f));
+    }
+
+    g.setColour(on ? fill : fill.withAlpha(0.3f));
+    g.fillEllipse(disc);
+    g.setColour(on ? textColourOn(fill) : colour(ColourRole::text));
+    g.setFont(font(FontRole::caption, 11.0f));
+    g.drawText(label, disc, juce::Justification::centred, false);
+}
+
+void ThemedLookAndFeel::drawLevelDot(juce::Graphics& g, juce::Point<float> centre) const
+{
+    g.setColour(colour(ColourRole::highlight));
+    g.fillEllipse(juce::Rectangle<float>(8.0f, 8.0f).withCentre(centre));
+}
+
+void ThemedLookAndFeel::drawGainReductionBar(juce::Graphics& g, juce::Rectangle<float> bar,
+                                             float proportion) const
+{
+    g.setColour(colour(ColourRole::meterTrack));
+    g.fillRect(bar);
+    g.setColour(colour(ColourRole::gainReduction));
+    g.fillRect(bar.withHeight(bar.getHeight() * std::clamp(proportion, 0.0f, 1.0f)));
+}
+
+void ThemedLookAndFeel::drawGainReductionTrace(juce::Graphics& g, const juce::Path& trace) const
+{
+    g.setColour(colour(ColourRole::gainReduction));
+    g.strokePath(trace, juce::PathStrokeType(1.5f));
+}
+
+void ThemedLookAndFeel::drawAutomationShade(juce::Graphics& g, juce::Rectangle<float> row) const
+{
+    // Dims the clips under the lane so the curve reads first.
+    g.setColour(colour(ColourRole::shadow).withMultipliedAlpha(0.4f));
+    g.fillRect(row);
+}
+
+void ThemedLookAndFeel::drawAutomationCurve(juce::Graphics& g, const juce::Path& curve,
+                                            bool reads) const
+{
+    g.setColour(colour(reads ? ColourRole::automation : ColourRole::textSecondary));
+    g.strokePath(curve, juce::PathStrokeType(1.8f));
+}
+
+void ThemedLookAndFeel::drawAutomationLevel(juce::Graphics& g, const juce::Path& line,
+                                            bool reads) const
+{
+    juce::Path dashed;
+    const float dashes[] = {4.0f, 4.0f};
+    juce::PathStrokeType(1.0f).createDashedStroke(dashed, line, dashes, 2);
+    g.setColour(colour(reads ? ColourRole::automation : ColourRole::textSecondary));
+    g.fillPath(dashed);
+}
+
+void ThemedLookAndFeel::drawAutomationPoint(juce::Graphics& g, juce::Point<float> centre,
+                                            float radius, bool reads) const
+{
+    const auto disc = juce::Rectangle<float>(2.0f * radius, 2.0f * radius).withCentre(centre);
+    g.setColour(colour(reads ? ColourRole::automation : ColourRole::textSecondary));
+    g.fillEllipse(disc);
+    g.setColour(colour(ColourRole::text));
+    g.drawEllipse(disc, 1.0f);
+}
+
+void ThemedLookAndFeel::drawAutomationLabel(juce::Graphics& g, const juce::String& text,
+                                            juce::Rectangle<float> area, bool emphasised) const
+{
+    g.setColour(colour(emphasised ? ColourRole::text : ColourRole::textSecondary));
+    g.setFont(font(FontRole::caption));
+    g.drawText(text, area, juce::Justification::topLeft, false);
+}
+
 } // namespace daw::ui::desktop

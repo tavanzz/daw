@@ -228,6 +228,56 @@ public:
 
     void drawTrackHeader(juce::Graphics& g, juce::Rectangle<float> area) const;
 
+    /** A mixer strip: tracks on panels, buses and the master set apart. */
+    enum class StripKind
+    {
+        track,
+        bus,
+        master
+    };
+
+    void drawMixerStrip(juce::Graphics& g, juce::Rectangle<float> area, StripKind kind) const;
+
+    /** The list behind a strip's insert or send slots. */
+    void drawSlotList(juce::Graphics& g, juce::Rectangle<float> area) const;
+    void drawEffectSlot(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& name,
+                        bool bypassed, bool failed) const;
+    /** A send: its bus, and its level as a bar (automation's colour when automated). */
+    void drawSendSlot(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& name,
+                      float levelProportion, bool automated) const;
+    /** "+ Effect", "+ Send": where a click adds one. */
+    void drawEmptySlot(juce::Graphics& g, juce::Rectangle<float> area,
+                       const juce::String& text) const;
+
+    // Graphs in effect editors: the EQ's response, the compressor's curve and gain
+    // reduction.
+    void drawGraphBackground(juce::Graphics& g, juce::Rectangle<float> area) const;
+    void drawGraphLine(juce::Graphics& g, juce::Line<float> line, bool emphasised) const;
+    void drawGraphLabel(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
+                        juce::Justification justification) const;
+    /** A response curve, with the area between it and the baseline filled if asked. */
+    void drawCurve(juce::Graphics& g, const juce::Path& curve, float baselineY, bool filled) const;
+    /** Series colours (EQ bands): the theme's clip colours, in turn. */
+    [[nodiscard]] juce::Colour seriesColour(int index) const;
+    void drawSeriesCurve(juce::Graphics& g, const juce::Path& curve, int series) const;
+    void drawCurveHandle(juce::Graphics& g, juce::Point<float> centre, int series, bool on,
+                         bool selected, const juce::String& label) const;
+    void drawLevelDot(juce::Graphics& g, juce::Point<float> centre) const;
+    /** Gain reduction from the top of the bar. */
+    void drawGainReductionBar(juce::Graphics& g, juce::Rectangle<float> bar,
+                              float proportion) const;
+    void drawGainReductionTrace(juce::Graphics& g, const juce::Path& trace) const;
+
+    // Automation over the timeline.
+    void drawAutomationShade(juce::Graphics& g, juce::Rectangle<float> row) const;
+    void drawAutomationCurve(juce::Graphics& g, const juce::Path& curve, bool reads) const;
+    /** The value without points, as a dashed line. */
+    void drawAutomationLevel(juce::Graphics& g, const juce::Path& line, bool reads) const;
+    void drawAutomationPoint(juce::Graphics& g, juce::Point<float> centre, float radius,
+                             bool reads) const;
+    void drawAutomationLabel(juce::Graphics& g, const juce::String& text,
+                             juce::Rectangle<float> area, bool emphasised) const;
+
     /** The app's name in the theme's own logo style. */
     virtual void drawLogo(juce::Graphics& g, juce::Rectangle<float> area,
                           const juce::String& text) const;

@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/EffectSlots.h"
 
 #include "daw/engine/fx/BuiltInEffects.h"
+#include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
 
@@ -65,8 +66,8 @@ int EffectSlots::rowAt(float y) const noexcept
 
 void EffectSlots::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1b1b1b));
-    g.setFont(juce::FontOptions(11.0f));
+    const auto& lookAndFeel = ThemedLookAndFeel::get(*this);
+    lookAndFeel.drawSlotList(g, getLocalBounds().toFloat());
 
     const int count = static_cast<int>(rows.size());
     for (int visible = 0; visible < visibleRows(); ++visible)
@@ -77,18 +78,11 @@ void EffectSlots::paint(juce::Graphics& g)
         if (index < count)
         {
             const auto& row = rows[static_cast<std::size_t>(index)];
-            const auto fill = row.failed ? juce::Colour(0xff8e1b1b)
-                                         : (row.bypassed ? juce::Colour(0xff2a2a2a) : juce::Colour(0xff35414d));
-            g.setColour(fill);
-            g.fillRoundedRectangle(area.toFloat(), 2.0f);
-            g.setColour(row.bypassed ? juce::Colours::grey : juce::Colours::white);
-            g.drawText((row.failed ? "! " : "") + row.name, area.reduced(4, 0),
-                       juce::Justification::centredLeft, true);
+            lookAndFeel.drawEffectSlot(g, area.toFloat(), row.name, row.bypassed, row.failed);
         }
         else if (index == count)
         {
-            g.setColour(juce::Colour(0xff6c6c6c));
-            g.drawText("+ Effect", area.reduced(4, 0), juce::Justification::centredLeft, true);
+            lookAndFeel.drawEmptySlot(g, area.toFloat(), "+ Effect");
         }
     }
 }

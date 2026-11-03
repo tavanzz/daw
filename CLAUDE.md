@@ -452,7 +452,13 @@ Modules with one-way dependencies:
   (`clipStyle()` for the track's clip colour, its header strip and readable name),
   ruler, meters (gradient or LED segments from the theme's meter), track headers, the
   `Logo` and the `StatusBar` (recording state, warnings, rate and format; a shell
-  prompt in Acid Terminal), which replaced the transport's status line.
+  prompt in Acid Terminal), which replaced the transport's status line. The mixer
+  (`drawMixerStrip()`, effect and send slots), the effect editors (graph background,
+  grid, labels, response curves with their fill, EQ band handles in series colours
+  taken from the clip colours, the compressor's curve, level dot and gain reduction)
+  and the automation lanes (shade over the clips, curve, dashed level, points,
+  labels) draw the same way; `AutomationLanes::paintRow()` takes the look and feel of
+  the lanes it paints on.
 - Animation clock (Phase 5): `AnimationClock` (owned by `ThemeManager`) is the one
   timer behind every decorative animation, at 30 Hz. Animated components subscribe
   for the `AnimationEffect` they draw, say when they want frames, and repaint only
@@ -874,7 +880,7 @@ into `phase-5`.
       precomputed images
 - [x] 7. Arrange view themed: transport bar with logo, bottom status bar, track
       headers, input controls, ruler, lanes, clips, waveforms, playhead, loop, meters
-- [ ] 8. Mixer (strips, faders, pan, inserts, sends, buses), effect editors (generic,
+- [x] 8. Mixer (strips, faders, pan, inserts, sends, buses), effect editors (generic,
       EQ curve, compressor gain reduction), automation lanes themed
 - [ ] 9. Dialogs and alerts themed (export, audio settings, latency, recovery,
       themed alert windows); no colour or font literals outside the LookAndFeels
