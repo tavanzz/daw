@@ -24,7 +24,7 @@ and scroll, a loop region; a mixer with volume, pan, mute, solo and meters per t
 and a master bus; WAV export through the same code as playback; undo/redo; project
 format version 2.
 
-Phase 3 (v0.3.0, in testing): audio recording. Inputs per track (mono or stereo),
+Phase 3 (v0.3.0): audio recording. Inputs per track (mono or stereo),
 arming and recording several tracks at once, input monitoring (off / auto / on) and
 input meters, latency compensation with a loopback measurement, metronome and
 count-in, punch in/out on the loop region, recovery of recordings interrupted by a

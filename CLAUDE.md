@@ -442,7 +442,7 @@ Phase 2 decisions (agreed before starting):
   deletes the selected clips. Several dropped files: one new track each, all at the
   same position.
 
-Phase 3 (in progress, branch `phase-3`): audio recording. Input device and channels;
+Phase 3 (done, released as v0.3.0): audio recording. Input device and channels;
 each track records mono or stereo from chosen inputs; arming and recording on several
 tracks at once; input monitoring per track (off / auto / on) and input meters;
 latency compensation (driver-reported plus a manual offset, and a loopback
@@ -480,8 +480,7 @@ automation, mobile UI.
       warnings
 - [x] 15. Benchmark: tracks streamed and recorded at once (Release)
 - [x] 16. Listening tests and files for Phase 3 (`docs/LISTENING_TESTS.md`)
-- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 32 to 49): 32 to 44 and 46
-      to 49 passed on macOS, 2026-11-03; 45 (long recording) still open
+- [x] Listening tests (`docs/LISTENING_TESTS.md`): all 18 passed on macOS, 2026-11-03
 
 Phase 3 decisions (agreed before starting):
 
