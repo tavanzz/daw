@@ -1,5 +1,7 @@
 #pragma once
 
+#include "daw/engine/TimelineFade.h"
+
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <cstdint>
@@ -19,9 +21,21 @@ class TimelineRenderer
 {
 public:
     /** Audio thread. Overwrites samples [outputStart, outputStart + numSamples) of
-        output with timeline samples [timelineStart, timelineStart + numSamples). */
+        output with timeline samples [timelineStart, timelineStart + numSamples),
+        the timeline's audio faded by fade. */
     virtual void renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
-                                int outputStart, int numSamples) noexcept = 0;
+                                int outputStart, int numSamples,
+                                const TimelineFade& fade) noexcept = 0;
+
+    /** Audio thread. Overwrites samples [outputStart, outputStart + numSamples) of
+        output while the timeline is not playing: silence, unless the renderer has
+        something live to play (monitored inputs). */
+    virtual void renderStopped(juce::AudioBuffer<float>& output, int outputStart,
+                               int numSamples) noexcept
+    {
+        for (int channel = 0; channel < output.getNumChannels(); ++channel)
+            output.clear(channel, outputStart, numSamples);
+    }
 
 protected:
     ~TimelineRenderer() = default;
@@ -36,7 +50,8 @@ protected:
 
     - Playback always starts with a fade-in, and pausing, stopping or seeking
       while playing first fades out, all over fadeDurationSeconds, so none of
-      them clicks. The state reported by getState() changes immediately.
+      them clicks. The renderer applies the fade (TimelineFade) to the timeline's
+      audio. The state reported by getState() changes immediately.
     - Looping and reaching the end of the timeline are sample-exact and unfaded.
     - The return position is where playback was last started from stopped, or
       where the user last seeked to. Stop, and reaching the end without looping,
@@ -66,6 +81,11 @@ public:
 
     void setLooping(bool shouldLoop) noexcept;
 
+    /** While recording: playback runs straight on, with no loop and no end of the
+        timeline (it may start with an empty one). */
+    void setLinear(bool shouldRunStraight) noexcept { linear = shouldRunStraight; }
+    [[nodiscard]] bool isLinear() const noexcept { return linear; }
+
     /** Loops [start, end); an empty or invalid range means the whole timeline,
         [0, length). The range only applies while playback is before end. */
     void setLoopRange(juce::int64 start, juce::int64 end) noexcept;
@@ -73,7 +93,8 @@ public:
     /**
         Overwrites samples [startSample, startSample + numSamples) of output with
         what the renderer gives for the timeline from the current position, faded
-        as needed, and advances the position. Silence while not running.
+        as needed, and advances the position. While not running, the renderer's
+        renderStopped().
     */
     void render(TimelineRenderer& renderer, juce::AudioBuffer<float>& output, int startSample,
                 int numSamples) noexcept;
@@ -96,7 +117,6 @@ private:
     void startFadeIn() noexcept;
     void finishFadeOut() noexcept;
     void reachEnd() noexcept;
-    void applyFade(juce::AudioBuffer<float>& output, int outputStart, int numSamples) noexcept;
 
     TransportState state = TransportState::stopped;
     juce::int64 length = 0;
@@ -105,6 +125,7 @@ private:
     juce::int64 loopStart = 0; // as requested; see getLoopStart()
     juce::int64 loopEnd = 0;
     bool looping = false;
+    bool linear = false;
 
     // Rendering: running is true while the timeline is rendered. The output gain is
     // level / fadeLength; an integer level makes every fade exact and repeatable.

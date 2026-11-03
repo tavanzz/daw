@@ -9,6 +9,39 @@
 namespace daw::model
 {
 
+TrackInput TrackInput::normalised() const noexcept
+{
+    if (channel < 0)
+        return none();
+
+    const int first = std::min(channel, maximumChannels - 1);
+    return {stereo ? first - first % 2 : first, stereo};
+}
+
+juce::String toString(MonitoringMode mode)
+{
+    switch (mode)
+    {
+    case MonitoringMode::off:
+        return "off";
+    case MonitoringMode::automatic:
+        return "auto";
+    case MonitoringMode::on:
+        return "on";
+    }
+
+    return "auto";
+}
+
+std::optional<MonitoringMode> monitoringModeFromString(const juce::String& text)
+{
+    for (const auto mode : {MonitoringMode::off, MonitoringMode::automatic, MonitoringMode::on})
+        if (toString(mode) == text)
+            return mode;
+
+    return std::nullopt;
+}
+
 Track::Track(juce::ValueTree trackState)
     : state(std::move(trackState))
 {
@@ -70,6 +103,41 @@ bool Track::isSoloed() const
 void Track::setSoloed(bool shouldBeSoloed, juce::UndoManager* undoManager)
 {
     state.setProperty(ids::solo, shouldBeSoloed, undoManager);
+}
+
+TrackInput Track::getInput() const
+{
+    return TrackInput{static_cast<int>(state.getProperty(ids::inputChannel, 0)),
+                      static_cast<bool>(state.getProperty(ids::inputStereo, false))}
+        .normalised();
+}
+
+void Track::setInput(TrackInput input, juce::UndoManager* undoManager)
+{
+    const auto stored = input.normalised();
+    state.setProperty(ids::inputChannel, stored.channel, undoManager);
+    state.setProperty(ids::inputStereo, stored.stereo, undoManager);
+}
+
+MonitoringMode Track::getMonitoring() const
+{
+    return monitoringModeFromString(state[ids::monitoring].toString())
+        .value_or(MonitoringMode::automatic);
+}
+
+void Track::setMonitoring(MonitoringMode mode, juce::UndoManager* undoManager)
+{
+    state.setProperty(ids::monitoring, toString(mode), undoManager);
+}
+
+bool Track::isArmed() const
+{
+    return static_cast<bool>(state[ids::armed]);
+}
+
+void Track::setArmed(bool shouldBeArmed)
+{
+    state.setProperty(ids::armed, shouldBeArmed, nullptr);
 }
 
 int Track::getNumClips() const

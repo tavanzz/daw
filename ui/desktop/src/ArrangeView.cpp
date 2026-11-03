@@ -79,6 +79,15 @@ void ArrangeView::refresh()
 
     trackArea->lanes.setPlayhead(playhead);
     ruler.setPlayhead(playhead);
+
+    // Recordings grow on screen.
+    if (session.isRecording())
+        trackArea->lanes.repaint();
+}
+
+void ArrangeView::updateMeters(double elapsedSeconds)
+{
+    trackArea->headers.updateMeters(elapsedSeconds);
 }
 
 void ArrangeView::zoomIn()

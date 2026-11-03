@@ -11,37 +11,25 @@ ExportJob::ExportJob(const Session& session, ExportSettings settingsToUse)
     : projectState(session.getProject().getState().createCopy())
     , settings(std::move(settingsToUse))
 {
-    if (!juce::exactlyEqual(settings.sampleRate, session.getSampleRate()))
-        return;
-
-    const auto& project = session.getProject();
-    for (int t = 0; t < project.getNumTracks(); ++t)
-    {
-        const auto track = project.getTrack(t);
-        for (int c = 0; c < track.getNumClips(); ++c)
-        {
-            const auto file = track.getClip(c).getAudioFile();
-            if (const auto* source = session.findSource(file); source != nullptr && source->audio)
-                loadedSources[file.getFullPathName()] = source->audio;
-        }
-    }
 }
 
 engine::io::BounceResult ExportJob::run(const std::function<bool(double)>& keepGoing)
 {
     const model::Project project(projectState);
 
-    // Load, at the export's rate, the files that were not loaded at it already.
-    engine::io::SourcePool pool(settings.sampleRate);
+    // Its own streams, at the export's rate: the session's belong to the audio thread,
+    // which never waits for the disk; this thread may, so it reads what it needs as
+    // it goes (synchronous streaming) and no file is held whole in memory.
+    engine::io::StreamingOptions streaming;
+    streaming.mode = engine::io::DiskStreamer::Mode::synchronous;
+    streaming.computePeaks = false;
+    engine::io::SourcePool pool(settings.sampleRate, 2, streaming);
+
     for (int t = 0; t < project.getNumTracks(); ++t)
     {
         const auto track = project.getTrack(t);
         for (int c = 0; c < track.getNumClips(); ++c)
-        {
-            const auto file = track.getClip(c).getAudioFile();
-            if (!loadedSources.contains(file.getFullPathName()))
-                pool.request(file);
-        }
+            pool.request(track.getClip(c).getAudioFile());
     }
 
     while (!pool.waitForLoads(50))
@@ -55,11 +43,7 @@ engine::io::BounceResult ExportJob::run(const std::function<bool(double)>& keepG
     }
     pool.collectFinishedLoads();
 
-    const auto lookup = [this, &pool](const juce::File& file) {
-        if (const auto found = loadedSources.find(file.getFullPathName());
-            found != loadedSources.end())
-            return found->second;
-
+    const auto lookup = [&pool](const juce::File& file) {
         const auto* source = pool.find(file);
         return source != nullptr ? source->audio : nullptr;
     };

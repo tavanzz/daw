@@ -1,5 +1,7 @@
 #include "daw/ui/desktop/MixerView.h"
 
+#include "daw/ui/desktop/TrackInputControls.h"
+
 #include <cmath>
 
 namespace daw::ui::desktop
@@ -106,9 +108,19 @@ public:
         }
         mute.onClick = [this] { session.setTrackMuted(*trackId, !mute.getToggleState()); };
         solo.onClick = [this] { session.setTrackSoloed(*trackId, !solo.getToggleState()); };
+
+        recording = std::make_unique<TrackInputControls>(session, *trackId);
+        recording->addTo(*this);
     }
 
     [[nodiscard]] std::optional<model::ObjectId> getTrackId() const noexcept { return trackId; }
+
+    /** Shows a track's recording settings. */
+    void showRecording(const model::Track& track)
+    {
+        if (recording != nullptr)
+            recording->show(track);
+    }
 
     /** Shows the model's values, except on a control the user is dragging. */
     void show(const juce::String& stripName, double volume, double panPosition, bool muted,
@@ -136,10 +148,16 @@ public:
 
         if (trackId)
         {
-            pan.setBounds(area.removeFromTop(64));
+            auto inputRow = area.removeFromTop(22);
+            recording->monitoring.setBounds(inputRow.removeFromRight(42).reduced(1, 0));
+            recording->input.setBounds(inputRow.reduced(1, 0));
+            area.removeFromTop(4);
+            pan.setBounds(area.removeFromTop(60));
             auto buttons = area.removeFromTop(24);
-            mute.setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(2, 0));
-            solo.setBounds(buttons.reduced(2, 0));
+            const int third = buttons.getWidth() / 3;
+            mute.setBounds(buttons.removeFromLeft(third).reduced(2, 0));
+            solo.setBounds(buttons.removeFromLeft(third).reduced(2, 0));
+            recording->arm.setBounds(buttons.reduced(2, 0));
             area.removeFromTop(6);
         }
 
@@ -162,6 +180,7 @@ private:
     juce::Slider pan;
     juce::TextButton mute{"M"};
     juce::TextButton solo{"S"};
+    std::unique_ptr<TrackInputControls> recording;
     LevelMeter meter;
 };
 
@@ -204,6 +223,7 @@ void MixerView::rebuildStrips()
         auto& strip = *strips[static_cast<std::size_t>(i)];
         strip.show(track.getName(), track.getVolume(), track.getPan(), track.isMuted(),
                    track.isSoloed());
+        strip.showRecording(track);
     }
 
     masterStrip->show("Master", project.getMasterVolume(), 0.0, false, false);

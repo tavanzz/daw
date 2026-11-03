@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/MainComponent.h"
 
 #include "daw/model/ProjectFile.h"
+#include "daw/ui/desktop/AudioSettingsDialog.h"
 #include "daw/ui/desktop/ExportDialog.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -30,6 +31,10 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
     , arrangeView(sessionToShow)
     , mixerView(sessionToShow)
 {
+    transportBar.onRecord = [this]
+    {
+        toggleRecording();
+    };
     addAndMakeVisible(transportBar);
     addAndMakeVisible(arrangeView);
     masterMeter.setTooltip("Master output level (click to clear the clip indicators)");
@@ -137,6 +142,15 @@ void MainComponent::timerCallback()
     transportBar.refresh();
     arrangeView.refresh();
 
+    // The input peaks are taken once per refresh too; the track headers read them.
+    session.takeInputPeaks();
+    arrangeView.updateMeters(elapsed);
+
+    if (const auto problem = session.takeRecordingProblem(); problem.isNotEmpty())
+        showError("Recording stopped", problem);
+    if (session.takeDropouts() > 0)
+        transportBar.showWarning("The disk is too slow: some audio was missing");
+
     // The output peaks can be taken once: both master meters get the same reading.
     auto& engine = session.getEngine();
     const float left = engine.takeOutputPeak(0);
@@ -148,11 +162,14 @@ void MainComponent::timerCallback()
     // Menu items show play/pause state, ticks and what can be undone.
     const auto state = session.getTransportState();
     const bool selection = arrangeView.hasSelection();
-    if (state != lastState || session.getRevision() != lastRevision || selection != lastSelection)
+    const bool recording = session.isRecording();
+    if (state != lastState || session.getRevision() != lastRevision || selection != lastSelection ||
+        recording != lastRecording)
     {
         lastState = state;
         lastRevision = session.getRevision();
         lastSelection = selection;
+        lastRecording = recording;
         commandManager.commandStatusChanged();
     }
 }
@@ -169,9 +186,46 @@ void MainComponent::openProjectFile(const juce::File& file)
 {
     const auto result = session.openProject(file);
     if (result.failed())
+    {
         showError("Could not open the project", result.getErrorMessage());
-    else
-        arrangeView.zoomToFit();
+        return;
+    }
+
+    arrangeView.zoomToFit();
+    offerRecovery();
+}
+
+void MainComponent::offerRecovery()
+{
+    const auto count = static_cast<int>(session.getRecoverableRecordings().size());
+    if (count == 0)
+        return;
+
+    const auto options =
+        juce::MessageBoxOptions()
+            .withIconType(juce::MessageBoxIconType::QuestionIcon)
+            .withTitle("Recover recordings?")
+            .withMessage(juce::String(count) +
+                         (count == 1 ? " recording was" : " recordings were") +
+                         " made in this project but not saved in it: the app may have quit "
+                         "unexpectedly while recording. Recover them as clips, or delete "
+                         "their files?")
+            .withButton("Recover")
+            .withButton("Delete")
+            .withButton("Not Now")
+            .withAssociatedComponent(this);
+
+    juce::NativeMessageBox::showAsync(options, [this](int button) {
+        if (button == 0)
+        {
+            if (const auto recovered = session.recoverRecordings(); recovered.failed())
+                showError("Some recordings could not be recovered", recovered.getErrorMessage());
+        }
+        else if (button == 1)
+        {
+            session.discardRecoverableRecordings();
+        }
+    });
 }
 
 void MainComponent::chooseAudioToImport()
@@ -201,10 +255,53 @@ void MainComponent::chooseProjectToOpen()
                              });
 }
 
-void MainComponent::chooseProjectToSave(std::function<void()> afterSaving)
+void MainComponent::toggleRecording()
 {
-    fileChooser = std::make_unique<juce::FileChooser>("Save the project", session.getProjectFile(),
-                                                      projectFilePattern);
+    if (session.isRecording())
+    {
+        session.stop();
+        return;
+    }
+
+    // Recordings go into the project's folder: a project never saved is saved first.
+    if (session.getProjectFile() == juce::File())
+        chooseProjectToSave([this] { startRecording(); }, "Save the project before recording");
+    else
+        startRecording();
+}
+
+void MainComponent::startRecording()
+{
+    if (const auto result = session.record(); result.failed())
+        showError("Cannot record", result.getErrorMessage());
+}
+
+void MainComponent::confirmDiscardRecording()
+{
+    if (!session.isRecording())
+        return;
+
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle("Discard the recording?")
+                             .withMessage("Discard the recording and delete its files?")
+                             .withButton("Discard")
+                             .withButton("Keep Recording")
+                             .withAssociatedComponent(this);
+
+    juce::NativeMessageBox::showAsync(options,
+                                      [this](int button)
+                                      {
+                                          if (button == 0)
+                                              session.discardRecording();
+                                      });
+}
+
+void MainComponent::chooseProjectToSave(std::function<void()> afterSaving,
+                                        const juce::String& title)
+{
+    fileChooser =
+        std::make_unique<juce::FileChooser>(title, session.getProjectFile(), projectFilePattern);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode |
                                  juce::FileBrowserComponent::canSelectFiles |
                                  juce::FileBrowserComponent::warnAboutOverwriting,
@@ -223,20 +320,7 @@ void MainComponent::chooseProjectToSave(std::function<void()> afterSaving)
 
 void MainComponent::showAudioSettings()
 {
-    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
-        deviceManager, 0, 0, 1, 2, false, false, true, false);
-    selector->setSize(520, 360);
-
-    juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned(selector.release());
-    options.dialogTitle = "Audio Output";
-    options.dialogBackgroundColour =
-        getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-    options.componentToCentreAround = this;
-    options.launchAsync();
+    AudioSettingsDialog::show(session, deviceManager, this);
 }
 
 juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
@@ -247,9 +331,11 @@ juce::ApplicationCommandTarget* MainComponent::getNextCommandTarget()
 
 void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
 {
-    commands.addArray({newProject, openProject, saveProject, saveProjectAs, importAudio, exportMix,
-                       audioSettings, undo, redo, newTrack, deleteSelection, playPause, stop,
-                       toggleLoop, toggleSnap, zoomIn, zoomOut, zoomToFit, toggleMixer});
+    commands.addArray({newProject,       openProject,     saveProject,   saveProjectAs, importAudio,
+                       exportMix,        audioSettings,   undo,          redo,          newTrack,
+                       deleteSelection,  playPause,       stop,          toggleLoop,    toggleSnap,
+                       zoomIn,           zoomOut,         zoomToFit,     toggleMixer,   record,
+                       discardRecording, toggleMetronome, toggleCountIn, togglePunch});
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationCommandInfo& result)
@@ -259,6 +345,7 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier;
     const auto& project = session.getProject();
     const bool hasClips = project.getEnd() > 0;
+    const bool recording = session.isRecording();
 
     switch (commandId)
     {
@@ -289,7 +376,8 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setActive(hasClips);
         break;
     case audioSettings:
-        result.setInfo("Audio Output...", "Chooses the audio output device", "File", 0);
+        result.setInfo("Audio Settings...",
+                       "Chooses the audio devices and sets up recording and latency", "File", 0);
         result.addDefaultKeypress(',', command);
         break;
     case undo:
@@ -353,6 +441,54 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setInfo("Mixer", "Shows or hides the mixer", "View", 0);
         result.addDefaultKeypress('x', 0);
         result.setTicked(mixerVisible);
+        break;
+    case record:
+        result.setInfo(recording ? "Stop Recording" : "Record",
+                       "Records the armed tracks from the playhead", "Transport", 0);
+        result.addDefaultKeypress('r', 0);
+        break;
+    case discardRecording:
+        result.setInfo("Discard Recording...", "Stops recording and deletes what was recorded",
+                       "Transport", 0);
+        result.addDefaultKeypress('.', command);
+        result.setActive(recording);
+        break;
+    case toggleMetronome:
+        result.setInfo("Metronome", "Clicks on the beats while playing and recording", "Transport",
+                       0);
+        result.addDefaultKeypress('k', 0);
+        result.setTicked(project.isMetronomeEnabled());
+        break;
+    case toggleCountIn:
+        result.setInfo("Count-in", "Counts in before recording", "Transport", 0);
+        result.addDefaultKeypress('k', juce::ModifierKeys::shiftModifier);
+        result.setTicked(project.isCountInEnabled());
+        break;
+    case togglePunch:
+        result.setInfo("Punch In/Out", "Records only inside the loop region", "Transport", 0);
+        result.addDefaultKeypress('p', 0);
+        result.setTicked(project.isPunchEnabled());
+        break;
+    default:
+        break;
+    }
+
+    // While recording the project stays as it is: no other project, no edits that
+    // could remove a track being recorded, no saving half a recording.
+    switch (commandId)
+    {
+    case newProject:
+    case openProject:
+    case saveProject:
+    case saveProjectAs:
+    case importAudio:
+    case exportMix:
+    case undo:
+    case redo:
+    case newTrack:
+    case deleteSelection:
+        if (recording)
+            result.setActive(false);
         break;
     default:
         break;
@@ -421,6 +557,21 @@ bool MainComponent::perform(const InvocationInfo& info)
         mixerVisible = !mixerVisible;
         resized();
         commandManager.commandStatusChanged();
+        break;
+    case record:
+        toggleRecording();
+        break;
+    case discardRecording:
+        confirmDiscardRecording();
+        break;
+    case toggleMetronome:
+        session.setMetronomeEnabled(!session.getProject().isMetronomeEnabled());
+        break;
+    case toggleCountIn:
+        session.setCountInEnabled(!session.getProject().isCountInEnabled());
+        break;
+    case togglePunch:
+        session.setPunchEnabled(!session.getProject().isPunchEnabled());
         break;
     default:
         return false;

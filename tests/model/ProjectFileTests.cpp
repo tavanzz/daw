@@ -32,11 +32,20 @@ Project makeSampleProject(const juce::File& audioFile)
     project.setLoopRange(ticksPerSecond, ticksPerSecond * 3);
     project.setGridDivision(GridDivision::sixteenth);
     project.setMasterVolume(0.5);
+    project.setMetronomeEnabled(true);
+    project.setMetronomeVolume(0.25);
+    project.setCountInEnabled(true);
+    project.setCountInBars(2);
+    project.setPunchEnabled(true);
+    project.setRecordingBitsPerSample(32);
 
     auto track = project.addTrack("Track 1");
     track.setVolume(0.25);
     track.setPan(-0.5);
     track.setMuted(true);
+    track.setInput({2, true});
+    track.setMonitoring(daw::model::MonitoringMode::on);
+    track.setArmed(true);
     track.addClip(audioFile, {ticksPerSecond / 2, 0, ticksPerSecond * 5});
     return project;
 }
@@ -54,7 +63,7 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
     // and add a migration, then update this text.
     const auto expected = R"({
   "format": "daw-project",
-  "formatVersion": 2,
+  "formatVersion": 3,
   "project": {
     "tempo": 128.0,
     "timeSignature": {
@@ -73,6 +82,20 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
     "master": {
       "volume": 0.5
     },
+    "metronome": {
+      "enabled": true,
+      "volume": 0.25
+    },
+    "countIn": {
+      "enabled": true,
+      "bars": 2
+    },
+    "punch": {
+      "enabled": true
+    },
+    "recording": {
+      "bitsPerSample": 32
+    },
     "tracks": [
       {
         "id": 1,
@@ -81,6 +104,12 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
         "pan": -0.5,
         "mute": true,
         "solo": false,
+        "input": {
+          "channel": 3,
+          "stereo": true
+        },
+        "monitoring": "on",
+        "armed": true,
         "clips": [
           {
             "id": 2,
@@ -371,6 +400,98 @@ TEST_CASE("A version 1 project opens after the migration to version 2", "[model]
     CHECK(reloaded.project->isEquivalentTo(project));
 }
 
+TEST_CASE("A version 2 project opens after the migration to version 3", "[model][file]")
+{
+    // Written by Phase 2 (v0.2.0): the golden text of format version 2.
+    const auto versionTwo = R"({
+  "format": "daw-project",
+  "formatVersion": 2,
+  "project": {
+    "tempo": 128.0,
+    "timeSignature": {
+      "numerator": 6,
+      "denominator": 8
+    },
+    "loop": {
+      "enabled": true,
+      "start": 282240000,
+      "end": 846720000
+    },
+    "snap": {
+      "enabled": true,
+      "grid": "1/16"
+    },
+    "master": {
+      "volume": 0.5
+    },
+    "tracks": [
+      {
+        "id": 1,
+        "name": "Track 1",
+        "volume": 0.25,
+        "pan": -0.5,
+        "mute": true,
+        "solo": false,
+        "clips": [
+          {
+            "id": 2,
+            "audioFile": "audio/drums.wav",
+            "position": 141120000,
+            "offset": 0,
+            "length": 1411200000
+          }
+        ]
+      }
+    ]
+  }
+}
+)";
+
+    TemporaryDirectory directory;
+    const auto file = directory.file("phase2.dawproject");
+    REQUIRE(file.replaceWithText(versionTwo));
+
+    const auto loaded = loadProject(file);
+    CAPTURE(loaded.error);
+    REQUIRE(loaded.succeeded());
+    CHECK(loaded.fileFormatVersion == 2);
+
+    const auto& project = *loaded.project;
+    CHECK(project.getTempoMap() == daw::model::TempoMap(128.0, {6, 8}));
+    CHECK(project.isLoopEnabled());
+    CHECK(project.getLoopEnd() == ticksPerSecond * 3);
+    CHECK(project.getGridDivision() == GridDivision::sixteenth);
+    CHECK(project.getMasterVolume() == 0.5);
+
+    // Recording settings: those of a new project.
+    CHECK_FALSE(project.isMetronomeEnabled());
+    CHECK(project.getMetronomeVolume() == Project::defaultMetronomeVolume);
+    CHECK_FALSE(project.isCountInEnabled());
+    CHECK(project.getCountInBars() == 1);
+    CHECK_FALSE(project.isPunchEnabled());
+    CHECK(project.getRecordingBitsPerSample() == 24);
+
+    REQUIRE(project.getNumTracks() == 1);
+    const auto track = project.getTrack(0);
+    CHECK(track.getId() == 1);
+    CHECK(track.getVolume() == 0.25);
+    CHECK(track.isMuted());
+    CHECK(track.getInput() == daw::model::TrackInput{0, false});
+    CHECK(track.getMonitoring() == daw::model::MonitoringMode::automatic);
+    CHECK_FALSE(track.isArmed());
+
+    REQUIRE(track.getNumClips() == 1);
+    CHECK(track.getClip(0).getAudioFile() == directory.file("audio/drums.wav"));
+    CHECK(track.getClip(0).getBounds() ==
+          ClipBounds{ticksPerSecond / 2, 0, ticksPerSecond * 5});
+
+    REQUIRE(saveProject(project, file).wasOk());
+    const auto reloaded = loadProject(file);
+    REQUIRE(reloaded.succeeded());
+    CHECK(reloaded.fileFormatVersion == daw::model::currentFormatVersion);
+    CHECK(reloaded.project->isEquivalentTo(project));
+}
+
 TEST_CASE("Missing, invalid and repeated ids are replaced by new ones", "[model][file]")
 {
     const auto loaded = daw::model::fromJson(
@@ -418,10 +539,56 @@ TEST_CASE("Version 2 fields of the wrong type make the file damaged", "[model][f
         errorForProject(R"({"tracks": [{"clips": [{"audioFile": "a.wav", "length": 2.5}]}]})"),
         ContainsSubstring("whole ticks"));
 
+    // Inputs count from 1 in the file; 0 is none.
+    const auto inputs = daw::model::fromJson(
+        R"({"format": "daw-project", "formatVersion": 3, "project": {"tracks": [
+              {"input": {"channel": 0}}, {"input": {"channel": 4, "stereo": true}}, {}]}})",
+        juce::File());
+    REQUIRE(inputs.succeeded());
+    CHECK(inputs.project->getTrack(0).getInput().isNone());
+    CHECK(inputs.project->getTrack(1).getInput() == daw::model::TrackInput{2, true});
+    CHECK(inputs.project->getTrack(2).getInput() == daw::model::TrackInput{0, false});
+
     // An unknown grid name is not worth refusing a project for.
     const auto loaded = daw::model::fromJson(
         R"({"format": "daw-project", "formatVersion": 2, "project": {"snap": {"grid": "1/7"}}})",
         juce::File());
     REQUIRE(loaded.succeeded());
     CHECK(loaded.project->getGridDivision() == GridDivision::automatic);
+}
+
+TEST_CASE("Version 3 fields of the wrong type make the file damaged", "[model][file]")
+{
+    const auto errorForProject = [](const juce::String& projectJson) {
+        return errorFor(R"({"format": "daw-project", "formatVersion": 3, "project": )" +
+                        projectJson + "}")
+            .toStdString();
+    };
+
+    CHECK_THAT(errorForProject(R"({"metronome": {"enabled": 1}})"), ContainsSubstring("metronome"));
+    CHECK_THAT(errorForProject(R"({"metronome": {"volume": "loud"}})"),
+               ContainsSubstring("metronome"));
+    CHECK_THAT(errorForProject(R"({"countIn": {"bars": 1.5}})"), ContainsSubstring("count-in"));
+    CHECK_THAT(errorForProject(R"({"punch": {"enabled": "no"}})"), ContainsSubstring("punch"));
+    CHECK_THAT(errorForProject(R"({"recording": {"bitsPerSample": "24"}})"),
+               ContainsSubstring("recording format"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"input": {"channel": "1"}}]})"),
+               ContainsSubstring("input"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"input": {"channel": 65}}]})"),
+               ContainsSubstring("input"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"input": {"stereo": 1}}]})"),
+               ContainsSubstring("input"));
+    CHECK_THAT(errorForProject(R"({"tracks": [{"armed": "yes"}]})"), ContainsSubstring("arm"));
+
+    // Values that are merely unknown fall back to the defaults.
+    const auto loaded = daw::model::fromJson(
+        R"({"format": "daw-project", "formatVersion": 3, "project": {
+              "countIn": {"bars": 9}, "recording": {"bitsPerSample": 20},
+              "tracks": [{"monitoring": "loud"}]}})",
+        juce::File());
+    CAPTURE(loaded.error);
+    REQUIRE(loaded.succeeded());
+    CHECK(loaded.project->getCountInBars() == Project::maximumCountInBars);
+    CHECK(loaded.project->getRecordingBitsPerSample() == 24);
+    CHECK(loaded.project->getTrack(0).getMonitoring() == daw::model::MonitoringMode::automatic);
 }

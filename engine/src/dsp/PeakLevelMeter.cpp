@@ -6,9 +6,9 @@ namespace daw::engine::dsp
 {
 
 void PeakLevelMeter::process(const juce::AudioBuffer<float>& buffer, int startSample,
-                             int numSamples) noexcept
+                             int numSamples, int numChannels) noexcept
 {
-    const int channels = std::min(buffer.getNumChannels(), maxChannels);
+    const int channels = std::min({buffer.getNumChannels(), numChannels, maxChannels});
 
     for (int channel = 0; channel < channels; ++channel)
     {

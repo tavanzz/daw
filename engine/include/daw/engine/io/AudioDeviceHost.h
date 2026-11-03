@@ -4,13 +4,20 @@
 
 #include <juce_audio_devices/juce_audio_devices.h>
 
+#include <array>
+
 namespace daw::engine::io
 {
 
 /**
-    Connects an Engine to the computer's audio output through JUCE's
-    AudioDeviceManager: opens the output device, prepares the engine whenever the
-    device (re)starts, and runs Engine::process() from the device callback.
+    Connects an Engine to the computer's audio interface through JUCE's
+    AudioDeviceManager: opens the devices, prepares the engine whenever they
+    (re)start, and runs Engine::process() from the device callback.
+
+    The engine sees the inputs by device channel number: JUCE delivers only the
+    channels that are switched on, packed together, and the callback puts each one
+    back at its number (AudioInputs), so a track's input stays the same channel
+    whichever others are switched on or off.
 
     Construct, initialise and destroy on the message thread. The device callback
     itself runs on the audio thread and is real-time safe; it is public only so that
@@ -29,10 +36,20 @@ public:
     AudioDeviceHost(const AudioDeviceHost&) = delete;
     AudioDeviceHost& operator=(const AudioDeviceHost&) = delete;
 
-    /** Opens a stereo output (no inputs): the device described by savedState (from
-        getDeviceManager().createStateXml()) if it is available, otherwise the default
-        one. Returns an error message, or an empty string on success. */
-    juce::String initialise(const juce::XmlElement* savedState);
+    /** Opens a stereo output, and with withInputs also the inputs (all channels of
+        the input device, up to AudioInputs::maxChannels): the devices described by
+        savedState (from getDeviceManager().createStateXml()) if they are available,
+        otherwise the default ones. Without withInputs no input device is opened,
+        even one savedState names (on macOS that would ask for the microphone
+        permission). Returns an error message, or an empty string on success. */
+    juce::String initialise(const juce::XmlElement* savedState, bool withInputs = false);
+
+    /** Opens the inputs too, if none is open: the default input device, all its
+        channels. Returns an error message, or an empty string on success. */
+    juce::String openInputs();
+
+    /** Whether the device delivers any input channel. */
+    [[nodiscard]] bool hasInputs() const;
 
     /** For device selection in the UI, and for saving the chosen device. */
     [[nodiscard]] juce::AudioDeviceManager& getDeviceManager() noexcept { return deviceManager; }
@@ -53,6 +70,13 @@ private:
     juce::AudioDeviceManager deviceManager;
     juce::AudioBuffer<float> outputView; // refers to the device's buffers, owns nothing
     bool callbackAdded = false;
+
+    // The device channel number of each input JUCE delivers, in delivery order; set
+    // while the device is stopped (audioDeviceAboutToStart), read by the callback.
+    std::array<int, AudioInputs::maxChannels> inputChannelNumbers{};
+    int numInputChannels = 0;
+    int numDeviceInputChannels = 0; // highest channel number switched on + 1
+    std::array<const float*, AudioInputs::maxChannels> inputPointers{};
 };
 
 } // namespace daw::engine::io

@@ -3,21 +3,33 @@ include(Catch)
 add_executable(daw_tests
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
+    support/SimulatedDevice.cpp
     support/TestMain.cpp
     support/TestAudioFiles.cpp
     controller/ArrangementBuilderTests.cpp
+    controller/MetronomeTests.cpp
+    controller/RecordingTests.cpp
     controller/SessionTests.cpp
+    controller/StreamingTests.cpp
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
+    engine/AudioInputTests.cpp
     engine/AudioFileLoaderTests.cpp
     engine/BounceTests.cpp
+    engine/DiskStreamerTests.cpp
     engine/EngineTests.cpp
+    engine/LatencyProbeTests.cpp
     engine/MeterTests.cpp
+    engine/MetronomeTests.cpp
     engine/MixerTests.cpp
+    engine/MonitoringTests.cpp
+    engine/RecorderTests.cpp
+    engine/RecordingWriterTests.cpp
     engine/ResamplerTests.cpp
     engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp
     engine/TransportTests.cpp
+    engine/WavRepairTests.cpp
     engine/WaveformPeaksTests.cpp
     model/FormatVersionTests.cpp
     model/ProjectFileTests.cpp
@@ -28,10 +40,15 @@ target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::controller daw::engine daw::model Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 
-# Not a test: measures how many tracks fit in an audio callback (see the source).
+# Not tests: measure how many tracks fit in an audio callback, and how many stream
+# from disk and record at once (see the sources).
 add_executable(daw_bench bench/MixBenchmark.cpp)
 target_link_libraries(daw_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_bench)
+
+add_executable(daw_stream_bench bench/StreamingBenchmark.cpp)
+target_link_libraries(daw_stream_bench PRIVATE daw::engine)
+daw_enable_warnings(daw_stream_bench)
 
 # PRE_TEST: tests are listed when CTest runs, not at build time, so building
 # never needs to execute the test binary.

@@ -104,6 +104,8 @@ void TrackLanes::paint(juce::Graphics& g)
             drawClip(g, t, track.getClip(c));
     }
 
+    drawRecordings(g);
+
     if (dropIndicator)
     {
         g.setColour(juce::Colour(0xff4fc3f7));
@@ -170,6 +172,74 @@ void TrackLanes::drawClip(juce::Graphics& g, int trackIndex, const model::Clip& 
 
     g.setColour(selected ? juce::Colours::white : colour.withAlpha(0.9f));
     g.drawRoundedRectangle(bounds.reduced(0.5f), 4.0f, selected ? 2.0f : 1.0f);
+}
+
+void TrackLanes::drawRecordings(juce::Graphics& g) const
+{
+    const auto& project = state.session.getProject();
+    const double rate = state.session.getSampleRate();
+    const juce::Colour colour(0xffd32f2f);
+
+    for (const auto& take : state.session.getRecording().getLiveTakes())
+    {
+        const int trackIndex = project.indexOfTrack(take.trackId);
+        const auto first = std::max(take.keepStart, take.firstPosition);
+        const auto end = take.firstPosition + take.length;
+        if (trackIndex < 0 || end <= first)
+            continue;
+
+        const auto x0 =
+            static_cast<float>(state.viewport.ticksToX(model::samplesToTicks(first, rate)));
+        const auto x1 =
+            static_cast<float>(state.viewport.ticksToX(model::samplesToTicks(end, rate)));
+        const juce::Rectangle<float> bounds(
+            x0, static_cast<float>(trackIndex * ArrangeState::laneHeight + 3),
+            std::max(1.0f, x1 - x0), static_cast<float>(ArrangeState::laneHeight - 6));
+
+        g.setColour(colour.withAlpha(0.3f));
+        g.fillRoundedRectangle(bounds, 4.0f);
+
+        juce::Graphics::ScopedSaveState saved(g);
+        g.reduceClipRegion(bounds.toNearestInt());
+
+        // The waveform written so far: file sample s is at take.firstPosition + s.
+        if (take.peaks != nullptr && take.peaks->getNumSamples() > 0)
+        {
+            const auto area =
+                bounds.withTrimmedTop(static_cast<float>(nameHeight)).reduced(0.0f, 2.0f);
+            const float middle = area.getCentreY();
+            const float halfHeight = area.getHeight() / 2.0f;
+            g.setColour(colour.brighter(0.5f));
+            for (int x = std::max(0, static_cast<int>(area.getX()));
+                 x < std::min(getWidth(), static_cast<int>(area.getRight()) + 1); ++x)
+            {
+                const auto from =
+                    model::ticksToSamples(state.viewport.xToTicks(x), rate) - take.firstPosition;
+                const auto to =
+                    std::max(from + 1, model::ticksToSamples(state.viewport.xToTicks(x + 1), rate) -
+                                           take.firstPosition);
+                float low = 0.0f;
+                float high = 0.0f;
+                for (int channel = 0; channel < take.peaks->getNumChannels(); ++channel)
+                {
+                    const auto range = take.peaks->getRange(channel, from, to);
+                    low = std::min(low, range.min);
+                    high = std::max(high, range.max);
+                }
+                if (high > low)
+                    g.drawVerticalLine(x, middle - high * halfHeight,
+                                       middle - low * halfHeight + 1.0f);
+            }
+        }
+
+        g.setColour(colour.withAlpha(0.7f));
+        g.fillRect(bounds.withHeight(static_cast<float>(nameHeight)));
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::FontOptions(12.0f));
+        g.drawText("Recording " + take.file.getFileNameWithoutExtension(),
+                   bounds.withHeight(static_cast<float>(nameHeight)).reduced(4.0f, 0.0f),
+                   juce::Justification::centredLeft, true);
+    }
 }
 
 void TrackLanes::drawWaveform(juce::Graphics& g, juce::Rectangle<float> area,

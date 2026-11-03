@@ -98,15 +98,26 @@ void MixState::continueFrom(const MixState& previous, const Arrangement& previou
     master.setTarget(arrangement.masterGain, rampLength);
 }
 
+bool MixState::isHearingInput() const noexcept
+{
+    return std::any_of(tracks.begin(), tracks.end(), [](const TrackGains& gains) {
+        return gains.input.isRamping() || gains.input.getTarget() > 0.0f;
+    });
+}
+
 void Mixer::prepare(double sampleRate, int maximumBlockSize)
 {
     jassert(sampleRate > 0.0 && maximumBlockSize > 0);
     gainRampLength = std::max(1, static_cast<int>(std::lround(gainRampSeconds * sampleRate)));
+    monitorRampLength =
+        std::max(1, static_cast<int>(std::lround(monitorRampSeconds * sampleRate)));
     scratch.setSize(2, maximumBlockSize);
+    inputScratch.setSize(2, maximumBlockSize);
 }
 
 void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 timelineStart,
-                   juce::AudioBuffer<float>& output, int outputStart, int numSamples) noexcept
+                   juce::AudioBuffer<float>& output, int outputStart, int numSamples,
+                   const MixContext& context) noexcept
 {
     jassert(numSamples <= scratch.getNumSamples());
     jassert(state.tracks.size() == arrangement.tracks.size());
@@ -124,7 +135,7 @@ void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 
     for (std::size_t i = 0; i < arrangement.tracks.size(); ++i)
     {
         const auto& track = arrangement.tracks[i];
-        renderTrack(track, state.tracks[i], timelineStart, numSamples);
+        renderTrack(track, state.tracks[i], timelineStart, numSamples, context);
 
         // A plain add, never a fused multiply-add, so that rounding is the same
         // whether a sample ends up in a vectorised part or not.
@@ -136,25 +147,104 @@ void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 
 }
 
 void Mixer::renderTrack(const ArrangementTrack& track, MixState::TrackGains& gains,
-                        juce::int64 timelineStart, int numSamples) noexcept
+                        juce::int64 timelineStart, int numSamples,
+                        const MixContext& context) noexcept
 {
     float* const channels[] = {scratch.getWritePointer(0), scratch.getWritePointer(1)};
-    const juce::int64 timelineEnd = timelineStart + numSamples;
 
     juce::FloatVectorOperations::clear(channels[0], numSamples);
     juce::FloatVectorOperations::clear(channels[1], numSamples);
 
+    // Monitoring: offline renders never hear an input.
+    const bool hasInput = context.inputs != nullptr && track.numInputChannels > 0;
+    const bool monitors = hasInput && (track.monitoring == InputMonitoring::on ||
+                                       (track.monitoring == InputMonitoring::automatic &&
+                                        track.armed && context.autoMonitorsInput));
+    gains.timeline.setTarget(monitors ? 0.0f : 1.0f, monitorRampLength);
+    gains.input.setTarget(monitors ? 1.0f : 0.0f, monitorRampLength);
+
+    const bool playsTimeline = context.timelineRunning &&
+                               (gains.timeline.isRamping() || gains.timeline.getTarget() > 0.0f);
+    const bool playsInput = hasInput && (gains.input.isRamping() || gains.input.getTarget() > 0.0f);
+
     // A silent track reads nothing; its gains still move on, as if it had played.
-    const bool silent = !gains.left.isRamping() && !gains.right.isRamping() &&
-                        juce::exactlyEqual(gains.left.getTarget(), 0.0f) &&
-                        juce::exactlyEqual(gains.right.getTarget(), 0.0f);
+    const bool silent = (!gains.left.isRamping() && !gains.right.isRamping() &&
+                         juce::exactlyEqual(gains.left.getTarget(), 0.0f) &&
+                         juce::exactlyEqual(gains.right.getTarget(), 0.0f)) ||
+                        (!playsTimeline && !playsInput);
 
     if (silent)
     {
-        gains.left.skip(numSamples);
-        gains.right.skip(numSamples);
+        for (auto* ramp : {&gains.left, &gains.right, &gains.timeline, &gains.input})
+            ramp->skip(numSamples);
         return;
     }
+
+    if (playsTimeline)
+    {
+        readClips(track, timelineStart, numSamples);
+        context.fade.apply(channels[0], numSamples);
+        context.fade.apply(channels[1], numSamples);
+        gains.timeline.apply(channels, 2, numSamples);
+    }
+    else
+    {
+        gains.timeline.skip(numSamples);
+    }
+
+    if (playsInput)
+    {
+        readInput(track, context, numSamples);
+        float* const input[] = {inputScratch.getWritePointer(0), inputScratch.getWritePointer(1)};
+        gains.input.apply(input, 2, numSamples);
+
+        // Copied, not added, where the clips are not heard: adding to silence would
+        // turn a -0 input sample into +0.
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            if (playsTimeline)
+                juce::FloatVectorOperations::add(channels[channel], input[channel], numSamples);
+            else
+                juce::FloatVectorOperations::copy(channels[channel], input[channel], numSamples);
+        }
+    }
+    else
+    {
+        gains.input.skip(numSamples);
+    }
+
+    gains.left.apply(channels, 1, numSamples);
+    gains.right.apply(channels + 1, 1, numSamples);
+
+    if (track.meter != nullptr)
+        track.meter->process(scratch, 0, numSamples);
+}
+
+void Mixer::readInput(const ArrangementTrack& track, const MixContext& context,
+                      int numSamples) noexcept
+{
+    const float* left = context.inputs->channel(track.inputChannel);
+    const float* right =
+        track.numInputChannels > 1 ? context.inputs->channel(track.inputChannel + 1) : left;
+
+    float* const destination[] = {inputScratch.getWritePointer(0), inputScratch.getWritePointer(1)};
+    const float* const sources[] = {left, right};
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        if (sources[channel] != nullptr)
+            juce::FloatVectorOperations::copy(destination[channel],
+                                              sources[channel] + context.inputOffset, numSamples);
+        else
+            juce::FloatVectorOperations::clear(destination[channel], numSamples);
+    }
+}
+
+void Mixer::readClips(const ArrangementTrack& track, juce::int64 timelineStart,
+                      int numSamples) noexcept
+{
+    float* const channels[] = {scratch.getWritePointer(0), scratch.getWritePointer(1)};
+    const juce::int64 timelineEnd = timelineStart + numSamples;
 
     // The first segment that ends after timelineStart: segments are sorted and
     // disjoint, so their ends are sorted too.
@@ -181,12 +271,6 @@ void Mixer::renderTrack(const ArrangementTrack& track, MixState::TrackGains& gai
 
         applyFades(*segment, from, length, channels[0] + offset, channels[1] + offset);
     }
-
-    gains.left.apply(channels, 1, numSamples);
-    gains.right.apply(channels + 1, 1, numSamples);
-
-    if (track.meter != nullptr)
-        track.meter->process(scratch, 0, numSamples);
 }
 
 } // namespace daw::engine

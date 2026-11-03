@@ -19,7 +19,8 @@ using MeterLookup =
 
 /**
     The engine's view of a project at one sample rate: ticks become samples, mute,
-    solo, volume and pan become track gains, overlapping clips are resolved.
+    solo, volume and pan become track gains, overlapping clips are resolved, the
+    tempo map becomes the metronome's beats.
 
     - A clip whose file is not loaded hides what it covers and plays silence; one of
       unknown length (not loaded yet) is left out.

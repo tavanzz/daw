@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/engine/AudioSource.h"
+#include "daw/engine/BeatGrid.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
 
 #include <juce_core/juce_core.h>
@@ -26,6 +27,14 @@ struct ClipSegment
     bool operator==(const ClipSegment&) const = default;
 };
 
+/** When a track plays its input instead of its clips (see model::MonitoringMode). */
+enum class InputMonitoring : std::uint8_t
+{
+    off,
+    automatic, ///< while armed and stopped, during the count-in and while recording
+    on
+};
+
 /** A track as the mixer sees it. */
 struct ArrangementTrack
 {
@@ -33,6 +42,11 @@ struct ArrangementTrack
     float leftGain = 1.0f; ///< volume × pan law, 0 when the track is not heard
     float rightGain = 1.0f;
     std::vector<ClipSegment> segments; ///< sorted by start, never overlapping
+
+    int inputChannel = -1;  ///< first device input channel; -1 for none
+    int numInputChannels = 0; ///< 1 (heard on both sides) or 2
+    InputMonitoring monitoring = InputMonitoring::off;
+    bool armed = false;
 
     /** Measures the track after its fader, for the UI; may be null. */
     std::shared_ptr<dsp::PeakLevelMeter> meter;
@@ -58,6 +72,11 @@ struct Arrangement
 
     std::vector<std::shared_ptr<const AudioSource>> sources;
 
+    /** Where the beats are, for the metronome and the count-in; may be null. */
+    std::shared_ptr<const BeatGrid> beats;
+    bool metronomeEnabled = false; ///< clicks while playing (the count-in always clicks)
+    float metronomeGain = 0.5f;
+
     /** Summary of the segments of every track. Two arrangements with different
         hashes sound different even at equal gains: swapping them while playing
         needs a crossfade. Computed by updateLayoutHash(). */
@@ -65,6 +84,12 @@ struct Arrangement
 
     void updateLayoutHash() noexcept;
 };
+
+/** Audio thread (or any). Whether every source the arrangement plays in
+    [position, position + length) can deliver it now (streamed files may still be
+    loading). */
+[[nodiscard]] bool isArrangementReady(const Arrangement& arrangement, juce::int64 position,
+                                      juce::int64 length) noexcept;
 
 /** A clip placed on a track, in samples, before overlaps are resolved. */
 struct ClipPlacement

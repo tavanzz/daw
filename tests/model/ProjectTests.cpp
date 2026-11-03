@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <functional>
 #include <random>
 #include <set>
@@ -93,6 +94,60 @@ TEST_CASE("A new project has the documented defaults", "[model]")
     CHECK(project.getGridDivision() == GridDivision::automatic);
     CHECK(project.getMasterVolume() == 1.0);
     CHECK(project.getEnd() == 0);
+    CHECK_FALSE(project.isMetronomeEnabled());
+    CHECK(project.getMetronomeVolume() == 0.5);
+    CHECK_FALSE(project.isCountInEnabled());
+    CHECK(project.getCountInBars() == 1);
+    CHECK_FALSE(project.isPunchEnabled());
+    CHECK(project.getRecordingBitsPerSample() == 24);
+}
+
+TEST_CASE("A new track records from input 1 and monitors automatically", "[model]")
+{
+    Project project;
+    const auto track = project.addTrack("T");
+
+    CHECK(track.getInput() == daw::model::TrackInput{0, false});
+    CHECK(track.getInput().getNumChannels() == 1);
+    CHECK(track.getMonitoring() == daw::model::MonitoringMode::automatic);
+    CHECK_FALSE(track.isArmed());
+}
+
+TEST_CASE("Track inputs are stored normalised and recording settings in range", "[model]")
+{
+    using daw::model::TrackInput;
+
+    Project project;
+    auto track = project.addTrack("T");
+
+    track.setInput({3, true}); // inputs 4+5 are not a pair: 3+4 is
+    CHECK(track.getInput() == TrackInput{2, true});
+    track.setInput({5, false});
+    CHECK(track.getInput() == TrackInput{5, false});
+    track.setInput({-7, true});
+    CHECK(track.getInput().isNone());
+    CHECK(track.getInput().getNumChannels() == 0);
+    track.setInput({500, false});
+    CHECK(track.getInput() == TrackInput{TrackInput::maximumChannels - 1, false});
+    track.setInput({500, true});
+    CHECK(track.getInput() == TrackInput{TrackInput::maximumChannels - 2, true});
+
+    project.setCountInBars(0);
+    CHECK(project.getCountInBars() == 1);
+    project.setCountInBars(7);
+    CHECK(project.getCountInBars() == Project::maximumCountInBars);
+    project.setMetronomeVolume(3.0);
+    CHECK(project.getMetronomeVolume() == 1.0);
+    project.setMetronomeVolume(std::nan(""));
+    CHECK(project.getMetronomeVolume() == Project::defaultMetronomeVolume);
+    project.setRecordingBitsPerSample(32);
+    project.setRecordingBitsPerSample(20);
+    CHECK(project.getRecordingBitsPerSample() == 32);
+
+    for (const auto mode : {daw::model::MonitoringMode::off, daw::model::MonitoringMode::automatic,
+                            daw::model::MonitoringMode::on})
+        CHECK(daw::model::monitoringModeFromString(daw::model::toString(mode)) == mode);
+    CHECK_FALSE(daw::model::monitoringModeFromString("loud").has_value());
 }
 
 TEST_CASE("Tracks and clips can be added, changed and removed", "[model]")
@@ -296,7 +351,7 @@ TEST_CASE("Tempo, metre and grid settings are stored", "[model]")
     CHECK_FALSE(daw::model::gridDivisionFromString("1/3").has_value());
 }
 
-TEST_CASE("Loop on/off, snap and grid are not part of the undo history", "[model][undo]")
+TEST_CASE("Loop, snap, grid, arming and recording settings are not undoable", "[model][undo]")
 {
     Project project;
     juce::UndoManager undoManager;
@@ -305,6 +360,13 @@ TEST_CASE("Loop on/off, snap and grid are not part of the undo history", "[model
     project.setLoopEnabled(true);
     project.setSnapEnabled(false);
     project.setGridDivision(GridDivision::bar);
+    project.addTrack("T").setArmed(true);
+    project.setMetronomeEnabled(true);
+    project.setMetronomeVolume(0.1);
+    project.setCountInEnabled(true);
+    project.setCountInBars(2);
+    project.setPunchEnabled(true);
+    project.setRecordingBitsPerSample(16);
 
     CHECK_FALSE(undoManager.canUndo());
 }
@@ -323,6 +385,9 @@ TEST_CASE("Every editing operation can be undone and redone", "[model][undo]")
         {"pan", [&] { project.getTrack(0).setPan(-0.25, &undoManager); }},
         {"mute", [&] { project.getTrack(0).setMuted(true, &undoManager); }},
         {"solo", [&] { project.getTrack(0).setSoloed(true, &undoManager); }},
+        {"input", [&] { project.getTrack(0).setInput({2, true}, &undoManager); }},
+        {"monitoring",
+         [&] { project.getTrack(0).setMonitoring(daw::model::MonitoringMode::off, &undoManager); }},
         {"add clip",
          [&] { project.getTrack(1).addClip(audioFile("b.wav"), {5, 0, 10}, &undoManager); }},
         {"move clip", [&] { project.moveClip(clipId, 1, 777, &undoManager); }},

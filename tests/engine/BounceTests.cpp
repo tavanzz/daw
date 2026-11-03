@@ -189,13 +189,16 @@ TEST_CASE("The export equals real-time playback sample for sample", "[engine][bo
     CHECK(heapOperations == 0);
 
     // Playback starts with the transport's 5 ms fade-in; the export starts at full level.
+    // The fade applies to each track's clips before its gains (monitored inputs are
+    // never faded), so during the fade the rounding differs from fading the mix.
     bool fadeInMatches = true;
     for (int channel = 0; channel < 2; ++channel)
         for (int i = 0; i < transportFade; ++i)
             fadeInMatches = fadeInMatches &&
-                            played.getSample(channel, i) ==
-                                exported.getSample(channel, i) *
-                                    (static_cast<float>(i + 1) / static_cast<float>(transportFade));
+                            std::abs(played.getSample(channel, i) -
+                                     exported.getSample(channel, i) *
+                                         (static_cast<float>(i + 1) /
+                                          static_cast<float>(transportFade))) < 1.0e-6f;
     CHECK(fadeInMatches);
 
     // Everything after it is identical to the bit.

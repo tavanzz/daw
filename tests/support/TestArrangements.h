@@ -47,4 +47,17 @@ makeWholeFileArrangement(const std::shared_ptr<const engine::MemoryAudioSource>&
     return arrangement;
 }
 
+/** A sample exactly representable in 24 bits, different for every channel and
+    stream index: device input as a 24-bit converter delivers it. */
+inline float testInputSample(int channel, juce::int64 index)
+{
+    auto x = static_cast<juce::uint64>(index) * 64u + static_cast<juce::uint64>(channel) +
+             0x9e3779b97f4a7c15ull;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ull;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebull;
+    x ^= x >> 31;
+    const auto value = static_cast<int>(x & 0xffffffu) - (1 << 23); // -2^23 to 2^23 - 1
+    return static_cast<float>(value) / static_cast<float>(1 << 23);
+}
+
 } // namespace daw::test

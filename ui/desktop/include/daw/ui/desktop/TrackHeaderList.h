@@ -11,7 +11,8 @@ namespace daw::ui::desktop
 {
 
 /** The column left of the track lanes: one header per track with its name
-    (double-click to rename), mute and solo. Right-click for more. */
+    (double-click to rename), mute, solo, arm, input monitoring, its input and an
+    input meter. Right-click for more. */
 class TrackHeaderList final : public juce::Component
 {
 public:
@@ -20,6 +21,9 @@ public:
 
     /** Brings the headers in line with the project; call it when it changed. */
     void refresh();
+
+    /** Input meters, from the session's input peaks of this refresh. */
+    void updateMeters(double elapsedSeconds);
 
     void resized() override;
     void paint(juce::Graphics& g) override;

@@ -19,7 +19,7 @@ namespace daw::ui::desktop
 class MixerView final : public juce::Component
 {
 public:
-    static constexpr int preferredHeight = 270;
+    static constexpr int preferredHeight = 300;
 
     explicit MixerView(controller::Session& sessionToEdit);
     ~MixerView() override;

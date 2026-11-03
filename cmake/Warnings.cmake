@@ -16,6 +16,9 @@ function(daw_enable_warnings target)
             -Wnon-virtual-dtor -Wold-style-cast -Wcast-align
             -Woverloaded-virtual -Wformat=2 -Wimplicit-fallthrough
             $<$<CXX_COMPILER_ID:GNU>:-Wmisleading-indentation -Wduplicated-cond -Wlogical-op>
+            # Newer Clangs include it in -Wconversion, as GCC does; Apple Clang does
+            # not, so int-to-float slips would only show in CI.
+            $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wimplicit-int-float-conversion>
             $<$<BOOL:${DAW_WARNINGS_AS_ERRORS}>:-Werror>)
     endif()
 endfunction()

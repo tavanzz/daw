@@ -17,6 +17,15 @@ namespace daw::engine::dsp
 class GainRamp
 {
 public:
+    /** At 1, not ramping. */
+    GainRamp() = default;
+
+    /** At initial, not ramping. */
+    explicit GainRamp(float initial) noexcept
+        : start(initial)
+        , end(initial)
+    {
+    }
     /** Jumps to value: no ramp. */
     void reset(float value) noexcept;
 

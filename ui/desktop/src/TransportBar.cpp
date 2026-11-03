@@ -2,6 +2,9 @@
 
 #include "daw/controller/TimelineViewport.h"
 
+#include <cmath>
+#include <initializer_list>
+
 namespace daw::ui::desktop
 {
 
@@ -26,7 +29,9 @@ void styleDisplay(juce::Label& label, float height)
 TransportBar::TransportBar(controller::Session& sessionToControl)
     : session(sessionToControl)
 {
-    for (auto* button : {&playButton, &pauseButton, &stopButton, &loopButton, &snapButton})
+    for (auto* button : std::initializer_list<juce::Button*>{
+             &playButton, &pauseButton, &stopButton, &loopButton, &snapButton, &recordButton,
+             &metronomeButton, &countInButton, &punchButton})
     {
         // Space and Return are transport shortcuts; a focused button must not eat them.
         button->setWantsKeyboardFocus(false);
@@ -40,8 +45,65 @@ TransportBar::TransportBar(controller::Session& sessionToControl)
     snapButton.setTooltip("Snap clips and edits to the grid (N); hold Cmd while dragging to "
                           "ignore it");
 
-    for (auto* button : {&loopButton, &snapButton})
+    for (auto* button : std::initializer_list<juce::TextButton*>{
+             &loopButton, &snapButton, &metronomeButton, &countInButton, &punchButton})
         button->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2e7d32));
+    recordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffd32f2f));
+
+    recordButton.setTooltip("Record the armed tracks from the playhead; again: stop (R)");
+    metronomeButton.setTooltip("Metronome while playing and recording (K); right-click for "
+                               "its volume");
+    countInButton.setTooltip("Count in before recording (Shift+K); right-click for 1 or 2 bars");
+    punchButton.setTooltip("Punch in/out: record only inside the loop region (P)");
+
+    recordButton.onClick = [this]
+    {
+        if (onRecord)
+            onRecord();
+    };
+    metronomeButton.onClick = [this]
+    {
+        session.setMetronomeEnabled(!session.getProject().isMetronomeEnabled());
+    };
+    countInButton.onClick = [this]
+    {
+        session.setCountInEnabled(!session.getProject().isCountInEnabled());
+    };
+    punchButton.onClick = [this]
+    {
+        session.setPunchEnabled(!session.getProject().isPunchEnabled());
+    };
+
+    metronomeButton.onRightClick = [this]
+    {
+        juce::PopupMenu menu;
+        const auto volume = session.getProject().getMetronomeVolume();
+        for (const int decibels : {0, -6, -12, -18, -24})
+        {
+            const auto gain = juce::Decibels::decibelsToGain(static_cast<double>(decibels));
+            menu.addItem("Volume " + juce::String(decibels) + " dB", true,
+                         std::abs(gain - volume) < 0.01,
+                         [this, gain] { session.setMetronomeVolume(gain); });
+        }
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&metronomeButton));
+    };
+    countInButton.onRightClick = [this]
+    {
+        juce::PopupMenu menu;
+        for (int bars = 1; bars <= model::Project::maximumCountInBars; ++bars)
+            menu.addItem(juce::String(bars) + (bars == 1 ? " bar" : " bars"), true,
+                         session.getProject().getCountInBars() == bars,
+                         [this, bars]
+                         {
+                             session.setCountInBars(bars);
+                             session.setCountInEnabled(true);
+                         });
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&countInButton));
+    };
+
+    recordingStatus.setFont(juce::FontOptions(13.0f));
+    recordingStatus.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(recordingStatus);
 
     playButton.onClick = [this] { session.play(); };
     pauseButton.onClick = [this] { session.pause(); };
@@ -108,9 +170,12 @@ void TransportBar::refresh()
     const bool hasClips = session.getProject().getEnd() > 0;
     const auto playhead = session.getPlayhead();
 
-    playButton.setEnabled(hasClips && !playing);
+    const bool recording = session.isRecording();
+    playButton.setEnabled(hasClips && !playing && !recording);
     pauseButton.setEnabled(playing);
-    stopButton.setEnabled(state != engine::TransportState::stopped || playhead > 0);
+    stopButton.setEnabled(state != engine::TransportState::stopped || playhead > 0 || recording);
+    recordButton.setToggleState(recording, juce::dontSendNotification);
+    showRecordingStatus();
 
     timeLabel.setText(controller::formatTime(playhead), juce::dontSendNotification);
     barsLabel.setText(session.getProject().getTempoMap().formatBarsBeats(playhead),
@@ -122,6 +187,10 @@ void TransportBar::refresh()
         const auto& project = session.getProject();
         loopButton.setToggleState(project.isLoopEnabled(), juce::dontSendNotification);
         snapButton.setToggleState(project.isSnapEnabled(), juce::dontSendNotification);
+        metronomeButton.setToggleState(project.isMetronomeEnabled(), juce::dontSendNotification);
+        countInButton.setToggleState(project.isCountInEnabled(), juce::dontSendNotification);
+        countInButton.setButtonText(project.getCountInBars() == 1 ? "Count" : "Count 2");
+        punchButton.setToggleState(project.isPunchEnabled(), juce::dontSendNotification);
 
         for (int i = 0; i < static_cast<int>(std::size(gridChoices)); ++i)
             if (gridChoices[i] == project.getGridDivision())
@@ -130,6 +199,65 @@ void TransportBar::refresh()
         if (!tempoLabel.isBeingEdited() && !metreLabel.isBeingEdited())
             showTempoAndMetre();
     }
+}
+
+void TransportBar::showWarning(const juce::String& text)
+{
+    warning = text;
+    warningUntil = juce::Time::getMillisecondCounter() + 4000;
+}
+
+void TransportBar::showRecordingStatus()
+{
+    using State = controller::RecordingController::State;
+    const auto& recording = session.getRecording();
+    juce::String text;
+    auto colour = juce::Colours::lightgrey;
+
+    const auto minutesLeft = [&recording]
+    {
+        const auto seconds = recording.getSecondsLeft();
+        if (seconds < 0.0)
+            return juce::String();
+        const auto minutes = static_cast<int>(seconds / 60.0);
+        if (minutes >= 120)
+            return juce::String(minutes / 60) + " h of disk left";
+        if (minutes >= 2)
+            return juce::String(minutes) + " min of disk left";
+        return juce::String(static_cast<int>(seconds)) + " s of disk left";
+    };
+
+    switch (recording.getState())
+    {
+    case State::countingIn:
+        text = "Count-in...";
+        colour = juce::Colour(0xffffb74d);
+        break;
+    case State::recording:
+        text = "Recording";
+        if (const auto left = minutesLeft(); left.isNotEmpty())
+            text << "  -  " << left;
+        colour = recording.getSecondsLeft() >= 0.0 &&
+                         recording.getSecondsLeft() <
+                             controller::RecordingController::lowSpaceWarningSeconds
+                     ? juce::Colour(0xffffb74d)
+                     : juce::Colour(0xffef5350);
+        break;
+    case State::finishing:
+        text = "Saving the recording...";
+        break;
+    case State::idle:
+        if (juce::Time::getMillisecondCounter() < warningUntil)
+        {
+            text = warning;
+            colour = juce::Colour(0xffffb74d);
+        }
+        break;
+    }
+
+    if (recordingStatus.getText() != text)
+        recordingStatus.setText(text, juce::dontSendNotification);
+    recordingStatus.setColour(juce::Label::textColourId, colour);
 }
 
 void TransportBar::showTempoAndMetre()
@@ -147,24 +275,34 @@ void TransportBar::resized()
     auto area = getLocalBounds();
     const int gap = 6;
 
-    for (auto* button : {&playButton, &pauseButton, &stopButton, &loopButton})
+    for (auto* button : {&playButton, &pauseButton, &stopButton, &recordButton, &loopButton})
     {
-        button->setBounds(area.removeFromLeft(64));
+        button->setBounds(area.removeFromLeft(54));
         area.removeFromLeft(gap);
     }
 
     area.removeFromLeft(gap);
-    timeLabel.setBounds(area.removeFromLeft(120));
+    timeLabel.setBounds(area.removeFromLeft(110));
     area.removeFromLeft(gap);
-    barsLabel.setBounds(area.removeFromLeft(100));
+    barsLabel.setBounds(area.removeFromLeft(92));
     area.removeFromLeft(2 * gap);
-    tempoLabel.setBounds(area.removeFromLeft(96));
+    tempoLabel.setBounds(area.removeFromLeft(92));
     area.removeFromLeft(gap);
-    metreLabel.setBounds(area.removeFromLeft(52));
+    metreLabel.setBounds(area.removeFromLeft(48));
 
-    gridBox.setBounds(area.removeFromRight(120));
+    gridBox.setBounds(area.removeFromRight(110));
     area.removeFromRight(gap);
-    snapButton.setBounds(area.removeFromRight(56));
+    snapButton.setBounds(area.removeFromRight(52));
+    area.removeFromRight(2 * gap);
+    for (auto* button :
+         std::initializer_list<juce::Component*>{&punchButton, &countInButton, &metronomeButton})
+    {
+        button->setBounds(area.removeFromRight(button == &countInButton ? 64 : 52));
+        area.removeFromRight(gap);
+    }
+
+    area.removeFromLeft(gap);
+    recordingStatus.setBounds(area);
 }
 
 } // namespace daw::ui::desktop

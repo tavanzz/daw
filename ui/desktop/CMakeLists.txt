@@ -2,6 +2,7 @@
 
 add_library(daw_ui_desktop STATIC
     src/ArrangeView.cpp
+    src/AudioSettingsDialog.cpp
     src/ExportDialog.cpp
     src/LevelMeter.cpp
     src/MainComponent.cpp
@@ -9,6 +10,7 @@ add_library(daw_ui_desktop STATIC
     src/MixerView.cpp
     src/TimelineRuler.cpp
     src/TrackHeaderList.cpp
+    src/TrackInputControls.cpp
     src/TrackLanes.cpp
     src/TransportBar.cpp)
 add_library(daw::ui_desktop ALIAS daw_ui_desktop)
