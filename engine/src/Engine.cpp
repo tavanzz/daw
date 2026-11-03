@@ -50,6 +50,9 @@ void Engine::prepare(double newSampleRate, int newMaximumBlockSize)
 
 void Engine::process(const AudioInputs& inputs, juce::AudioBuffer<float>& output) noexcept
 {
+    // Decaying tails would otherwise turn into denormals, which some processors
+    // compute very slowly. Exports run in the same mode, so they stay identical.
+    const juce::ScopedNoDenormals noDenormals;
     renderClock.begin();
     processBlock(inputs, output);
     renderClock.end();

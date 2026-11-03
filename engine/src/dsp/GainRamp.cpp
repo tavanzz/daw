@@ -76,6 +76,24 @@ void GainRamp::apply(float* const* channels, int numChannels, int numSamples) no
     }
 }
 
+void GainRamp::fill(float* gains, int numSamples) noexcept
+{
+    int done = 0;
+
+    if (position < length)
+    {
+        const int ramped = std::min(numSamples, length - position);
+        for (int i = 0; i < ramped; ++i)
+            gains[i] = gainAt(position + i + 1);
+
+        position += ramped;
+        done = ramped;
+    }
+
+    if (numSamples > done)
+        juce::FloatVectorOperations::fill(gains + done, end, numSamples - done);
+}
+
 void GainRamp::skip(int numSamples) noexcept
 {
     position = std::min(length, position + std::max(0, numSamples));

@@ -121,6 +121,18 @@ Modules with one-way dependencies:
   callback, cancellable, reports the peak. Tested: the export equals real-time
   playback bit for bit after the transport's fade-in, for any device block size.
   An export at another sample rate renders an arrangement built at that rate.
+- Effects (Phase 4): `engine::fx::Effect` is the one interface for built-in effects
+  and, later, plugin adapters: a description (type, name, `ParameterInfo`s with
+  stable ids, ranges, linear or logarithmic scales, choices), `prepare()` on the
+  message thread, `reset()` and `process()` noexcept on the audio thread, latency,
+  tail length and opaque extra state. The host owns the parameter values: each block
+  an effect gets `ParameterValues`, per parameter one value or a value per sample.
+  `fx::EffectInstance` is the host around one effect: 20 ms ramps in the normalised
+  domain (choices jump), automation values taken exactly, a 10 ms dry/wet crossfade
+  when added, removed or bypassed (a bypassed effect is not processed and restarts
+  clean), the dry signal delayed by the latency (`dsp::DelayLine`), and a guard that
+  resets and silences an effect producing NaN or infinity (`hasFailed()`). The audio
+  and export threads run with denormals flushed to zero (`juce::ScopedNoDenormals`).
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -537,7 +549,7 @@ from version 3. Out of scope: external plugins, sidechain, presets, MIDI, takes 
 comping, mobile UI, writing automation live (touch/latch).
 
 - [x] 0. Plan (this list) and draft pull request
-- [ ] 1. Effect interface (`fx::Effect`) and the host's slot: parameters, ramps,
+- [x] 1. Effect interface (`fx::Effect`) and the host's slot: parameters, ramps,
       dry/wet fades, latency, NaN/Inf guard, denormals; test effects
 - [ ] 2. Insert chains in the mixer and the engine: persistent instances across
       snapshots, per-track clip crossfade, tails after stop; bit-identical to Phase 3

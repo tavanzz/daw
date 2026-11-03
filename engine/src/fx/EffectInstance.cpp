@@ -1,0 +1,270 @@
+#include "daw/engine/fx/EffectInstance.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace daw::engine::fx
+{
+
+int EffectDescription::indexOf(const juce::String& parameterId) const noexcept
+{
+    for (std::size_t i = 0; i < parameters.size(); ++i)
+        if (parameters[i].id == parameterId)
+            return static_cast<int>(i);
+    return -1;
+}
+
+void EffectScratch::prepare(int maximumBlockSize)
+{
+    jassert(maximumBlockSize > 0);
+    blockSize = maximumBlockSize;
+    dry.setSize(EffectInstance::numChannels, maximumBlockSize);
+    values.assign(static_cast<std::size_t>(maximumChangingParameters * maximumBlockSize), 0.0f);
+    gains.assign(static_cast<std::size_t>(maximumBlockSize), 0.0f);
+}
+
+bool allFinite(const float* const* channels, int numChannels, int numSamples) noexcept
+{
+    // x * 0 is 0 for every finite x and NaN for a NaN or an infinity, so one NaN
+    // makes the sum NaN. No branch per sample: the loop vectorises.
+    float sum = 0.0f;
+    for (int channel = 0; channel < numChannels; ++channel)
+        for (int i = 0; i < numSamples; ++i)
+            sum += channels[channel][i] * 0.0f;
+    return !std::isnan(sum);
+}
+
+EffectInstance::EffectInstance(std::unique_ptr<Effect> effectToHost, const ProcessSetup& newSetup,
+                               bool fadeIn)
+    : effect(std::move(effectToHost))
+    , setup(newSetup)
+    , fadesIn(fadeIn)
+{
+    jassert(effect != nullptr);
+    setup.numChannels = numChannels;
+    effect->prepare(setup);
+    latency = std::max(0, effect->getLatency());
+
+    fadeLength = std::max(1, static_cast<int>(std::lround(fadeSeconds * setup.sampleRate)));
+    rampLength = std::max(1, static_cast<int>(std::lround(rampSeconds * setup.sampleRate)));
+
+    const auto& parameters = effect->getDescription().parameters;
+    for (const auto& parameter : parameters)
+    {
+        mappings.emplace_back(parameter);
+        defaults.push_back(parameter.toNormalised(parameter.defaultValue));
+        lastValues.push_back(parameter.clamp(parameter.defaultValue));
+    }
+    ramps.resize(parameters.size());
+    lastNormalised.assign(parameters.size(), -1.0f);
+    changing.assign(parameters.size(), nullptr);
+
+    dryDelay.prepare(numChannels, latency);
+    dryDelay.setDelay(latency);
+}
+
+void EffectInstance::process(float* const* channels, int numSamples, const SlotSettings& settings,
+                             const SlotContext& context, EffectScratch& scratch) noexcept
+{
+    const int pieceLimit = std::min(setup.maximumBlockSize, scratch.blockSize);
+    jassert(pieceLimit > 0);
+
+    for (int done = 0; done < numSamples;)
+    {
+        const int piece = std::min(numSamples - done, pieceLimit);
+        float* const pieceChannels[] = {channels[0] + done, channels[1] + done};
+        processPiece(pieceChannels, piece, settings, context, done, scratch);
+        done += piece;
+    }
+}
+
+float EffectInstance::targetOf(const SlotSettings& settings, std::size_t index) const noexcept
+{
+    if (index >= settings.parameters.size())
+        return defaults[index];
+
+    const float target = settings.parameters[index];
+    return std::isfinite(target) ? std::clamp(target, 0.0f, 1.0f) : defaults[index];
+}
+
+void EffectInstance::start(const SlotSettings& settings) noexcept
+{
+    started = true;
+    revival = settings.revival;
+
+    for (std::size_t i = 0; i < ramps.size(); ++i)
+        ramps[i].reset(targetOf(settings, i));
+
+    // An effect added while playing fades in; one that was there all along (a
+    // project just opened, an export) is in from its first sample.
+    wet.reset(settings.enabled && !fadesIn ? 1.0f : 0.0f);
+    sleeping = !settings.enabled;
+}
+
+void EffectInstance::processPiece(float* const* channels, int numSamples,
+                                  const SlotSettings& settings, const SlotContext& context,
+                                  int offset, EffectScratch& scratch) noexcept
+{
+    if (!started)
+        start(settings);
+
+    if (settings.revival != revival)
+    {
+        revival = settings.revival;
+        if (failedHere)
+        {
+            failedHere = false;
+            failed.store(false, std::memory_order_relaxed);
+            wet.reset(0.0f); // fades in again from the dry signal
+            sleeping = true; // so that it starts from a clean state
+        }
+    }
+
+    wet.setTarget(settings.enabled && !failedHere ? 1.0f : 0.0f, fadeLength);
+    const bool fading = wet.isRamping();
+    const bool dryOnly = !fading && juce::exactlyEqual(wet.getTarget(), 0.0f);
+
+    updateParameters(settings, context, offset, numSamples, !dryOnly && !failedHere, scratch);
+
+    float* const dry[] = {scratch.dry.getWritePointer(0), scratch.dry.getWritePointer(1)};
+    if (latency > 0)
+        dryDelay.process(channels, dry, numChannels, numSamples);
+
+    if (failedHere)
+    {
+        wet.skip(numSamples);
+        for (int channel = 0; channel < numChannels; ++channel)
+            juce::FloatVectorOperations::clear(channels[channel], numSamples);
+        return;
+    }
+
+    if (dryOnly)
+    {
+        sleeping = true;
+        if (latency > 0)
+            for (int channel = 0; channel < numChannels; ++channel)
+                juce::FloatVectorOperations::copy(channels[channel], dry[channel], numSamples);
+        return;
+    }
+
+    // Back from dry: whatever the effect held from before belongs to another time.
+    if (sleeping)
+    {
+        effect->reset();
+        sleeping = false;
+    }
+
+    if (fading && latency == 0)
+        for (int channel = 0; channel < numChannels; ++channel)
+            juce::FloatVectorOperations::copy(dry[channel], channels[channel], numSamples);
+
+    ProcessBlock block;
+    block.channels = channels;
+    block.numChannels = numChannels;
+    block.numSamples = numSamples;
+    block.parameters = ParameterValues(lastValues.data(), changing.data(),
+                                       static_cast<int>(lastValues.size()));
+    block.time = context.time;
+    if (block.time.playing)
+        block.time.position += offset;
+
+    effect->process(block);
+
+    if (!allFinite(channels, numChannels, numSamples))
+    {
+        wet.skip(numSamples);
+        fail(channels, numSamples);
+        return;
+    }
+
+    if (!fading)
+        return;
+
+    float* const gains = scratch.gains.data();
+    wet.fill(gains, numSamples);
+    for (int channel = 0; channel < numChannels; ++channel)
+    {
+        float* out = channels[channel];
+        const float* in = dry[channel];
+        for (int i = 0; i < numSamples; ++i)
+            out[i] = in[i] + (out[i] - in[i]) * gains[i];
+    }
+}
+
+void EffectInstance::fail(float* const* channels, int numSamples) noexcept
+{
+    failedHere = true;
+    failed.store(true, std::memory_order_relaxed);
+    effect->reset();
+
+    for (int channel = 0; channel < numChannels; ++channel)
+        juce::FloatVectorOperations::clear(channels[channel], numSamples);
+}
+
+void EffectInstance::updateParameters(const SlotSettings& settings, const SlotContext& context,
+                                      int offset, int numSamples, bool needValues,
+                                      EffectScratch& scratch) noexcept
+{
+    int lanesUsed = 0;
+
+    for (std::size_t i = 0; i < ramps.size(); ++i)
+    {
+        const auto& mapping = mappings[i];
+        auto& ramp = ramps[i];
+        changing[i] = nullptr;
+
+        const float* automated = i < context.automation.size() ? context.automation[i] : nullptr;
+        if (automated != nullptr)
+        {
+            automated += offset;
+            const float last = automated[numSamples - 1];
+
+            // Automation is exact: no ramp. When it stops, the ramp glides on from
+            // its last value to the user's.
+            ramp.reset(last);
+            lastNormalised[i] = last;
+            lastValues[i] = mapping.toValue(last);
+
+            if (needValues && lanesUsed < EffectScratch::maximumChangingParameters)
+            {
+                float* values = scratch.values.data() +
+                                static_cast<std::size_t>(lanesUsed++) *
+                                    static_cast<std::size_t>(scratch.blockSize);
+                for (int k = 0; k < numSamples; ++k)
+                    values[k] = mapping.toValue(automated[k]);
+                changing[i] = values;
+            }
+            continue;
+        }
+
+        const float target = targetOf(settings, i);
+        if (mapping.isChoice())
+            ramp.reset(target);
+        else
+            ramp.setTarget(target, rampLength);
+
+        if (ramp.isRamping() && needValues &&
+            lanesUsed < EffectScratch::maximumChangingParameters)
+        {
+            float* values = scratch.values.data() + static_cast<std::size_t>(lanesUsed++) *
+                                                        static_cast<std::size_t>(scratch.blockSize);
+            ramp.fill(values, numSamples);
+            for (int k = 0; k < numSamples; ++k)
+                values[k] = mapping.toValue(values[k]);
+            changing[i] = values;
+            lastNormalised[i] = ramp.getCurrent();
+            lastValues[i] = values[numSamples - 1];
+            continue;
+        }
+
+        ramp.skip(numSamples);
+        const float normalised = ramp.getCurrent();
+        if (!juce::exactlyEqual(normalised, lastNormalised[i]))
+        {
+            lastNormalised[i] = normalised;
+            lastValues[i] = mapping.toValue(normalised);
+        }
+    }
+}
+
+} // namespace daw::engine::fx

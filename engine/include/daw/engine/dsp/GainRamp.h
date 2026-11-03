@@ -45,6 +45,10 @@ public:
     /** Moves on numSamples without processing anything. */
     void skip(int numSamples) noexcept;
 
+    /** Writes the gain of each of the next numSamples samples (what apply() would
+        multiply them by), and moves on. */
+    void fill(float* gains, int numSamples) noexcept;
+
 private:
     [[nodiscard]] float gainAt(int step) const noexcept;
 

@@ -16,6 +16,9 @@ OfflineRenderer::OfflineRenderer(const Arrangement& arrangementToRender, int blo
 
 void OfflineRenderer::render(juce::AudioBuffer<float>& output)
 {
+    // The same floating-point mode as the audio thread (see Engine::process()).
+    const juce::ScopedNoDenormals noDenormals;
+
     for (int done = 0; done < output.getNumSamples(); done += maximumBlockSize)
     {
         const int length = std::min(maximumBlockSize, output.getNumSamples() - done);
