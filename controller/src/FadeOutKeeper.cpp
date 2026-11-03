@@ -57,7 +57,8 @@ void FadeOutKeeper::keep(engine::Arrangement& arrangement, const engine::Arrange
         const auto present = instancesIn(arrangement);
 
         // Effects: switched off at their old place in the chain they were in.
-        const auto keepEffects = [&](const engine::EffectChain& before, engine::EffectChain& now) {
+        const auto keepEffects = [&](const engine::EffectChain& before,
+                                     engine::EffectChain& after) {
             for (std::size_t i = 0; i < before.slots.size(); ++i)
             {
                 const auto& slot = before.slots[i];
@@ -68,8 +69,8 @@ void FadeOutKeeper::keep(engine::Arrangement& arrangement, const engine::Arrange
                 auto fading = slot;
                 fading.enabled = false;
                 fading.automation.clear();
-                const auto at = std::min(i, now.slots.size());
-                now.slots.insert(now.slots.begin() + static_cast<std::ptrdiff_t>(at), fading);
+                const auto at = std::min(i, after.slots.size());
+                after.slots.insert(after.slots.begin() + static_cast<std::ptrdiff_t>(at), fading);
             }
         };
 
