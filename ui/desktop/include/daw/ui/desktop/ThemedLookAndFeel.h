@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/appearance/Theme.h"
+#include "daw/ui/desktop/PrerenderedImages.h"
 #include "daw/ui/desktop/ThemeFonts.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -65,6 +66,13 @@ public:
     /** The outline of a rectangle in the theme's corner style: rounded, sharp, or cut at
         45 degrees (top left and bottom right). */
     [[nodiscard]] juce::Path shapeOf(juce::Rectangle<float> area, CornerSize size) const;
+
+    /** The theme's glow around a shape (nothing in themes without one), from an image
+        painted once per shape, size and colour. */
+    void drawGlow(juce::Graphics& g, const juce::Path& shape, juce::Colour glowColour) const;
+
+    /** Images costly to paint, kept while this theme is in use. */
+    [[nodiscard]] PrerenderedImages& getImages() const noexcept { return images; }
 
     //==============================================================================
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,
@@ -153,6 +161,8 @@ protected:
     const ThemeFonts& fonts;
 
 private:
+    mutable PrerenderedImages images;
+
     void setColoursFromTheme();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ThemedLookAndFeel)

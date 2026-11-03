@@ -51,6 +51,8 @@ daw_enable_warnings(daw_tests)
 # Linux CI, on a virtual display).
 add_executable(daw_ui_tests
     support/UiTestMain.cpp
+    ui/AnimationClockTests.cpp
+    ui/PrerenderedImagesTests.cpp
     ui/ThemeManagerTests.cpp
     ui/ThemedLookAndFeelTests.cpp)
 

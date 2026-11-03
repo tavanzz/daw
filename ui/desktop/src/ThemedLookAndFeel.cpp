@@ -211,10 +211,40 @@ void ThemedLookAndFeel::setColoursFromTheme()
     setColour(juce::BubbleComponent::outlineColourId, c(ColourRole::outline));
 }
 
+void ThemedLookAndFeel::drawGlow(juce::Graphics& g, const juce::Path& shape,
+                                 juce::Colour glowColour) const
+{
+    const float radius = theme.shape.glow;
+    if (radius <= 0.0f || shape.isEmpty())
+        return;
+
+    // The blurred outline of the shape, in an image with room for the glow around it.
+    const auto bounds = shape.getBounds().expanded(radius).getSmallestIntegerContainer();
+    const auto key = "glow/" + glowColour.toString() + "/" +
+                     juce::String(static_cast<juce::int64>(shape.toString().hashCode64()));
+
+    const auto image = images.get(
+        key, {bounds.getWidth(), bounds.getHeight()},
+        [&](juce::Graphics& imageGraphics, juce::Rectangle<int>)
+        {
+            juce::Path tube;
+            juce::PathStrokeType(theme.shape.border * 2.0f).createStrokedPath(tube, shape);
+            tube.applyTransform(juce::AffineTransform::translation(
+                static_cast<float>(-bounds.getX()), static_cast<float>(-bounds.getY())));
+            juce::DropShadow(glowColour.withMultipliedAlpha(0.85f), static_cast<int>(radius), {})
+                .drawForPath(imageGraphics, tube);
+        });
+
+    g.drawImageAt(image, bounds.getX(), bounds.getY());
+}
+
 //==============================================================================
 void ThemedLookAndFeel::drawControlOutline(juce::Graphics& g, const juce::Path& outline,
                                            bool isActive, juce::Colour activeColour) const
 {
+    if (isActive)
+        drawGlow(g, outline, activeColour);
+
     g.setColour(isActive ? activeColour : colour(ColourRole::outline));
     g.strokePath(outline, juce::PathStrokeType(theme.shape.border));
 }

@@ -48,7 +48,7 @@ AppController::AppController(const juce::String& name)
     deviceChanged();
 
     window = std::make_unique<ui::desktop::MainWindow>(applicationName, session,
-                                                       deviceHost.getDeviceManager());
+                                                       deviceHost.getDeviceManager(), *themes);
 
     if (deviceError.isNotEmpty())
         view().showError("No audio output", "The audio output could not be opened: " +

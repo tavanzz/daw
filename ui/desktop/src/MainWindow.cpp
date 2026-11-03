@@ -1,14 +1,17 @@
 #include "daw/ui/desktop/MainWindow.h"
 
+#include "SystemQueries.h"
+
 namespace daw::ui::desktop
 {
 
 MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& session,
-                       juce::AudioDeviceManager& deviceManager)
+                       juce::AudioDeviceManager& deviceManager, ThemeManager& themeManager)
     : DocumentWindow(windowTitle,
                      juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
                          juce::ResizableWindow::backgroundColourId),
                      DocumentWindow::allButtons)
+    , themes(themeManager)
 {
     auto content = std::make_unique<MainComponent>(session, deviceManager, commandManager);
     mainComponent = content.get();
@@ -32,10 +35,16 @@ MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& ses
 
     centreWithSize(getWidth(), getHeight());
     setVisible(true);
+
+    occlusion = std::make_unique<detail::WindowOcclusion>(*this, [this]
+                                                          { updateAnimationVisibility(); });
+    updateAnimationVisibility();
 }
 
 MainWindow::~MainWindow()
 {
+    occlusion.reset();
+
 #if JUCE_MAC
     juce::MenuBarModel::setMacMainMenu(nullptr);
 #else
@@ -52,6 +61,33 @@ void MainWindow::lookAndFeelChanged()
 {
     DocumentWindow::lookAndFeelChanged();
     setBackgroundColour(findColour(juce::ResizableWindow::backgroundColourId));
+}
+
+void MainWindow::minimisationStateChanged(bool isNowMinimised)
+{
+    DocumentWindow::minimisationStateChanged(isNowMinimised);
+    updateAnimationVisibility();
+}
+
+void MainWindow::visibilityChanged()
+{
+    DocumentWindow::visibilityChanged();
+    updateAnimationVisibility();
+}
+
+void MainWindow::activeWindowStatusChanged()
+{
+    DocumentWindow::activeWindowStatusChanged();
+
+    // The user may have changed the system's reduce motion while away.
+    if (isActiveWindow())
+        themes.refreshSystemMotion();
+}
+
+void MainWindow::updateAnimationVisibility()
+{
+    const bool covered = occlusion != nullptr && occlusion->isCovered();
+    themes.getAnimationClock().setHostVisible(isShowing() && !isMinimised() && !covered);
 }
 
 void MainWindow::closeButtonPressed()

@@ -1,6 +1,7 @@
 # Desktop user interface (mouse and keyboard).
 
 add_library(daw_ui_desktop STATIC
+    src/AnimationClock.cpp
     src/ArrangeView.cpp
     src/AudioSettingsDialog.cpp
     src/ExportDialog.cpp
@@ -8,6 +9,8 @@ add_library(daw_ui_desktop STATIC
     src/MainComponent.cpp
     src/MainWindow.cpp
     src/MixerView.cpp
+    src/PrerenderedImages.cpp
+    src/SystemMotion.cpp
     src/ThemeFonts.cpp
     src/ThemeLookAndFeels.cpp
     src/ThemeManager.cpp
@@ -18,6 +21,13 @@ add_library(daw_ui_desktop STATIC
     src/TrackLanes.cpp
     src/TransportBar.cpp)
 add_library(daw::ui_desktop ALIAS daw_ui_desktop)
+
+# What only the operating system knows: reduce motion, whether a window is covered.
+if(APPLE)
+    target_sources(daw_ui_desktop PRIVATE src/SystemQueries_apple.mm)
+else()
+    target_sources(daw_ui_desktop PRIVATE src/SystemQueries.cpp)
+endif()
 
 target_include_directories(daw_ui_desktop PUBLIC include PRIVATE src)
 target_compile_features(daw_ui_desktop PUBLIC cxx_std_20)

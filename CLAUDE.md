@@ -302,6 +302,23 @@ Modules with one-way dependencies:
   sets the current one as JUCE's default (JUCE then restyles every window, dialog,
   menu and tooltip on screen), notifies its listeners and hands each preference
   change to the app, which keeps it in the user settings under "appearance".
+- Animation clock (Phase 5): `AnimationClock` (owned by `ThemeManager`) is the one
+  timer behind every decorative animation, at 30 Hz. Animated components subscribe
+  for the `AnimationEffect` they draw, say when they want frames, and repaint only
+  what changes. It runs only while a subscriber of an active effect wants frames and
+  the main window can be seen (`MainWindow` reports minimised, hidden and, on macOS,
+  fully covered via `detail::WindowOcclusion`); otherwise no timer runs. The 60 Hz
+  functional refresh in `MainComponent` (meter levels, playhead, status) is separate.
+  `ThemeManager::isEffectActive()` combines the theme, the switches, the level and
+  `SystemMotion` (macOS NSWorkspace, Windows SPI_GETCLIENTAREAANIMATION, GNOME's
+  enable-animations via gsettings on a background thread), read at start and when
+  the window becomes active. Platform code lives in `src/SystemQueries_apple.mm` and
+  `src/SystemQueries.cpp`.
+- Prerendered images (Phase 5): `PrerenderedImages` keeps images costly to paint
+  (glows, background tiles) by key and size, painted once, least recently used
+  dropped beyond 96; each look and feel has its own set, emptied when its theme
+  leaves. Glows (`ThemedLookAndFeel::drawGlow()`, themes with `shape.glow` > 0) are
+  painted this way.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -599,7 +616,7 @@ into `phase-5`.
 - [x] 4. Bundled fonts (OFL), `docs/THIRD_PARTY.md`, typeface loading
 - [x] 5. LookAndFeel base and one per theme for JUCE widgets; live switching across
       windows; theme stored in the user settings; UI test target
-- [ ] 6. Shared animation clock, window visibility, system reduce motion, cache of
+- [x] 6. Shared animation clock, window visibility, system reduce motion, cache of
       precomputed images
 - [ ] 7. Arrange view themed: transport bar with logo, bottom status bar, track
       headers, input controls, ruler, lanes, clips, waveforms, playhead, loop, meters
