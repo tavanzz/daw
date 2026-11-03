@@ -480,7 +480,8 @@ automation, mobile UI.
       warnings
 - [x] 15. Benchmark: tracks streamed and recorded at once (Release)
 - [x] 16. Listening tests and files for Phase 3 (`docs/LISTENING_TESTS.md`)
-- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 32 to 49): to do on macOS
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 32 to 49): 32 to 44 and 46
+      to 49 passed on macOS, 2026-11-03; 45 (long recording) still open
 
 Phase 3 decisions (agreed before starting):
 
