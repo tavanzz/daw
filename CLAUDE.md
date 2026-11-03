@@ -667,7 +667,7 @@ Phase 3 decisions (agreed before starting):
 - The one-hour recording test records 48 kHz mono 24-bit to disk and reads it back
   (8 kHz if it takes more than about a minute in the Debug jobs).
 
-Phase 4 (in progress, branch `phase-4`): effects and automation. An insert chain
+Phase 4 (done, released as v0.4.0): effects and automation. An insert chain
 per track, per bus and on the master (add, remove, reorder, bypass, also while
 playing, without clicks); aux buses fed by pre- or post-fader sends; built-in
 parametric EQ (with high- and low-pass), compressor, limiter, tempo-synced delay and
@@ -703,7 +703,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 15. Desktop UI: generic effect editor, EQ curve, compressor view
 - [x] 16. Desktop UI: automation lanes
 - [x] 17. Listening tests and files for Phase 4 (`docs/LISTENING_TESTS.md`)
-- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 50 to 68) on macOS
+- [x] Listening tests (`docs/LISTENING_TESTS.md`): all 19 passed on macOS, 2026-11-03
 
 Phase 4 decisions (agreed before starting):
 

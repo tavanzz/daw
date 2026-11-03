@@ -30,7 +30,7 @@ input meters, latency compensation with a loopback measurement, metronome and
 count-in, punch in/out on the loop region, recovery of recordings interrupted by a
 crash, and playback and recording streamed from disk. Project format version 3.
 
-Phase 4 (in progress): effects and automation. Insert chains on every track, aux bus
+Phase 4 (v0.4.0): effects and automation. Insert chains on every track, aux bus
 and the master (add, remove, reorder and bypass while playing, without clicks); aux
 buses fed by pre- or post-fader sends; built-in equaliser, compressor, limiter,
 tempo-synced delay and reverb; delay compensation that keeps every path aligned to
