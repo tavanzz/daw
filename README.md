@@ -36,8 +36,13 @@ buses fed by pre- or post-fader sends; built-in equaliser, compressor, limiter,
 tempo-synced delay and reverb; delay compensation that keeps every path aligned to
 the sample; automation lanes for volume, pan, sends and every effect parameter;
 effect editors with the equaliser's response curve and the compressor's gain
-reduction; exports with the effects' tails. Project format version 4. See
-[CLAUDE.md](CLAUDE.md#status) for the steps.
+reduction; exports with the effects' tails. Project format version 4.
+
+Phase 5 (v0.5.0): themes and animations. Three themes for the whole interface
+(Neon Grid, Acid Terminal, Synth Chrome), switched live from View > Theme, with
+bundled fonts and readable contrast checked by the tests; animations at three levels
+with a switch per effect, following the system's "Reduce motion". The project
+format does not change. See [CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 

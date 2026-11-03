@@ -77,6 +77,8 @@ void MainComponent::showForReview(const juce::StringArray& what)
         perform(InvocationInfo(showThemePreviews));
     if (what.contains("animations"))
         perform(InvocationInfo(showAnimations));
+    if (what.contains("mixer"))
+        showMixer(true);
 
     if (what.contains("editors"))
     {

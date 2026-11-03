@@ -616,7 +616,12 @@ ctest --preset debug            # run all tests
   Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
   four minutes); results in `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
-  (`screencapture -l <window number>`), never the whole screen.
+  (`screencapture -l <window number>`), never the whole screen. The app's
+  `--show=previews,animations,mixer,editors` option opens the theme previews, the
+  animation settings, the mixer and the first track's effect editors, so they can be
+  captured without clicking. The theme and the animations come from the user settings ("appearance" in
+  `DAW.settings`, JSON): back the file up before changing them for screenshots and
+  put it back afterwards.
 
 ## CI
 
@@ -934,7 +939,8 @@ into `phase-5`.
       project and the audio unchanged; the clock stops when off or hidden
 - [x] 13. Benchmark: UI frame time and CPU per theme and animation level with a large
       project (Release), `docs/PERFORMANCE.md`
-- [ ] 14. Screenshots and visual checks in `docs/LISTENING_TESTS.md`; version 0.5.0
+- [x] 14. Screenshots and visual checks in `docs/LISTENING_TESTS.md`; version 0.5.0
+- [ ] Visual checks (`docs/LISTENING_TESTS.md`, 69 to 83) on macOS
 
 Phase 5 decisions (agreed before starting):
 

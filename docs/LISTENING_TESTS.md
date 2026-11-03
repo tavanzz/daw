@@ -1,7 +1,7 @@
 # Listening tests
 
 What the automated tests cannot check: the real audio device, the microphone, the
-mouse, and your ears. Run these on macOS after any change to the engine, the device
+mouse, your ears and, for the themes, your eyes. Run these on macOS after any change to the engine, the device
 code or the UI.
 
 ## Setup
@@ -41,6 +41,8 @@ Until you answer, the clips stay "Loading".
 | Metronome / count-in / punch | K / Shift+K / P |
 | Automation lanes on/off | A |
 | New aux bus | Shift+Cmd+T |
+| Theme: Neon Grid / Acid Terminal / Synth Chrome | Cmd+1 / Cmd+2 / Cmd+3 |
+| All animations off (again: back on) | Shift+Cmd+A |
 
 ## Phase 1 checks (single file, still valid)
 
@@ -156,7 +158,7 @@ Don't Save.
 
 | # | Do | You should hear / see |
 |---|----|------------------------|
-| 50 | Look at the mixer, then play from the start to the end and wait. | Six track strips, then two bluish bus strips (Reverb, Delay) and the master; each strip lists its effects. The pad fades in smoothly over the first 4 bars, then moves from the centre to the left (bar 6), across to the right (bar 8) and back to the centre (bar 9); the Pad fader and pan knob follow and cannot be dragged. Each pluck repeats in fading echoes; drums and pad sit in a room that grows over the last 4 bars. When the transport stops at the end, the reverb and the echoes ring on for about 3 s and die away. No clicks or crackles anywhere. |
+| 50 | Look at the mixer, then play from the start to the end and wait. | Six track strips, then two bus strips set apart from them (Reverb, Delay) and the master; each strip lists its effects. The pad fades in smoothly over the first 4 bars, then moves from the centre to the left (bar 6), across to the right (bar 8) and back to the centre (bar 9); the Pad fader and pan knob follow and cannot be dragged. Each pluck repeats in fading echoes; drums and pad sit in a room that grows over the last 4 bars. When the transport stops at the end, the reverb and the echoes ring on for about 3 s and die away. No clicks or crackles anywhere. |
 | 51 | Unmute Tone and solo it (a steady tone shows every click). In the Tone strip: "+ Effect" > Reverb; right-click it > Bypass, then Switch On; "+ Effect" > Delay; right-click the Delay > Move Up, then Move Down; Bypass and Switch On the Equaliser; Remove the Reverb and the Delay. Then Cmd+Z repeatedly. | Every change fades in or out with no click, crackle or gap, and the tone never drops out. A reverb switched back on starts from silence (no old tail). The editor window of an effect closes when it is removed. Undo brings each step back, one at a time, just as smoothly. |
 | 52 | Release solo, mute Tone. Add a Limiter to the Drums, then Remove it. | Each time, one very short dip of the whole mix (as when you click the ruler while playing), never a click: the total latency changed. Afterwards the drums are exactly in time with the bass and the echoes, as before. |
 | 53 | Open `phase4/phase4-latency.dawproject` and play. Clicks plays clicks; "Inverted, limited" plays the same clicks upside down through a Limiter (1.5 ms of lookahead). Then: M on "Inverted, limited" and back; bypass its Limiter; Remove it, Cmd+Z. Then mute "Inverted, limited" and unmute "Inverted, via bus" (its fader is down: only its pre-fader send to Limited bus is heard); then M on Limited bus. | Silence with both tracks playing (the master meter stays down): the limiter's delay is compensated, so the inverted clicks cancel the others exactly; a single sample off would leave audible clicks. Muting "Inverted, limited": the clicks, louder on each bar. Bypassed or removed limiter: still silence (a bypassed effect keeps its latency). Through the bus: silence again; muting the bus brings the clicks back. |
@@ -175,6 +177,37 @@ Don't Save.
 | 66 | Open `phase3/phase3-recording.dawproject` and `phase2/phase2-demo.dawproject`. | They open with no effects and sound exactly as in Phase 3. After saving, their files say `"formatVersion": 4`. |
 | 67 | With `phase4-effects.dawproject` playing, change the device's sample rate in Audio Settings (e.g. 48 to 44.1 kHz). | A moment of silence, then the same song: same EQ, delay times and reverb length (the effects are recreated at the new rate). |
 | 68 | Optional, with the Phase 3 setup (headphones, a microphone on input 1): Cmd+T, arm the new track, add a Reverb to it and speak; press R and, while recording, try to add a Limiter anywhere. Stop and play back. | While stopped you hear yourself with the reverb. During the recording adding a Limiter is refused with a message (it would change the latency); a Reverb or an EQ can be added. The take is dry (effects are not recorded) and in time with the song. |
+
+## Phase 5 checks (themes and animations)
+
+What to look at rather than listen to. Open `phase4/phase4-effects.dawproject` with
+the mixer shown (X). View > Theme switches themes (Cmd+1, Cmd+2, Cmd+3); View >
+Animations sets the level (Full, Reduced, Off) and each effect. Start with Neon Grid
+and animations at Full, with "Follow the system's Reduce motion" unticked, unless a
+check says otherwise.
+
+The app can open the review windows by itself: in Terminal,
+`open build/release/app/daw_app_artefacts/Release/DAW.app --args "$PWD/build/listening-tests/phase4/phase4-effects.dawproject" --show=previews,animations,mixer,editors`
+opens the project with the mixer shown, the theme previews, the animation settings and
+the editors of the first track with effects.
+
+| # | Do | You should see |
+|---|----|----------------|
+| 69 | First launch after updating (or delete the "appearance" line from `~/Library/Application Support/DAW/DAW.settings`). Look at View > Theme. | Neon Grid, ticked: a violet-black window, cyan, magenta, yellow and violet accents, Chakra Petch for names and buttons, JetBrains Mono for the time and values, corners rounded a little, a cyan glow on what is switched on, and the "DAW" logo glowing at the left of the transport. A status bar along the bottom (rate and format on the right). |
+| 70 | While playing, press Cmd+2, Cmd+3, then Cmd+1. | Each switch restyles every window at once, main window and any open editor or panel, with a short crossfade; playback and meters never stutter. Acid Terminal: a black-olive window, acid yellow, red and light blue, square corners with 2 px borders, headings like "[ DRUMS ]", LED meters, scrolling hazard stripes under the transport, and a status bar that reads like a prompt, "daw:phase4-effects$" with a blinking cursor. Synth Chrome: deep purple, orange, violet, pink and turquoise, Michroma headings and Rajdhani text, corners cut at 45 degrees, pan as lit arcs from the centre, meters from violet through orange to pink, a chrome logo with an orange line under it. |
+| 71 | After switching, look at the title bar and Edit > Undo; quit (Don't Save if asked about the project) and open the app again. | Switching never marks the project as edited and adds nothing to Undo. The app opens in the last theme chosen: the theme belongs to the app's settings, not to the project. |
+| 72 | View > Theme > Show Previews... Click each of the three cards. | One card per theme, each drawn in its own theme: a small transport, three lanes with clips, the playhead, a meter, and the theme's fonts, shapes and meters in words. The card in use has an outline. A click switches the whole app, and the panel too. |
+| 73 | Neon Grid, Full. Play for a minute. | Faint scanlines drifting down over the timeline, with a soft band of light passing down now and then; the playhead's glow breathes; every few seconds the logo flickers like a failing neon tube; the tops of the meters glow. Clips, waveforms and the ruler stay sharp and steady under the scanlines. |
+| 74 | Acid Terminal, Full. Play. | The hazard stripes scroll steadily; the prompt's cursor blinks about once a second; every few seconds the logo glitches for a moment (slices jump sideways, a blue ghost); LED segments fade out instead of going dark at once. |
+| 75 | Synth Chrome, Full. Play, then stop. | A perspective grid, like a floor running to the horizon at the top of the timeline, scrolls slowly towards you under the lanes (between and under clips, lanes a little see-through); while playing, the playhead drags a short fading trail (none when stopped); every few seconds a bright streak sweeps across the logo. |
+| 76 | Optional, with the Phase 3 setup: arm a track and record a few seconds, in each theme. | The Rec button and the clip being recorded pulse gently, their label still readable; in Acid Terminal the stripes turn red and run faster while recording. |
+| 77 | Press X twice; then View > Animations > Reduced and press X twice again. | Full: the mixer slides out and back in (about 0.2 s), the rest of the window following. Reduced: it goes and comes at once. |
+| 78 | View > Animations. Choose Reduced, then Off, then Full; untick and tick some effects. | Reduced greys out Moving backgrounds, Glitch and Panel transitions ("off at Reduced"): the scanlines, stripes and grid stop moving (the stripes stay, still), no logo glitch, no slide, no crossfade; the playhead glow, the meters' glow and the record pulse go on. Off stops everything. Each effect shows its cost (low, medium, high) and what it looks like in this theme; the load bar and its rating follow. The panel looks the same in every theme apart from the descriptions and costs, and its settings stay when the theme changes. |
+| 79 | Shift+Cmd+A, then Shift+Cmd+A again. | Everything stops (View > All Animations Off is ticked, the load says None); again: back to the level before. |
+| 80 | Tick "Follow the system's Reduce motion"; turn on System Settings > Accessibility > Display > Reduce motion; come back to DAW. Then turn it off again and come back. | With the system's setting on, the panel says so and animations behave as Reduced even at Full; off again (once DAW is the active app again), Full is back. Unticking "Follow" ignores the system. |
+| 81 | Play with animations Full, open Activity Monitor on DAW; minimise the window, then restore it; cover it completely with another window; hide DAW with Cmd+H. | While minimised, covered or hidden, DAW's CPU drops (no animation frames are drawn); back in view, the animations resume where the clock is. |
+| 82 | With the review windows open (--show above, or open the Drums' Equaliser and Compressor from the mixer), the Export dialog (Cmd+E) and Audio Settings (Cmd+,), a track's right-click menu, a tooltip, and a question (Cmd+N with unsaved changes), switch themes with Cmd+1/2/3. | Everything is in the theme: editor graphs (background, grid, curve and its fill, band handles in theme colours, the compressor's dot and gain reduction), dialogs, menus, tooltips and the question box. Open windows restyle at once. Only the macOS menu bar, file choosers and title bars stay the system's own. |
+| 83 | In each theme, read the small text (ruler, slot names, send names, status bar, tooltips) and look at Mute, Solo, Rec (arm) and the automation Read button switched on. Take a screenshot (Shift+Cmd+4, Space, click the window) and view it in Preview with Tools > Adjust Color > Saturation all the way down. | All text is easy to read. In the grey picture Mute, Solo, Rec and Read still differ clearly in brightness, not only in colour. |
 
 Anything else (a click, a crackle, wrong pitch, swapped channels, a meter that
 disagrees with the file, a clip in the wrong place) is a bug: note the check number

@@ -73,6 +73,11 @@ void AppController::openFile(const juce::File& file)
     view().openFile(file);
 }
 
+void AppController::showForReview(const juce::StringArray& what)
+{
+    view().showForReview(what);
+}
+
 void AppController::requestQuit()
 {
     view().askToSaveChanges([] { juce::JUCEApplication::getInstance()->quit(); });

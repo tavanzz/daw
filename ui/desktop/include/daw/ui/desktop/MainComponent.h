@@ -79,8 +79,8 @@ public:
     void openFile(const juce::File& file);
 
     /** Opens windows for a review of the interface (the app's --show option):
-        "previews" (the themes), "animations" (their settings), "editors" (those of the
-        first track with effects). */
+        "previews" (the themes), "animations" (their settings), "mixer", "editors" (those
+        of the first track with effects). */
     void showForReview(const juce::StringArray& what);
 
     void showError(const juce::String& title, const juce::String& message);

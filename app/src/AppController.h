@@ -39,6 +39,9 @@ public:
     /** Opens a project, or imports an audio file (e.g. one given on the command line). */
     void openFile(const juce::File& file);
 
+    /** Opens windows for reviewing the interface (see MainComponent::showForReview()). */
+    void showForReview(const juce::StringArray& what);
+
     /** Quits, after offering to save unsaved changes. */
     void requestQuit();
 
