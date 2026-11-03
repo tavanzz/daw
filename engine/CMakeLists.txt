@@ -29,6 +29,7 @@ add_library(daw_engine STATIC
     src/fx/Equaliser.cpp
     src/fx/Limiter.cpp
     src/fx/Parameter.cpp
+    src/fx/Reverb.cpp
     src/io/AudioDeviceHost.cpp
     src/io/AudioFileLoader.cpp
     src/io/Bounce.cpp

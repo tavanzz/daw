@@ -193,7 +193,13 @@ Modules with one-way dependencies:
   (whole-sample delay up to 4 s, in ms or a synced note at the block's tempo;
   feedback at most 95 % through one-pole low/high cuts that never amplify, off at
   the ends of their ranges; ping-pong; a new time crossfades between two taps over
-  50 ms, one change at a time). Tests run effects through `tests/support/EffectRunner.h` and
+  50 ms, one change at a time). `Reverb` (pre-delay, four allpass diffusers, a
+  16-line feedback delay network with a Hadamard matrix and per-line gains
+  10^(-3 d / (T60 rate)), so it loses 60 dB in the decay time; one-pole damping
+  with unity gain at DC; half the lines slowly modulated; fractional lengths read
+  through allpass interpolation, which loses nothing; size glides the lengths;
+  width, low/high cut, mix). Its tests measure T30 on Schroeder's energy decay
+  curve. Tests run effects through `tests/support/EffectRunner.h` and
   compare measured responses with formulas written independently of the code.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
@@ -624,7 +630,7 @@ comping, mobile UI, writing automation live (touch/latch).
 - [x] 6. Equaliser: SVF bands, Butterworth high/low-pass, response function
 - [x] 7. Compressor and limiter, gain-reduction meters
 - [x] 8. Delay: tempo sync, ping-pong, filtered feedback
-- [ ] 9. Reverb: feedback delay network with an exact decay time
+- [x] 9. Reverb: feedback delay network with an exact decay time
 - [ ] 10. Project format version 4: effects, buses, sends, automation; migration from
       version 3
 - [ ] 11. Controller: chains, buses and sends in the session, effect instances,

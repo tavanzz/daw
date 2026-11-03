@@ -35,6 +35,7 @@ add_executable(daw_tests
     engine/RecorderTests.cpp
     engine/RecordingWriterTests.cpp
     engine/ResamplerTests.cpp
+    engine/ReverbTests.cpp
     engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp
     engine/TransportTests.cpp
