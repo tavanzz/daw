@@ -10,6 +10,7 @@ add_library(daw_controller STATIC
     src/ExportJob.cpp
     src/FadeOutKeeper.cpp
     src/LatencyMeasurement.cpp
+    src/MidiFiles.cpp
     src/MidiTakes.cpp
     src/NoteEditing.cpp
     src/PianoRollViewport.cpp

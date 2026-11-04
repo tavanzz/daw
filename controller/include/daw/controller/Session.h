@@ -256,6 +256,23 @@ public:
     void setSendLevel(model::ObjectId trackId, model::ObjectId sendId, double gain);
     void setSendPreFader(model::ObjectId trackId, model::ObjectId sendId, bool preFader);
 
+    /** What importing a MIDI file did. */
+    struct MidiImport
+    {
+        juce::Result result = juce::Result::ok();
+        std::vector<model::ObjectId> trackIds;
+        juce::StringArray leftOut; ///< for the user: what the file had that was left out
+    };
+
+    /** Imports a standard MIDI file as one MIDI track per track and channel (channel
+        10 with the drum sampler, the others with the synth), named after them, each
+        with one clip from position to the bar after its end. A project without tracks
+        first takes the file's tempo and metre. One undo step. */
+    MidiImport importMidi(const juce::File& file, model::Ticks position);
+
+    /** Writes the MIDI tracks to a standard MIDI file of type 0 or 1. */
+    juce::Result exportMidi(const juce::File& file, int type) const;
+
     /** Adds audio files as clips starting at position: one file onto an existing
         track if ontoTrack is given, otherwise one new track per file (named after
         it). One undo step. Returns the new clips' ids. */

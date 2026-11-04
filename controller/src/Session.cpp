@@ -2,6 +2,7 @@
 
 #include "daw/controller/ArrangementBuilder.h"
 #include "daw/controller/AutomationEditing.h"
+#include "daw/controller/MidiFiles.h"
 #include "daw/controller/MidiTakes.h"
 #include "daw/controller/TempoBeatGrid.h"
 #include "daw/controller/TimelineViewport.h"
@@ -585,6 +586,60 @@ std::vector<model::ObjectId> Session::importAudio(const juce::Array<juce::File>&
     }
 
     return clipIds;
+}
+
+Session::MidiImport Session::importMidi(const juce::File& file, model::Ticks position)
+{
+    MidiImport import;
+    MidiFileContent content;
+    import.result = readMidiFile(file, project.getTempoMap(), content);
+    if (import.result.failed())
+        return import;
+    if (content.parts.empty())
+    {
+        import.result = juce::Result::fail("\"" + file.getFileName() + "\" has no notes.");
+        return import;
+    }
+
+    startEdit("Import MIDI File");
+
+    // An empty project takes the file's tempo and metre; the positions follow them.
+    if (project.getNumTracks() == 0 && (content.hasTempo || content.hasTimeSignature))
+    {
+        if (content.hasTempo)
+            project.setTempo(content.tempo, &undoManager);
+        if (content.hasTimeSignature)
+            project.setTimeSignature(content.timeSignature, &undoManager);
+        [[maybe_unused]] const auto again = readMidiFile(file, project.getTempoMap(), content);
+    }
+
+    const auto tempoMap = project.getTempoMap();
+    position = std::max(model::Ticks{0}, position);
+    for (auto& part : content.parts)
+    {
+        auto track = project.addTrack(part.name, model::TrackKind::midi, &undoManager);
+        track.setMidiChannel(part.channel, &undoManager);
+        const juce::String instrument = part.channel == 10 ? "drums" : defaultInstrument;
+        if (isInstrumentType(instrument))
+            track.setInstrument(instrument, {}, &undoManager);
+
+        // To the bar line after its end.
+        const auto end = position + std::max(model::Ticks{1}, part.end);
+        const auto barEnd = tempoMap.barStart(tempoMap.barAt(end - 1) + 1);
+        track.addMidiClip(part.name, {position, 0, barEnd - position}, std::move(part.notes),
+                          std::move(part.controllers), &undoManager);
+        import.trackIds.push_back(track.getId());
+    }
+    import.leftOut = content.leftOut;
+    return import;
+}
+
+juce::Result Session::exportMidi(const juce::File& file, int type) const
+{
+    const auto bytes = writeMidiFile(project, type);
+    if (!file.replaceWithData(bytes.getData(), bytes.getSize()))
+        return juce::Result::fail("\"" + file.getFileName() + "\" could not be written.");
+    return juce::Result::ok();
 }
 
 void Session::moveClip(model::ObjectId clipId, model::ObjectId toTrackId, model::Ticks position)

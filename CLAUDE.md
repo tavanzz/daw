@@ -415,6 +415,19 @@ Modules with one-way dependencies:
   line at or before), `hitNote()` (body or edge), and controller lanes
   (`eventsAlongLine()`, `hitControllerEvent()`, `controllerValueAt()`).
   `PianoRollViewport` is a `TimelineViewport` across and the keys up the side.
+- MIDI files (Phase 6), `controller/MidiFiles`: `writeMidiFile()` writes what each
+  MIDI track plays (clips where heard, notes cut at visible ends and where their key
+  is struck again, so no two notes share a key at once; controllers stepping and back
+  at rest after each clip) on its channel, named, with the tempo and metre, at 960
+  PPQ (type 1: a conductor track then one per track; type 0: one track).
+  `readMidiFile()` (JUCE's `MidiFile`, note-offs matched) gives `MidiFileContent`
+  parts per track and channel, in beats at the project's tempo (SMPTE files in real
+  time), and lists what it left out (tempo and metre changes, program changes,
+  polyphonic aftertouch, SysEx, other meta events). `Session::importMidi()` (one undo
+  step; an empty project takes the file's tempo and metre first; channel 10 gets the
+  drum sampler; one clip per part to the next bar line) and `exportMidi()`. Tests:
+  export, read, write again gives the same bytes (types 0 and 1, tempos 120 and
+  123.4); a 480 PPQ file from elsewhere survives a round trip at 960.
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -1200,7 +1213,7 @@ devices, loop/take/merge recording, swing, presets.
       envelopes, LFO, glide, preallocated voices and stealing
 - [x] 12. Sampler: samples in memory, interpolated pitch, envelope, loop
 - [x] 13. Drum sampler: 16 pads, choke groups
-- [ ] 14. Standard MIDI files: import and export, type 0 and 1, round trips
+- [x] 14. Standard MIDI files: import and export, type 0 and 1, round trips
 - [ ] 15. Benchmark: cost per voice of each instrument, voices per budget (Release)
 - [ ] 16. Desktop UI: MIDI tracks in the arrange view (headers, MIDI clips with their
       notes), the instrument slot in the mixer, new colour roles in the three themes
