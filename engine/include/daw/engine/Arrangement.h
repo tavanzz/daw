@@ -5,6 +5,7 @@
 #include "daw/engine/BeatGrid.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
 #include "daw/engine/fx/EffectInstance.h"
+#include "daw/engine/midi/MidiEvent.h"
 
 #include <juce_core/juce_core.h>
 
@@ -27,6 +28,51 @@ struct ClipSegment
     int fadeOutLength = 0;       ///< samples fading out before end (on cut edges only)
 
     bool operator==(const ClipSegment&) const = default;
+};
+
+/** A note a MIDI track plays, in samples at the arrangement's rate: what the
+    builder made of a clip's note (cut at the clip's end, covered by other clips). */
+struct ArrangementNote
+{
+    juce::int64 start = 0; ///< the sample of its note-on
+    juce::int64 end = 0;   ///< the sample of its note-off, after start
+    std::uint8_t key = 60;
+    std::uint8_t channel = 0;
+    float velocity = 0.8f; ///< above 0, at most 1
+
+    /** The same note in the next arrangement has the same identity (and start): a
+        note sounding while the arrangement changes goes on if it is still there.
+        0 for none. */
+    std::uint64_t identity = 0;
+
+    bool operator==(const ArrangementNote&) const = default;
+};
+
+/** Where a controller's value changes: from position on it is value. */
+struct ControllerStep
+{
+    juce::int64 position = 0;
+    float value = 0.0f;
+
+    bool operator==(const ControllerStep&) const = default;
+};
+
+/** One controller of a MIDI track over the timeline, as steps (sorted by position;
+    before the first step it is at midi::restValue()). */
+struct ControllerLane
+{
+    midi::EventType type = midi::EventType::controller; ///< controller, pitch bend or pressure
+    std::uint8_t number = 0;  ///< the controller's number (controllers only)
+    std::uint8_t channel = 0;
+    std::vector<ControllerStep> steps;
+
+    /** The value at position: the last step at or before it. */
+    [[nodiscard]] float valueAt(juce::int64 position) const noexcept;
+
+    /** The value just before position: the last step before it. */
+    [[nodiscard]] float valueBefore(juce::int64 position) const noexcept;
+
+    bool operator==(const ControllerLane&) const = default;
 };
 
 /** When a track plays its input instead of its clips (see model::MonitoringMode). */
@@ -134,6 +180,12 @@ struct ArrangementTrack
 
     /** Summary of the segments (see Arrangement::layoutHash). */
     std::uint64_t layoutHash = 0;
+
+    /** A MIDI track: plays notes and controllers through the instrument in the first
+        slot of its inserts (it has no clips to read). */
+    bool playsNotes = false;
+    std::vector<ArrangementNote> notes; ///< sorted by start
+    std::vector<ControllerLane> controllers;
 };
 
 /**

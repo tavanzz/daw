@@ -53,6 +53,17 @@ inline constexpr std::uint8_t allSoundOff = 120;
 inline constexpr std::uint8_t allNotesOff = 123;
 } // namespace controllers
 
+/** The value a controller rests at when nothing has moved it (and returns to at
+    the end of a clip that moved it): pitch bend centred, volume (CC7) and expression
+    (CC11) full, everything else 0. */
+[[nodiscard]] constexpr float restValue(EventType type, int number) noexcept
+{
+    if (type == EventType::controller && (number == controllers::volume ||
+                                          number == controllers::expression))
+        return 1.0f;
+    return 0.0f;
+}
+
 /** A 7-bit value (0 to 127), normalised; toSevenBit() gives it back exactly. */
 [[nodiscard]] constexpr float fromSevenBit(int value) noexcept
 {

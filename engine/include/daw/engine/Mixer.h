@@ -2,6 +2,7 @@
 
 #include "daw/engine/Arrangement.h"
 #include "daw/engine/AudioInputs.h"
+#include "daw/engine/NotePlayback.h"
 #include "daw/engine/TimelineFade.h"
 #include "daw/engine/TimelineHistory.h"
 #include "daw/engine/dsp/DelayLine.h"
@@ -57,6 +58,9 @@ struct MixState
         int latency = 0;     ///< of the inserts
         int outputDelay = 0; ///< to reach the master aligned
         dsp::DelayLine output;
+
+        /** A MIDI track's notes (see NotePlayback); null for audio tracks. */
+        std::unique_ptr<NotePlayback> notes;
     };
 
     struct BusGains
@@ -167,6 +171,11 @@ struct MixContext
     does not depend on how the timeline is cut into blocks: every gain is a function
     of the sample's position, so exports equal playback sample for sample.
 
+    A MIDI track plays notes and controllers (see NotePlayback) through the
+    instrument first in its chain, at their samples; the transport's fades do not
+    apply to it: its notes end where playback stops, pauses or fades out, and the
+    instrument releases them.
+
     Effects run whenever the mixer renders, also while the timeline is stopped, so
     their tails ring on. A track without effects that is silent is skipped, as it
     always was; with effects it is processed (its tail may still sound) but only
@@ -223,7 +232,11 @@ private:
                    int numSamples) noexcept;
     void processChain(const EffectChain& chain, const Arrangement& arrangement,
                       float* const* channels, int numSamples, juce::int64 timelineStart,
-                      const MixContext& context, int latency) noexcept;
+                      const MixContext& context, int latency,
+                      midi::EventSpan events = {}) noexcept;
+    void gatherNotes(const ArrangementTrack& track, MixState::TrackGains& gains,
+                     juce::int64 timelineStart, int numSamples, const MixContext& context,
+                     bool vanishing) noexcept;
 
     /** Calls callback(offset, length, position, running) for each stretch of the
         timeline heard at a point lagging latency samples behind what is read. */
@@ -255,6 +268,7 @@ private:
     std::vector<float> automationLanes; // effect parameters' automation, one lane each
     std::vector<const float*> automationPointers;
     fx::EffectScratch effectScratch;
+    midi::EventBuffer noteEvents; // one MIDI track's, for its instrument
 };
 
 } // namespace daw::engine

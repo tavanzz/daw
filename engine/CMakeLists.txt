@@ -8,6 +8,7 @@ add_library(daw_engine STATIC
     src/BeatGrid.cpp
     src/Engine.cpp
     src/Mixer.cpp
+    src/NotePlayback.cpp
     src/OfflineRenderer.cpp
     src/Recorder.cpp
     src/TimelineHistory.cpp

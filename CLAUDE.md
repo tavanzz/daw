@@ -218,6 +218,20 @@ Modules with one-way dependencies:
   a note it gave it, refuses note-ons while 256 are held, ends every held note at
   once when the instrument is switched off (bypass, removal) and forgets them when
   it fails.
+- MIDI tracks in the engine (Phase 6): an `ArrangementTrack` with `playsNotes` has
+  `ArrangementNote`s (start and end samples, key, channel, velocity, an identity that
+  survives rebuilds), sorted by start, and `ControllerLane`s (steps; rest values
+  from `midi::restValue()`: pitch bend centred, CC7 and CC11 full, the rest 0); its
+  instrument is the first slot of its inserts, so effects, sends, automation and
+  delay compensation work as for audio. `NotePlayback` (one per MIDI track in
+  `MixState`, carried over by `adopt()`) turns each stretch into events: a stretch
+  that does not continue the last ends every note and chases the controllers (after
+  first returning moved ones to rest, so a sustain pedal releases the ended notes);
+  notes are not restarted; a key struck again is ended first; `stop()` ends notes and
+  rests controllers (stop, pause, any fade-out, a vanishing track). A new arrangement
+  keeps notes whose identity and start are still there, with their new end, and ends
+  the others at once. The transport's fade does not apply to instruments. The mixer
+  hands the sorted events to slot 0.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -1037,7 +1051,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 1. MIDI events and the instrument interface: `fx::Effect` takes sample-exact
       events, `EffectInstance` delivers them (note-offs and reset on bypass and
       removal); a test instrument
-- [ ] 2. MIDI in the arrangement and the mixer: notes and controllers in samples per
+- [x] 2. MIDI in the arrangement and the mixer: notes and controllers in samples per
       track, the instrument first in the chain, note-on and note-off on the exact
       sample for any block size, at clip edges and in loops; controller chase
 - [ ] 3. No hanging notes: stop, pause, seek, loop, new arrangements (notes reconciled
