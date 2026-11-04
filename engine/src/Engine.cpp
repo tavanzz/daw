@@ -380,12 +380,15 @@ void Engine::takeLiveInput(const AudioInputs& inputs, int numSamples) noexcept
         if (!midi::parse(*message, event))
             continue;
 
-        juce::int64 stream = blockStart;
+        // When it happened, on the stream's clock; it plays a block later.
+        juce::int64 happened = blockStart;
         if (inputs.time > 0.0 && message->time > 0.0)
-            stream = blockStart + numSamples +
-                     static_cast<juce::int64>(std::llround((message->time - inputs.time) * sampleRate));
+            happened = blockStart + static_cast<juce::int64>(
+                                        std::llround((message->time - inputs.time) * sampleRate));
+        const midi::LiveEvent live{event, static_cast<std::int16_t>(message->device), 0};
+        recorder.captureMidi(live, happened);
         pendingMidi[static_cast<std::size_t>(pendingMidiCount++)] = {
-            std::max(stream, blockStart), {event, static_cast<std::int16_t>(message->device), 0}};
+            std::max(happened + numSamples, blockStart), live};
     }
 
     while (pendingMidiCount < maximumPendingMidi)

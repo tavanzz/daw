@@ -246,6 +246,15 @@ Modules with one-way dependencies:
   controllers they moved) when the track stops listening, goes away, or blocks were
   skipped (`MixContext::liveRestarts`). Tests play a keyboard with
   `SimulatedDevice::playMidi()` on a simulated clock (`AudioDeviceHost::setClock()`).
+- MIDI recording in the engine (Phase 6): `RecordingSetup::midiTargets` (track,
+  `midi::InputFilter`), a `MidiRecordingQueue` (SPSC to the message thread, on the
+  heap) and `midiLatency` (the device's output latency). As the engine drains live
+  MIDI it hands each event, with the stream index it happened at, to
+  `Recorder::captureMidi()`: what was heard then left the engine `midiLatency`
+  earlier, so the event belongs at firstPosition + (s - midiLatency - s0), s0 being
+  where the recording is heard to start (effect latency included), count-in
+  included, until the heard stop. The recording completes once messages stamped
+  before the stop are in; a full queue is reported (`midiOverrun`).
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -1074,7 +1083,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 4. MIDI input in the engine: lock-free timestamped queues per device, time to
       sample, monitoring of armed tracks, preview notes, note-offs when a track stops
       listening; simulated MIDI device for tests
-- [ ] 5. MIDI recording in the engine: what was heard (history, output latency and
+- [x] 5. MIDI recording in the engine: what was heard (history, output latency and
       delay compensation), count-in, punch, metronome; exact ticks with a known latency
 - [ ] 6. Project format version 5: track type, instrument, MIDI input and channel; MIDI
       clips with notes and controller lanes; grid with 1/64 and triplets; migration

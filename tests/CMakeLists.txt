@@ -43,6 +43,7 @@ add_executable(daw_tests
     engine/MidiEventTests.cpp
     engine/MidiInputTests.cpp
     engine/MidiPlaybackTests.cpp
+    engine/MidiRecordingTests.cpp
     engine/MixerTests.cpp
     engine/MonitoringTests.cpp
     engine/RecorderTests.cpp
