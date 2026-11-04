@@ -38,6 +38,8 @@ add_library(daw_engine STATIC
     src/io/RecordingWriter.cpp
     src/io/SourcePool.cpp
     src/io/WavRepair.cpp
+    src/midi/EventBuffer.cpp
+    src/midi/HeldNotes.cpp
     src/rt/AudioFifo.cpp)
 add_library(daw::engine ALIAS daw_engine)
 

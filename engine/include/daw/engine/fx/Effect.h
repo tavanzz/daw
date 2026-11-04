@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/engine/fx/Parameter.h"
+#include "daw/engine/midi/MidiEvent.h"
 
 #include <juce_core/juce_core.h>
 
@@ -16,6 +17,10 @@ struct EffectDescription
     juce::String type; ///< saved in projects ("equaliser", "compressor"...); never changes
     juce::String name; ///< shown to the user
     std::vector<ParameterInfo> parameters;
+
+    /** An instrument plays the notes it receives (ProcessBlock::events); its input
+        is silence, which its sound replaces. It sits first in a MIDI track's chain. */
+    bool isInstrument = false;
 
     /** -1 if there is no parameter with that id. */
     [[nodiscard]] int indexOf(const juce::String& parameterId) const noexcept;
@@ -89,11 +94,17 @@ struct ProcessBlock
     int numSamples = 0;
     ParameterValues parameters;
     TimeInfo time;
+
+    /** For instruments: the block's MIDI events, sorted, offsets within
+        [0, numSamples). Every note-on is followed, in this block or a later one, by
+        its note-off, unless the effect is reset first. Empty for effects. */
+    midi::EventSpan events;
 };
 
 /**
-    An audio effect. The built-in effects implement it, and so will the adapters for
-    plugin formats (VST3, AU, CLAP): nothing here belongs to one of them.
+    An audio effect or an instrument. The built-in effects and instruments implement
+    it, and so will the adapters for plugin formats (VST3, AU, CLAP): nothing here
+    belongs to one of them.
 
     - The host owns the parameter values. Every block it hands them over, already
       smoothed and automated (see ParameterValues); an effect never needs its own
@@ -106,6 +117,13 @@ struct ProcessBlock
     - Latency: how many samples the output lags behind the input (a limiter's
       lookahead). It is fixed between two prepare() calls; the host delays every
       other path to match.
+    - Instruments (EffectDescription::isInstrument) receive MIDI events with every
+      block, each at its sample (ProcessBlock::events), as VST3 event lists, CLAP's
+      note and MIDI events and AU's sample-offset MIDI events carry them. The host
+      keeps the stream well formed: a note-off only follows its own note-on, every
+      held note gets its note-off (bypass, stop, jumps), and reset() forgets every
+      note. Instruments never rely on "all notes off" controllers. Their tail is
+      their release.
 */
 class Effect
 {

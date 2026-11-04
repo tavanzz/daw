@@ -14,13 +14,17 @@ int EffectDescription::indexOf(const juce::String& parameterId) const noexcept
     return -1;
 }
 
-void EffectScratch::prepare(int maximumBlockSize)
+void EffectScratch::prepare(int maximumBlockSize, int eventCapacity)
 {
     jassert(maximumBlockSize > 0);
     blockSize = maximumBlockSize;
     dry.setSize(EffectInstance::numChannels, maximumBlockSize);
     values.assign(static_cast<std::size_t>(maximumChangingParameters * maximumBlockSize), 0.0f);
     gains.assign(static_cast<std::size_t>(maximumBlockSize), 0.0f);
+
+    // A piece holds some of the events it is given plus a note-off for every held
+    // note, and accepts at least as many notes as the buffer they come from.
+    events.prepare(eventCapacity + midi::EventBuffer::maximumHeldNotes);
 }
 
 bool allFinite(const float* const* channels, int numChannels, int numSamples) noexcept
@@ -43,6 +47,7 @@ EffectInstance::EffectInstance(std::unique_ptr<Effect> effectToHost, const Proce
     jassert(effect != nullptr);
     setup.numChannels = numChannels;
     effect->prepare(setup);
+    instrument = effect->getDescription().isInstrument;
     latency = std::max(0, effect->getLatency());
 
     fadeLength = std::max(1, static_cast<int>(std::lround(fadeSeconds * setup.sampleRate)));
@@ -70,12 +75,59 @@ void EffectInstance::process(float* const* channels, int numSamples, const SlotS
     const int pieceLimit = std::min(setup.maximumBlockSize, scratch.blockSize);
     jassert(pieceLimit > 0);
 
+    const auto events = instrument ? context.events : midi::EventSpan{};
+    std::size_t first = 0;
     for (int done = 0; done < numSamples;)
     {
         const int piece = std::min(numSamples - done, pieceLimit);
+
+        // The last piece takes whatever is left, so that no note-off is lost to an
+        // offset out of range.
+        std::size_t last = first;
+        while (last < events.size() &&
+               (done + piece >= numSamples || events[last].offset < done + piece))
+            ++last;
+
         float* const pieceChannels[] = {channels[0] + done, channels[1] + done};
-        processPiece(pieceChannels, piece, settings, context, done, scratch);
+        processPiece(pieceChannels, piece, settings, context, done,
+                     events.subspan(first, last - first), scratch);
+        first = last;
         done += piece;
+    }
+}
+
+void EffectInstance::gatherEvents(midi::EventSpan events, int offset, int numSamples,
+                                  bool delivering, EffectScratch& scratch) noexcept
+{
+    auto& buffer = scratch.events;
+    buffer.clear();
+
+    // Switched off: every note it holds ends now, as it fades out.
+    if (!delivering)
+    {
+        held.releaseAll(buffer, 0);
+        return;
+    }
+
+    for (auto event : events)
+    {
+        event.offset = std::clamp(event.offset - offset, 0, numSamples - 1);
+        switch (event.type)
+        {
+        case midi::EventType::noteOn:
+            if (buffer.hasRoomForNotes() && held.add(event))
+                buffer.add(event);
+            break;
+        case midi::EventType::noteOff:
+            if (held.remove(event))
+                buffer.add(event);
+            break;
+        case midi::EventType::controller:
+        case midi::EventType::pitchBend:
+        case midi::EventType::channelPressure:
+            buffer.add(event);
+            break;
+        }
     }
 }
 
@@ -109,7 +161,8 @@ void EffectInstance::start(const SlotSettings& settings, const SlotContext& cont
 
 void EffectInstance::processPiece(float* const* channels, int numSamples,
                                   const SlotSettings& settings, const SlotContext& context,
-                                  int offset, EffectScratch& scratch) noexcept
+                                  int offset, midi::EventSpan events,
+                                  EffectScratch& scratch) noexcept
 {
     if (!started)
         start(settings, context);
@@ -144,8 +197,12 @@ void EffectInstance::processPiece(float* const* channels, int numSamples,
         return;
     }
 
+    if (instrument)
+        gatherEvents(events, offset, numSamples, settings.enabled, scratch);
+
     if (dryOnly)
     {
+        jassert(held.isEmpty());
         sleeping = true;
         if (latency > 0)
             for (int channel = 0; channel < numChannels; ++channel)
@@ -173,6 +230,8 @@ void EffectInstance::processPiece(float* const* channels, int numSamples,
     block.time = context.time;
     if (block.time.playing)
         block.time.position += offset;
+    if (instrument)
+        block.events = scratch.events.events();
 
     effect->process(block);
 
@@ -202,6 +261,7 @@ void EffectInstance::fail(float* const* channels, int numSamples) noexcept
     failedHere = true;
     failed.store(true, std::memory_order_relaxed);
     effect->reset();
+    held.clear();
 
     for (int channel = 0; channel < numChannels; ++channel)
         juce::FloatVectorOperations::clear(channels[channel], numSamples);

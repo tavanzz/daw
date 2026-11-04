@@ -34,10 +34,12 @@ add_executable(daw_tests
     engine/EffectHostTests.cpp
     engine/EngineTests.cpp
     engine/EqualiserTests.cpp
+    engine/InstrumentHostTests.cpp
     engine/LatencyCompensationTests.cpp
     engine/LatencyProbeTests.cpp
     engine/MeterTests.cpp
     engine/MetronomeTests.cpp
+    engine/MidiEventTests.cpp
     engine/MixerTests.cpp
     engine/MonitoringTests.cpp
     engine/RecorderTests.cpp

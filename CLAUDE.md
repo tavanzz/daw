@@ -206,6 +206,18 @@ Modules with one-way dependencies:
   width, low/high cut, mix). Its tests measure T30 on Schroeder's energy decay
   curve. Tests run effects through `tests/support/EffectRunner.h` and
   compare measured responses with formulas written independently of the code.
+- MIDI events and instruments (Phase 6): `engine::midi::Event` (sample offset,
+  note-on/off with note id, channel, key, velocity 0..1; controller, pitch bend,
+  channel pressure normalised; exact to MIDI 1.0's 7 and 14 bits), sorted per sample
+  as note-offs, controllers, note-ons (`comesBefore()`). `midi::EventBuffer` (fixed
+  capacity, insertion sort, only note-offs may use its second half so they always
+  fit) and `midi::HeldNotes` (notes started and not ended, matched by note id or the
+  oldest on the key). An instrument is an `fx::Effect` whose description says
+  `isInstrument`; it gets `ProcessBlock::events`. `EffectInstance` hands an
+  instrument the events of each piece at their samples, passes a note-off only for
+  a note it gave it, refuses note-ons while 256 are held, ends every held note at
+  once when the instrument is switched off (bypass, removal) and forgets them when
+  it fails.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -1022,7 +1034,7 @@ external sync, arpeggiator, step sequencer, score editor, mobile UI, MIDI output
 devices, loop/take/merge recording, swing, presets.
 
 - [x] 0. Plan (this list) and draft pull request
-- [ ] 1. MIDI events and the instrument interface: `fx::Effect` takes sample-exact
+- [x] 1. MIDI events and the instrument interface: `fx::Effect` takes sample-exact
       events, `EffectInstance` delivers them (note-offs and reset on bypass and
       removal); a test instrument
 - [ ] 2. MIDI in the arrangement and the mixer: notes and controllers in samples per

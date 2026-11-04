@@ -211,4 +211,113 @@ private:
     engine::fx::EffectDescription description;
 };
 
+/**
+    An instrument whose output shows exactly which notes it holds: from the sample of
+    each event on, the left channel is the sum of the held notes' velocities (times
+    its "level" parameter) and the right channel how many notes it holds. It records
+    every event it gets with its sample (counted since it was prepared or reset), in
+    preallocated memory, and complains (wellFormed) about a note-off for a note it
+    does not hold.
+*/
+class TestInstrument final : public engine::fx::Effect
+{
+public:
+    struct Received
+    {
+        juce::int64 sample = 0;
+        engine::midi::Event event;
+    };
+
+    explicit TestInstrument(std::size_t capacity = 1 << 16)
+    {
+        engine::fx::ParameterInfo level;
+        level.id = "level";
+        level.name = "Level";
+        level.minimum = 0.0f;
+        level.maximum = 2.0f;
+        level.defaultValue = 1.0f;
+        description.type = "test-instrument";
+        description.name = "Test Instrument";
+        description.isInstrument = true;
+        description.parameters.push_back(level);
+        received.reserve(capacity);
+    }
+
+    const engine::fx::EffectDescription& getDescription() const noexcept override
+    {
+        return description;
+    }
+    void prepare(const engine::fx::ProcessSetup&) override { reset(); }
+    void reset() noexcept override
+    {
+        heldCount = 0;
+        processed = 0;
+        ++resets;
+    }
+    void process(const engine::fx::ProcessBlock& block) noexcept override
+    {
+        std::size_t next = 0;
+        for (int i = 0; i < block.numSamples; ++i, ++processed)
+        {
+            for (; next < block.events.size() && block.events[next].offset <= i; ++next)
+                apply(block.events[next]);
+
+            float velocities = 0.0f;
+            for (int n = 0; n < heldCount; ++n)
+                velocities += held[static_cast<std::size_t>(n)].value;
+            block.channels[0][i] = outputsNaN ? std::numeric_limits<float>::quiet_NaN()
+                                              : velocities * block.parameters.at(0, i);
+            block.channels[1][i] = static_cast<float>(heldCount);
+        }
+        // Events past the block's end would be a host error: take them anyway.
+        for (; next < block.events.size(); ++next)
+        {
+            wellFormed = false;
+            apply(block.events[next]);
+        }
+    }
+
+    [[nodiscard]] int getHeldCount() const noexcept { return heldCount; }
+
+    std::vector<Received> received;
+    int resets = 0;
+    bool wellFormed = true;
+    bool outputsNaN = false;
+
+private:
+    void apply(const engine::midi::Event& event) noexcept
+    {
+        if (received.size() < received.capacity())
+            received.push_back({processed, event});
+
+        if (event.type == engine::midi::EventType::noteOn)
+        {
+            if (heldCount < static_cast<int>(held.size()))
+                held[static_cast<std::size_t>(heldCount++)] = event;
+            return;
+        }
+        if (event.type != engine::midi::EventType::noteOff)
+            return;
+
+        for (int n = 0; n < heldCount; ++n)
+        {
+            const auto& note = held[static_cast<std::size_t>(n)];
+            if (note.number == event.number && note.channel == event.channel &&
+                (event.noteId < 0 || note.noteId == event.noteId))
+            {
+                for (int m = n + 1; m < heldCount; ++m)
+                    held[static_cast<std::size_t>(m - 1)] = held[static_cast<std::size_t>(m)];
+                --heldCount;
+                return;
+            }
+        }
+        wellFormed = false;
+    }
+
+    engine::fx::EffectDescription description;
+    std::array<engine::midi::Event, 512> held{};
+    int heldCount = 0;
+    juce::int64 processed = 0;
+};
+
 } // namespace daw::test
