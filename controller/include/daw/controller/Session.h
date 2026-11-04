@@ -318,10 +318,10 @@ public:
 
     // Recording ---------------------------------------------------------------------
 
-    /** Records every armed track that has an input, from the playhead (after the
-        count-in, if it is on; with punch on, keeping only the loop region), until
-        stop(). The files go into the "Audio" folder next to the project, which must
-        have been saved. Fails with a message for the user (unsaved project, nothing
+    /** Records every armed track that has an input, and every armed MIDI track, from
+        the playhead (after the count-in, if it is on; with punch on, keeping only the
+        loop region), until stop(). The audio files go into the "Audio" folder next to
+        the project, which must then have been saved; MIDI needs no file. Fails with a message for the user (unsaved project, nothing
         armed, too little disk space...). The clips appear, in one undo step, at an
         update() once the files are complete. */
     juce::Result record();
@@ -440,6 +440,7 @@ private:
     [[nodiscard]] std::optional<model::Bus> findBus(model::ObjectId busId) const;
     [[nodiscard]] bool refusesLatencyChange(int latency);
     [[nodiscard]] bool isInstrumentType(const juce::String& type) const;
+    [[nodiscard]] engine::midi::InputFilter midiFilterOf(const model::Track& track) const;
     void handOver(std::unique_ptr<engine::Arrangement> arrangement);
     void streamingTick();
     [[nodiscard]] double engineRate() const noexcept;

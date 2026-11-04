@@ -2,6 +2,7 @@
 
 #include "daw/controller/ArrangementBuilder.h"
 #include "daw/controller/AutomationEditing.h"
+#include "daw/controller/MidiTakes.h"
 #include "daw/controller/TempoBeatGrid.h"
 #include "daw/controller/TimelineViewport.h"
 #include "daw/engine/io/WavRepair.h"
@@ -793,11 +794,11 @@ void Session::setGridDivision(model::GridDivision division)
 
 bool Session::setTrackArmed(model::ObjectId trackId, bool armed)
 {
-    if (armed && inputAccess == InputAccess::denied)
-        return false;
-
     if (auto track = findTrack(trackId))
     {
+        // MIDI needs no microphone permission.
+        if (armed && inputAccess == InputAccess::denied && !track->isMidi())
+            return false;
         track->setArmed(armed);
         return true;
     }
@@ -902,25 +903,33 @@ juce::Result Session::record()
         return juce::Result::fail("A recording is already running.");
     if (latencyMeasurement.isRunning())
         return juce::Result::fail("Wait for the latency measurement to finish.");
-    if (inputAccess == InputAccess::denied)
-        return juce::Result::fail(microphoneDeniedMessage);
-    if (projectFile == juce::File())
-        return juce::Result::fail("Save the project first: recordings go into its folder.");
 
     const double rate = engineRate();
     RecordingRequest request;
-    request.folder = projectFile.getParentDirectory().getChildFile(recordingsFolderName);
     request.sampleRate = rate;
     request.bitsPerSample = project.getRecordingBitsPerSample();
     request.latency = getRecordingLatency();
+    request.midiLatency = deviceOutputLatency;
 
     for (int t = 0; t < project.getNumTracks(); ++t)
     {
         const auto track = project.getTrack(t);
         const auto input = track.getInput();
-        if (track.isArmed() && !input.isNone())
+        if (track.isArmed() && track.isMidi())
+            request.midiTracks.push_back({track.getId(), midiFilterOf(track)});
+        else if (track.isArmed() && !input.isNone())
             request.tracks.push_back(
                 {track.getId(), track.getName(), input.channel, input.getNumChannels()});
+    }
+
+    // Audio needs the microphone and a folder for its files; MIDI neither.
+    if (!request.tracks.empty() || request.midiTracks.empty())
+    {
+        if (inputAccess == InputAccess::denied)
+            return juce::Result::fail(microphoneDeniedMessage);
+        if (projectFile == juce::File())
+            return juce::Result::fail("Save the project first: recordings go into its folder.");
+        request.folder = projectFile.getParentDirectory().getChildFile(recordingsFolderName);
     }
 
     const auto start = getPlayhead();
@@ -1067,9 +1076,43 @@ void Session::addRecording(const RecordingOutcome& outcome)
             }
     }
 
+    // MIDI takes become MIDI clips over what the recording kept; the notes before
+    // and after stay in them, hidden, as handles. A take with nothing in it adds none.
+    for (const auto& take : outcome.midiTakes)
+    {
+        auto track = findTrack(take.trackId);
+        const auto content = midiTakeContent(take, outcome.stopPosition, rate);
+        const auto start = std::max({outcome.keepStart, take.firstPosition, juce::int64{0}});
+        if (!track || !track->isMidi() || content.isEmpty() || outcome.keepEnd <= start)
+            continue;
+
+        if (!started)
+            startEdit("Record");
+        started = true;
+
+        const auto position = model::samplesToTicks(start, rate);
+        const auto offset = position - model::samplesToTicks(take.firstPosition, rate);
+        const auto length = model::samplesToTicks(outcome.keepEnd, rate) - position;
+        track->addMidiClip(track->getName(), {position, offset, length}, content.notes,
+                           content.controllers, &undoManager);
+    }
+
     // Takes that were discarded or kept nothing are gone from the disk.
     std::erase_if(journal, [](const JournalEntry& entry) { return !entry.file.existsAsFile(); });
     writeJournal();
+}
+
+engine::midi::InputFilter Session::midiFilterOf(const model::Track& track) const
+{
+    engine::midi::InputFilter filter;
+    const auto input = track.getMidiInput();
+    filter.channel = input.channel - 1;
+    if (input.device.isNotEmpty() && midiDevices)
+    {
+        const int device = midiDevices(input.device);
+        filter.device = device >= 0 ? device : engine::midi::InputFilter::noDevice;
+    }
+    return filter;
 }
 
 void Session::seek(model::Ticks position)

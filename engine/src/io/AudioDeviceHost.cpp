@@ -12,6 +12,9 @@ AudioDeviceHost::AudioDeviceHost(Engine& engineToPlay)
 
 AudioDeviceHost::~AudioDeviceHost()
 {
+    midiDeviceList.reset();
+    if (midiOpen)
+        deviceManager.removeMidiInputDeviceCallback({}, this);
     if (callbackAdded)
         deviceManager.removeAudioCallback(this);
 
@@ -114,6 +117,66 @@ void AudioDeviceHost::audioDeviceAboutToStart(juce::AudioIODevice* device)
 
 void AudioDeviceHost::audioDeviceStopped()
 {
+}
+
+void AudioDeviceHost::openMidiInputs(const juce::StringArray& switchedOff)
+{
+    midiSwitchedOff = switchedOff;
+    if (!midiOpen)
+    {
+        // An empty identifier: every enabled device.
+        deviceManager.addMidiInputDeviceCallback({}, this);
+        midiOpen = true;
+        midiDeviceList = juce::MidiDeviceListConnection::make([this] {
+            refreshMidiInputs();
+            if (onMidiDevicesChanged)
+                onMidiDevicesChanged();
+        });
+    }
+    refreshMidiInputs();
+}
+
+void AudioDeviceHost::refreshMidiInputs()
+{
+    for (const auto& device : juce::MidiInput::getAvailableDevices())
+    {
+        getMidiDeviceIndex(device.identifier);
+        if (!midiSwitchedOff.contains(device.identifier) &&
+            !deviceManager.isMidiInputDeviceEnabled(device.identifier))
+            deviceManager.setMidiInputDeviceEnabled(device.identifier, true);
+    }
+}
+
+juce::StringArray AudioDeviceHost::getMidiInputsSwitchedOff()
+{
+    // Switched off now among those plugged in; the others as they were.
+    juce::StringArray available;
+    for (const auto& device : juce::MidiInput::getAvailableDevices())
+    {
+        available.add(device.identifier);
+        if (deviceManager.isMidiInputDeviceEnabled(device.identifier))
+            midiSwitchedOff.removeString(device.identifier);
+        else
+            midiSwitchedOff.addIfNotAlreadyThere(device.identifier);
+    }
+    return midiSwitchedOff;
+}
+
+juce::StringArray AudioDeviceHost::getMidiInputNames() const
+{
+    juce::StringArray names;
+    for (const auto& device : juce::MidiInput::getAvailableDevices())
+        if (deviceManager.isMidiInputDeviceEnabled(device.identifier))
+            names.addIfNotAlreadyThere(device.name);
+    return names;
+}
+
+int AudioDeviceHost::findMidiInput(const juce::String& name)
+{
+    for (const auto& device : juce::MidiInput::getAvailableDevices())
+        if (device.name == name && deviceManager.isMidiInputDeviceEnabled(device.identifier))
+            return getMidiDeviceIndex(device.identifier);
+    return -1;
 }
 
 void AudioDeviceHost::receiveMidi(int deviceIndex, const juce::MidiMessage& message) noexcept

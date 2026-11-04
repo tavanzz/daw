@@ -388,6 +388,20 @@ Modules with one-way dependencies:
   stop or punch out); the files keep the rest as handles. Undo keeps the files;
   `discardRecording()` deletes them. Save As to another folder copies the project's
   recordings into the new `Audio/` folder.
+- MIDI recording in the controller (Phase 6): `Session::record()` records every armed
+  MIDI track (its MIDI input as an `InputFilter`, `midiLatency` = the device's
+  output latency) with the armed audio tracks; MIDI alone needs no saved project, no
+  microphone permission (arming a MIDI track never asks) and no disk space.
+  `RecordingController` drains the MIDI queue each update (no writer without audio
+  tracks; `getLiveMidiTakes()` for drawing) and reports `RecordedMidiTake`s;
+  `midiTakeContent()` pairs each note-on with the next note-off of its key and
+  channel (notes held at the stop end there), keeps controllers as MIDI 1.0 values,
+  in ticks from the count-in's start. The clips (named after the track) show what
+  the recording kept and hold the rest as handles; a take with nothing in it adds no
+  clip; all clips, audio and MIDI, are one "Record" step. `AudioDeviceHost::
+  openMidiInputs()` listens to every MIDI input (JUCE's `MidiDeviceListConnection`
+  for devices plugged in later) except those switched off, which the app keeps in
+  the user settings ("midiInputsOff") and hands to the session by name.
 - Crash recovery (Phase 3): the session keeps a `RecordingJournal`
   (`Audio/.recording-journal.json`) of the recordings its saved file does not have
   yet: written when a recording starts (end unknown) and when it ends, removed on
@@ -1141,7 +1155,7 @@ devices, loop/take/merge recording, swing, presets.
       selection, hit tests, drag rules, transposition, `PianoRollViewport`
 - [x] 9. Controller: MIDI tracks in the arrangement (clip overlaps and edges,
       controller steps), instrument instances, sample loading, preview, MIDI inputs
-- [ ] 10. MIDI recording in the controller and the app: armed MIDI tracks with the
+- [x] 10. MIDI recording in the controller and the app: armed MIDI tracks with the
       audio ones in one "Record" step, handles, punch, discard; MIDI devices in
       `AudioDeviceHost`
 - [ ] 11. Subtractive synth: band-limited wavetable oscillators, resonant SVF, two

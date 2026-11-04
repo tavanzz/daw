@@ -82,3 +82,16 @@ TEST_CASE("The device callback copes with mono and output-less devices", "[engin
     host.audioDeviceIOCallbackWithContext(nullptr, 0, none.data(), 0, blockSize, context);
     CHECK(engine.getTransportState() == daw::engine::TransportState::playing);
 }
+
+TEST_CASE("MIDI input devices keep the index they were first given", "[engine][device][midi]")
+{
+    daw::engine::Engine engine;
+    daw::engine::io::AudioDeviceHost host(engine);
+
+    CHECK(host.getMidiDeviceIndex("usb-keys") == 0);
+    CHECK(host.getMidiDeviceIndex("din-port") == 1);
+    CHECK(host.getMidiDeviceIndex("usb-keys") == 0);
+    for (int i = 2; i < daw::engine::midi::maximumInputDevices + 5; ++i)
+        CHECK(host.getMidiDeviceIndex("device " + juce::String(i)) ==
+              std::min(i, daw::engine::midi::maximumInputDevices - 1));
+}

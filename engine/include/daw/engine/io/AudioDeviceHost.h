@@ -6,6 +6,8 @@
 
 #include <array>
 #include <atomic>
+#include <functional>
+#include <optional>
 
 namespace daw::engine::io
 {
@@ -65,6 +67,23 @@ public:
         midi::maximumInputDevices). Message thread. */
     int getMidiDeviceIndex(const juce::String& identifier);
 
+    /** Listens to every MIDI input device, also those plugged in later, except the
+        ones switched off (by identifier). Message thread. */
+    void openMidiInputs(const juce::StringArray& switchedOff);
+
+    /** The MIDI inputs the user switched off (in the device settings), including
+        ones not plugged in now: what openMidiInputs() takes next time. */
+    [[nodiscard]] juce::StringArray getMidiInputsSwitchedOff();
+
+    /** The names of the MIDI inputs listened to now. */
+    [[nodiscard]] juce::StringArray getMidiInputNames() const;
+
+    /** The engine's index of the MIDI input listened to with this name; -1 if none. */
+    [[nodiscard]] int findMidiInput(const juce::String& name);
+
+    /** Called on the message thread when MIDI devices come or go. */
+    std::function<void()> onMidiDevicesChanged;
+
     /** For tests: a clock of their own. Before the device starts. */
     void setClock(Clock newClock) noexcept { clock = newClock; }
 
@@ -82,6 +101,7 @@ public:
 private:
     void handleIncomingMidiMessage(juce::MidiInput* source,
                                    const juce::MidiMessage& message) override;
+    void refreshMidiInputs();
 
     // The engine renders at most stereo; further device outputs are cleared.
     static constexpr int engineChannels = 2;
@@ -104,6 +124,10 @@ private:
     // by the MIDI threads.
     std::array<std::atomic<juce::int64>, midi::maximumInputDevices> midiDeviceHashes{};
     std::atomic<int> numMidiDevices{0};
+
+    bool midiOpen = false;
+    juce::StringArray midiSwitchedOff; // identifiers
+    std::optional<juce::MidiDeviceListConnection> midiDeviceList;
 };
 
 } // namespace daw::engine::io

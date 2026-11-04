@@ -25,13 +25,24 @@ struct TrackToRecord
     int numInputChannels = 1;
 };
 
+/** One MIDI track to record: the live input it hears. */
+struct MidiTrackToRecord
+{
+    juce::int64 trackId = 0;
+    engine::midi::InputFilter filter;
+};
+
 /** Everything one recording needs. Positions in samples at sampleRate, the device's. */
 struct RecordingRequest
 {
-    juce::File folder; ///< where the files go; created if missing
+    juce::File folder; ///< where the files go; created if missing (audio only)
     double sampleRate = 48000.0;
     int bitsPerSample = 24;
     std::vector<TrackToRecord> tracks;
+    std::vector<MidiTrackToRecord> midiTracks;
+
+    /** The device's output latency: MIDI is placed where what was heard was. */
+    juce::int64 midiLatency = 0;
 
     juce::int64 startPosition = 0;
     juce::int64 countInLength = 0;
@@ -51,10 +62,23 @@ struct RecordedTake
     juce::int64 length = 0; ///< samples in the file
 };
 
+/** One MIDI track's recording: every event it heard, at its timeline position (in
+    samples), from firstPosition (the count-in's start) on. */
+struct RecordedMidiTake
+{
+    juce::int64 trackId = 0;
+    juce::int64 firstPosition = 0;
+    std::vector<engine::RecordedMidi> events;
+};
+
 /** How a recording ended. */
 struct RecordingOutcome
 {
     std::vector<RecordedTake> takes; ///< none if it was discarded
+    std::vector<RecordedMidiTake> midiTakes;
+
+    /** Where the recording stopped (notes still held end there). */
+    juce::int64 stopPosition = 0;
 
     /** What the recording kept on the timeline: [keepStart, keepEnd), the punch
         range if there was one. Takes may hold more (handles). */
@@ -99,7 +123,7 @@ public:
 
     /** Starts a recording; fails, with a message for the user, if one is running,
         nothing is to be recorded, the folder or the files cannot be created or the
-        disk is too full. */
+        disk is too full. MIDI tracks alone need no folder, no file and no disk space. */
     juce::Result start(const RecordingRequest& request);
 
     /** Ends the recording; the outcome comes from update() once everything is written. */
@@ -112,7 +136,7 @@ public:
     std::optional<RecordingOutcome> update();
 
     [[nodiscard]] State getState() const;
-    [[nodiscard]] bool isActive() const noexcept { return writer != nullptr; }
+    [[nodiscard]] bool isActive() const noexcept { return setup != nullptr; }
 
     /** Recording time left on the disk at the current rate; negative if unknown. */
     [[nodiscard]] double getSecondsLeft() const;
@@ -129,6 +153,9 @@ public:
     };
     [[nodiscard]] std::vector<LiveTake> getLiveTakes() const;
 
+    /** What the MIDI tracks have recorded so far, for drawing it as it comes. */
+    [[nodiscard]] std::vector<RecordedMidiTake> getLiveMidiTakes() const;
+
     /** Free bytes on the disk of a folder; empty: ask the file system. For tests. */
     std::function<juce::int64(const juce::File&)> freeSpace;
 
@@ -142,8 +169,14 @@ private:
 
     engine::Engine& engine;
     RecordingRequest request;
+    void drainMidi();
+    juce::Result startWriter(const RecordingRequest& newRequest, engine::RecordingSetup& newSetup,
+                             std::unique_ptr<engine::io::RecordingWriter>& newWriter);
+
     std::unique_ptr<engine::RecordingSetup> setup;
-    std::unique_ptr<engine::io::RecordingWriter> writer;
+    std::unique_ptr<engine::io::RecordingWriter> writer; ///< null without audio tracks
+    std::unique_ptr<engine::MidiRecordingQueue> midiQueue;
+    std::vector<std::vector<engine::RecordedMidi>> midiEvents; // per MIDI target
     bool stopRequested = false;
     bool finishRequested = false;
     bool discarding = false;
