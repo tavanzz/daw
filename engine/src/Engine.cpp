@@ -84,10 +84,14 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
 
     if (runLatencyTest(inputs, output))
     {
+        liveSkipped = true;
         streamPosition += output.getNumSamples();
         publish();
         return;
     }
+
+    takeLiveInput(inputs, output.getNumSamples());
+    liveMissed = false;
 
     startWhenReady();
 
@@ -123,6 +127,8 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
     }
 
     blockInputs = nullptr;
+    liveEventCount = 0;
+    liveSkipped = liveMissed;
     applyLatencySwitch(output);
     streamPosition += output.getNumSamples();
     publish();
@@ -353,7 +359,85 @@ MixContext Engine::makeContext(int outputStart) const noexcept
     context.history = &history;
     context.stream = streamPosition + renderOffset + outputStart;
     context.autoMonitorsInput = autoMonitorsAt(transport.getPosition());
+    context.live = {liveEvents.data(), static_cast<std::size_t>(liveEventCount)};
+    context.liveRestarts = liveSkipped;
     return context;
+}
+
+void Engine::takeLiveInput(const AudioInputs& inputs, int numSamples) noexcept
+{
+    const juce::int64 blockStart = streamPosition;
+
+    // A message stamped t plays at the block's start + (t - the block's time) + one
+    // block: where it happened, a block later.
+    while (pendingMidiCount < maximumPendingMidi)
+    {
+        const auto message = midiInput.pop();
+        if (!message)
+            break;
+
+        midi::Event event;
+        if (!midi::parse(*message, event))
+            continue;
+
+        juce::int64 stream = blockStart;
+        if (inputs.time > 0.0 && message->time > 0.0)
+            stream = blockStart + numSamples +
+                     static_cast<juce::int64>(std::llround((message->time - inputs.time) * sampleRate));
+        pendingMidi[static_cast<std::size_t>(pendingMidiCount++)] = {
+            std::max(stream, blockStart), {event, static_cast<std::int16_t>(message->device), 0}};
+    }
+
+    while (pendingMidiCount < maximumPendingMidi)
+    {
+        const auto preview = previews.pop();
+        if (!preview)
+            break;
+        const auto event = preview->velocity > 0.0f ? midi::noteOn(0, preview->key, preview->velocity)
+                                                    : midi::noteOff(0, preview->key);
+        pendingMidi[static_cast<std::size_t>(pendingMidiCount++)] = {blockStart,
+                                                                     {event, -1, preview->track}};
+    }
+
+    // This block's events, in order; later ones wait.
+    liveEventCount = 0;
+    int kept = 0;
+    for (int i = 0; i < pendingMidiCount; ++i)
+    {
+        auto pending = pendingMidi[static_cast<std::size_t>(i)];
+        if (pending.stream < blockStart + numSamples)
+        {
+            pending.live.event.offset = static_cast<int>(pending.stream - blockStart);
+            int j = liveEventCount++;
+            while (j > 0 && pending.live.event.offset <
+                                liveEvents[static_cast<std::size_t>(j - 1)].event.offset)
+            {
+                liveEvents[static_cast<std::size_t>(j)] = liveEvents[static_cast<std::size_t>(j - 1)];
+                --j;
+            }
+            liveEvents[static_cast<std::size_t>(j)] = pending.live;
+        }
+        else
+        {
+            pendingMidi[static_cast<std::size_t>(kept++)] = pending;
+        }
+    }
+    pendingMidiCount = kept;
+}
+
+void Engine::startPreview(juce::int64 trackId, int key, float velocity)
+{
+    [[maybe_unused]] const bool queued =
+        previews.push({trackId, static_cast<std::uint8_t>(std::clamp(key, 0, 127)),
+                       std::clamp(velocity, 1.0f / 127.0f, 1.0f)});
+    jassert(queued);
+}
+
+void Engine::stopPreview(juce::int64 trackId, int key)
+{
+    [[maybe_unused]] const bool queued =
+        previews.push({trackId, static_cast<std::uint8_t>(std::clamp(key, 0, 127)), 0.0f});
+    jassert(queued);
 }
 
 void Engine::renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
@@ -398,6 +482,7 @@ void Engine::renderPiece(juce::int64 timelineStart, juce::AudioBuffer<float>& ou
     {
         for (int channel = 0; channel < output.getNumChannels(); ++channel)
             output.clear(channel, outputStart, numSamples);
+        liveMissed = true;
         return;
     }
 

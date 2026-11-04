@@ -59,8 +59,11 @@ struct MixState
         int outputDelay = 0; ///< to reach the master aligned
         dsp::DelayLine output;
 
-        /** A MIDI track's notes (see NotePlayback); null for audio tracks. */
+        /** A MIDI track's notes from the timeline (see NotePlayback), from its live
+            input and from previews (see midi::LiveNotes); null for audio tracks. */
         std::unique_ptr<NotePlayback> notes;
+        std::unique_ptr<midi::LiveNotes> live;
+        std::unique_ptr<midi::LiveNotes> previews;
     };
 
     struct BusGains
@@ -129,6 +132,14 @@ struct MixContext
     /** Whether tracks monitoring automatically hear their input now (see
         InputMonitoring::automatic). */
     bool autoMonitorsInput = false;
+
+    /** Live MIDI of the current audio block (offsets from its start, as
+        inputOffset), from devices and previews; empty offline. */
+    midi::LiveEventSpan live;
+
+    /** Live MIDI was not heard for a while (the engine skipped rendering): MIDI
+        tracks end the live notes they hold, whose note-offs may have been missed. */
+    bool liveRestarts = false;
 
     /** What was read when (see TimelineHistory), and the stream index of the
         stretch's first sample: each point of the mix that lags by some latency

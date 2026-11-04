@@ -83,6 +83,15 @@ public:
     void setStreamStart(juce::int64 index);
     void connectLoopback(int outputChannel, int inputChannel, int latency);
 
+    /** A MIDI keyboard: message is played at streamIndex (in real time), from
+        deviceIndex. It reaches the host before the block that starts after it, with
+        the time stamp of that moment on the device's clock. */
+    void playMidi(juce::int64 streamIndex, const juce::MidiMessage& message, int deviceIndex = 0);
+
+    /** The device's clock: seconds at a stream index (what the host stamps a block
+        starting there with). */
+    [[nodiscard]] double timeOf(juce::int64 streamIndex) const noexcept;
+
     /** Keep everything played (getOutput) or fed in (getInput). */
     void setRecordsOutput(bool shouldRecord) { recordOutput = shouldRecord; }
     void setRecordsInput(bool shouldRecord) { recordInput = shouldRecord; }
@@ -110,6 +119,15 @@ private:
     };
 
     [[nodiscard]] float loopbackSample(int inputChannel, juce::int64 streamIndex) const;
+    static double clockNow() noexcept;
+
+    struct QueuedMidi
+    {
+        juce::int64 streamIndex = 0;
+        int device = 0;
+        juce::MidiMessage message;
+    };
+    std::vector<QueuedMidi> queuedMidi;
 
     engine::io::AudioDeviceHost host;
     std::unique_ptr<FakeAudioDevice> device;

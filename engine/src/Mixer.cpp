@@ -123,7 +123,11 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
         gains.output.prepare(2, gains.outputDelay);
         gains.output.setDelay(gains.outputDelay);
         if (track.playsNotes)
+        {
             gains.notes = std::make_unique<NotePlayback>();
+            gains.live = std::make_unique<midi::LiveNotes>();
+            gains.previews = std::make_unique<midi::LiveNotes>();
+        }
 
         gains.sends.resize(track.sends.size());
         for (std::size_t k = 0; k < track.sends.size(); ++k)
@@ -191,7 +195,11 @@ void MixState::continueFrom(MixState& previous, const Arrangement& previousArran
         gains.right.setTarget(track.rightGain, rampLength);
         gains.output.adopt(old.output);
         if (gains.notes != nullptr && old.notes != nullptr)
+        {
             gains.notes->adopt(*old.notes, track);
+            gains.live->adopt(*old.live);
+            gains.previews->adopt(*old.previews);
+        }
 
         for (std::size_t k = 0; k < track.sends.size(); ++k)
         {
@@ -644,6 +652,34 @@ void Mixer::gatherNotes(const ArrangementTrack& track, MixState::TrackGains& gai
         gains.notes->play(track, timelineStart, numSamples, noteEvents);
     else
         gains.notes->stop(0, noteEvents);
+
+    // Live input while monitoring says so; previews always, until the track goes.
+    const bool listens = !vanishing && (track.monitoring == InputMonitoring::on ||
+                                        (track.monitoring == InputMonitoring::automatic &&
+                                         track.armed));
+    if (!listens || context.liveRestarts)
+        gains.live->releaseAll(0, noteEvents);
+    if (vanishing)
+        gains.previews->releaseAll(0, noteEvents);
+
+    for (const auto& live : context.live)
+    {
+        const int offset = live.event.offset - context.inputOffset;
+        if (offset < 0 || offset >= numSamples)
+            continue;
+
+        auto event = live.event;
+        event.offset = offset;
+        if (live.device < 0)
+        {
+            if (live.track == track.id && !vanishing)
+                gains.previews->receive(event, noteEvents);
+        }
+        else if (listens && track.midiInput.accepts(live))
+        {
+            gains.live->receive(event, noteEvents);
+        }
+    }
 
     noteEvents.sort();
 }

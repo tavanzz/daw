@@ -5,6 +5,7 @@
 #include "daw/engine/BeatGrid.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
 #include "daw/engine/fx/EffectInstance.h"
+#include "daw/engine/midi/LiveInput.h"
 #include "daw/engine/midi/MidiEvent.h"
 
 #include <juce_core/juce_core.h>
@@ -182,8 +183,10 @@ struct ArrangementTrack
     std::uint64_t layoutHash = 0;
 
     /** A MIDI track: plays notes and controllers through the instrument in the first
-        slot of its inserts (it has no clips to read). */
+        slot of its inserts (it has no clips to read), and its live MIDI input when
+        monitoring says so (on, or automatic while armed). */
     bool playsNotes = false;
+    midi::InputFilter midiInput;
     std::vector<ArrangementNote> notes; ///< sorted by start
     std::vector<ControllerLane> controllers;
 };

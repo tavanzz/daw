@@ -19,6 +19,10 @@ struct AudioInputs
     const float* const* channels = nullptr;
     int numChannels = 0;
 
+    /** When the device delivered the block, on midi::hostSeconds()'s clock; 0 when
+        unknown. Live MIDI is placed in time against it. */
+    double time = 0.0;
+
     /** Null if the channel is off or does not exist. */
     [[nodiscard]] const float* channel(int index) const noexcept
     {

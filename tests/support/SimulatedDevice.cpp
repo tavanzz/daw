@@ -3,6 +3,7 @@
 #include "support/RealtimeCheck.h"
 
 #include <algorithm>
+#include <atomic>
 
 namespace daw::test
 {
@@ -96,9 +97,36 @@ SimulatedDevice::SimulatedDevice(engine::Engine& engineToDrive, double rate, int
 {
     jassert(!blockSizes.empty());
     maximumBlockSize = *std::max_element(blockSizes.begin(), blockSizes.end());
+    host.setClock(&SimulatedDevice::clockNow);
 }
 
 SimulatedDevice::~SimulatedDevice() = default;
+
+namespace
+{
+// What the simulated clock reads during a callback (tests run one device at a time).
+std::atomic<double> simulatedTime{0.0};
+} // namespace
+
+double SimulatedDevice::clockNow() noexcept
+{
+    return simulatedTime.load(std::memory_order_relaxed);
+}
+
+double SimulatedDevice::timeOf(juce::int64 streamIndex) const noexcept
+{
+    return 1000.0 + static_cast<double>(streamIndex - streamStart) / sampleRate;
+}
+
+void SimulatedDevice::playMidi(juce::int64 streamIndex, const juce::MidiMessage& message,
+                               int deviceIndex)
+{
+    queuedMidi.push_back({streamIndex, deviceIndex, message});
+    std::stable_sort(queuedMidi.begin(), queuedMidi.end(),
+                     [](const QueuedMidi& a, const QueuedMidi& b) {
+                         return a.streamIndex < b.streamIndex;
+                     });
+}
 
 void SimulatedDevice::setInputEnabled(int channel, bool enabled)
 {
@@ -186,6 +214,17 @@ std::size_t SimulatedDevice::run(juce::int64 numSamples)
                 recordedInput[static_cast<std::size_t>(channel)].insert(
                     recordedInput[static_cast<std::size_t>(channel)].end(), samples,
                     samples + blockSize);
+        }
+
+        // MIDI played before this block reaches the host first, from its own thread
+        // in reality, stamped when it was played.
+        simulatedTime.store(timeOf(streamPosition), std::memory_order_relaxed);
+        while (!queuedMidi.empty() && queuedMidi.front().streamIndex < streamPosition)
+        {
+            auto message = queuedMidi.front().message;
+            message.setTimeStamp(timeOf(queuedMidi.front().streamIndex));
+            host.receiveMidi(queuedMidi.front().device, message);
+            queuedMidi.erase(queuedMidi.begin());
         }
 
         float* const outputs[] = {outputBuffer.getWritePointer(0), outputBuffer.getWritePointer(1)};

@@ -232,6 +232,20 @@ Modules with one-way dependencies:
   keeps notes whose identity and start are still there, with their new end, and ends
   the others at once. The transport's fade does not apply to instruments. The mixer
   hands the sorted events to slot 0.
+- Live MIDI in the engine (Phase 6): `AudioDeviceHost` (a `juce::MidiInputCallback`)
+  hands each device message, with JUCE's time stamp and a device index
+  (`getMidiDeviceIndex()`, by identifier hash, lock-free), to `Engine::pushMidi()`: an
+  SPSC queue (JUCE serialises its MIDI callbacks). The host stamps every audio block
+  with `midi::hostSeconds()` (`AudioInputs::time`); the engine places a message at the
+  block start + (its time - the block's) + one block, so live MIDI keeps its rhythm a
+  block late, without jitter. `Engine::startPreview()`/`stopPreview()` queue the piano
+  roll's notes for a track. The block's `midi::LiveEvent`s reach the mixer in
+  `MixContext::live`; a MIDI track hears devices through `midi::InputFilter` (device,
+  channel) while monitoring is on, or automatic and armed, and its previews always;
+  `midi::LiveNotes` gives live notes ids of their own and ends them (and rests the
+  controllers they moved) when the track stops listening, goes away, or blocks were
+  skipped (`MixContext::liveRestarts`). Tests play a keyboard with
+  `SimulatedDevice::playMidi()` on a simulated clock (`AudioDeviceHost::setClock()`).
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -1057,7 +1071,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 3. No hanging notes: stop, pause, seek, loop, new arrangements (notes reconciled
       by identity), mute and solo, bypass, removal, rate changes; export equals
       real-time playback with instruments and automation
-- [ ] 4. MIDI input in the engine: lock-free timestamped queues per device, time to
+- [x] 4. MIDI input in the engine: lock-free timestamped queues per device, time to
       sample, monitoring of armed tracks, preview notes, note-offs when a track stops
       listening; simulated MIDI device for tests
 - [ ] 5. MIDI recording in the engine: what was heard (history, output latency and

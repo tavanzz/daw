@@ -81,7 +81,8 @@ void AudioDeviceHost::audioDeviceIOCallbackWithContext(
         inputPointers[static_cast<std::size_t>(inputChannelNumbers[static_cast<std::size_t>(i)])] =
             inputChannelData[i];
 
-    const AudioInputs inputs{inputPointers.data(), delivered > 0 ? numDeviceInputChannels : 0};
+    AudioInputs inputs{inputPointers.data(), delivered > 0 ? numDeviceInputChannels : 0};
+    inputs.time = clock();
 
     // Referring to at most two channels stays within AudioBuffer's built-in
     // channel-pointer space, so this never allocates.
@@ -113,6 +114,53 @@ void AudioDeviceHost::audioDeviceAboutToStart(juce::AudioIODevice* device)
 
 void AudioDeviceHost::audioDeviceStopped()
 {
+}
+
+void AudioDeviceHost::receiveMidi(int deviceIndex, const juce::MidiMessage& message) noexcept
+{
+    const int size = message.getRawDataSize();
+    if (size < 1 || size > 3)
+        return;
+
+    midi::TimedMessage timed;
+    timed.time = message.getTimeStamp();
+    timed.device = static_cast<std::uint8_t>(std::clamp(deviceIndex, 0, midi::maximumInputDevices - 1));
+    timed.size = static_cast<std::uint8_t>(size);
+    std::copy_n(message.getRawData(), size, timed.bytes.begin());
+
+    // A full queue drops the message: the engine is not keeping up anyway.
+    [[maybe_unused]] const bool queued = engine.pushMidi(timed);
+}
+
+int AudioDeviceHost::getMidiDeviceIndex(const juce::String& identifier)
+{
+    const juce::int64 hash = identifier.hashCode64();
+    const int count = numMidiDevices.load(std::memory_order_relaxed);
+    for (int i = 0; i < count; ++i)
+        if (midiDeviceHashes[static_cast<std::size_t>(i)].load(std::memory_order_relaxed) == hash)
+            return i;
+
+    if (count >= midi::maximumInputDevices)
+        return midi::maximumInputDevices - 1;
+
+    midiDeviceHashes[static_cast<std::size_t>(count)].store(hash, std::memory_order_relaxed);
+    numMidiDevices.store(count + 1, std::memory_order_release);
+    return count;
+}
+
+void AudioDeviceHost::handleIncomingMidiMessage(juce::MidiInput* source,
+                                                const juce::MidiMessage& message)
+{
+    int index = midi::maximumInputDevices - 1;
+    if (source != nullptr)
+    {
+        const juce::int64 hash = source->getIdentifier().hashCode64();
+        const int count = numMidiDevices.load(std::memory_order_acquire);
+        for (int i = 0; i < count; ++i)
+            if (midiDeviceHashes[static_cast<std::size_t>(i)].load(std::memory_order_relaxed) == hash)
+                index = i;
+    }
+    receiveMidi(index, message);
 }
 
 } // namespace daw::engine::io

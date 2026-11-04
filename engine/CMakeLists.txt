@@ -41,6 +41,7 @@ add_library(daw_engine STATIC
     src/io/WavRepair.cpp
     src/midi/EventBuffer.cpp
     src/midi/HeldNotes.cpp
+    src/midi/LiveInput.cpp
     src/rt/AudioFifo.cpp)
 add_library(daw::engine ALIAS daw_engine)
 

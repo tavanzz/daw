@@ -10,10 +10,12 @@
 #include "daw/engine/dsp/InputMeters.h"
 #include "daw/engine/dsp/Metronome.h"
 #include "daw/engine/dsp/PeakLevelMeter.h"
+#include "daw/engine/midi/LiveInput.h"
 #include "daw/engine/rt/SpscQueue.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -44,6 +46,14 @@ struct EngineCommand
     juce::int64 value = 0;
     juce::int64 length = 0;
     const RecordingSetup* recording = nullptr; ///< for record
+};
+
+/** A preview note from the piano roll: on (velocity above 0) or off. */
+struct PreviewCommand
+{
+    juce::int64 track = 0;
+    std::uint8_t key = 0;
+    float velocity = 0.0f;
 };
 
 /** An arrangement with the mixer state that goes with it: what the message thread
@@ -93,6 +103,13 @@ struct EngineSnapshot
     and fades in again.
     While it runs the transport goes straight on: loop and the end of the timeline
     do not apply, seeks are ignored, pause stops.
+
+    Live MIDI from devices arrives on a lock-free queue with its timestamps
+    (pushMidi()) and is placed one block late, each message at the sample its time
+    gives against the block's (AudioInputs::time), so its rhythm comes through
+    without jitter (as JUCE's MidiMessageCollector does). MIDI tracks hear it while
+    monitoring says so; previews from the piano roll play on their track at the
+    start of the next block, whatever the monitoring.
 */
 class Engine final : private TimelineRenderer
 {
@@ -166,6 +183,15 @@ public:
     [[nodiscard]] bool isLatencyTestDone() const noexcept;
     [[nodiscard]] float getLatencyTestProgress() const noexcept;
 
+    /** MIDI input thread (one at a time). Queues a device's message, stamped on
+        midi::hostSeconds()'s clock; false if the queue is full. */
+    bool pushMidi(const midi::TimedMessage& message) noexcept { return midiInput.push(message); }
+
+    /** Message thread. Plays key on the track (velocity 0 to 1, above 0) until
+        stopPreview(), through its instrument, at the next block. */
+    void startPreview(juce::int64 trackId, int key, float velocity);
+    void stopPreview(juce::int64 trackId, int key);
+
     /** Message thread. Frees arrangements the audio thread no longer uses.
         setArrangement() calls it too; call it regularly (a UI timer is fine). */
     void collectGarbage();
@@ -232,6 +258,8 @@ private:
     void startWhenReady() noexcept;
     [[nodiscard]] int pieceLength(juce::int64 timelinePosition, int available) const noexcept;
 
+    void takeLiveInput(const AudioInputs& inputs, int numSamples) noexcept;
+
     void send(Command command);
     void apply(const Command& command) noexcept;
     void takeNewSnapshot() noexcept;
@@ -295,8 +323,26 @@ private:
     int renderOffset = 0;
     Snapshot* waitingToRetire = nullptr; // only if the retired queue was full
 
+    // Live MIDI: messages waiting for their sample, and the current block's events.
+    struct PendingMidi
+    {
+        juce::int64 stream = 0; ///< where it plays
+        midi::LiveEvent live;
+    };
+    static constexpr int maximumPendingMidi = 1024;
+    std::array<PendingMidi, maximumPendingMidi> pendingMidi{};
+    int pendingMidiCount = 0;
+    std::array<midi::LiveEvent, maximumPendingMidi> liveEvents{};
+    int liveEventCount = 0;
+    bool liveSkipped = false; // a block went by without hearing live MIDI
+    bool liveMissed = false;  // this block could not render it
+
+    // MIDI thread -> audio thread.
+    rt::SpscQueue<midi::TimedMessage, 4096> midiInput;
+
     // Message thread -> audio thread.
     rt::SpscQueue<Command, 256> commands;
+    rt::SpscQueue<detail::PreviewCommand, 256> previews;
     std::atomic<Snapshot*> pendingSnapshot{nullptr};
 
     std::atomic<LatencyTest*> pendingLatencyTest{nullptr};
