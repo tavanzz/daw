@@ -715,17 +715,19 @@ juce::String readMidiContent(const juce::var& clipJson, MidiClip clip)
     std::vector<Note> notes;
     for (const auto& noteJson : notesJson.isArray() ? *notesJson.getArray() : juce::Array<juce::var>{})
     {
-        const auto id = readInteger(noteJson, json::id, 0);
-        const auto start = readInteger(noteJson, json::start, 0);
-        const auto length = readInteger(noteJson, json::length, 1);
-        const auto key = readInteger(noteJson, json::key, 60);
-        const auto velocity = readInteger(noteJson, json::velocity, Note::defaultVelocity);
-        if (!noteJson.isObject() || !id || !start || !length || !key || !velocity || *start < 0 ||
-            *length < 1 || *key < 0 || *key > 127 || *velocity < Note::minimumVelocity ||
-            *velocity > Note::maximumVelocity || *id < 0 || *id > std::numeric_limits<std::int32_t>::max())
+        constexpr juce::int64 invalid = -1;
+        const auto id = readInteger(noteJson, json::id, 0).value_or(invalid);
+        const auto start = readInteger(noteJson, json::start, 0).value_or(invalid);
+        const auto length = readInteger(noteJson, json::length, 1).value_or(invalid);
+        const auto key = readInteger(noteJson, json::key, 60).value_or(invalid);
+        const auto velocity =
+            readInteger(noteJson, json::velocity, Note::defaultVelocity).value_or(invalid);
+        if (!noteJson.isObject() || id < 0 || id > std::numeric_limits<std::int32_t>::max() ||
+            start < 0 || length < 1 || key < 0 || key > 127 || velocity < Note::minimumVelocity ||
+            velocity > Note::maximumVelocity)
             return "a note is not valid";
-        notes.push_back({static_cast<std::int32_t>(*id), *start, *length, static_cast<int>(*key),
-                         static_cast<int>(*velocity)});
+        notes.push_back({static_cast<std::int32_t>(id), start, length, static_cast<int>(key),
+                         static_cast<int>(velocity)});
     }
 
     const auto& controllersJson = clipJson[json::controllers];
@@ -747,12 +749,11 @@ juce::String readMidiContent(const juce::var& clipJson, MidiClip clip)
 
         for (const auto& eventJson : eventsJson.isArray() ? *eventsJson.getArray() : juce::Array<juce::var>{})
         {
-            const auto position = readInteger(eventJson, json::position, 0);
-            const auto value = readInteger(eventJson, json::value, 0);
-            if (!eventJson.isObject() || !position || !value || *position < 0 || *value < 0 ||
-                *value > type->maximumValue())
+            const auto position = readInteger(eventJson, json::position, 0).value_or(-1);
+            const auto value = readInteger(eventJson, json::value, 0).value_or(-1);
+            if (!eventJson.isObject() || position < 0 || value < 0 || value > type->maximumValue())
                 return "a controller event is not valid";
-            events.push_back({*type, *position, static_cast<int>(*value)});
+            events.push_back({*type, position, static_cast<int>(value)});
         }
     }
 
@@ -1082,17 +1083,20 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
 
         if (track.isMidi())
         {
+            // value_or rather than optionals compared later: GCC's optimiser warns about
+            // those (maybe-uninitialized) where they cannot be.
             const auto midiInputJson = readObject(trackJson, json::midiInput);
-            const auto& device = midiInputJson ? (*midiInputJson)[json::device] : juce::var();
-            const auto midiInputChannel =
-                midiInputJson ? readInteger(*midiInputJson, json::channel, 0) : std::nullopt;
-            const auto midiChannel = readInteger(trackJson, json::midiChannel, 1);
-            if (!midiInputJson || (!device.isVoid() && !device.isString()) || !midiInputChannel ||
-                *midiInputChannel < 0 || *midiInputChannel > 16 || !midiChannel ||
-                *midiChannel < 1 || *midiChannel > 16)
+            if (!midiInputJson)
                 return damaged(*version, "a track's MIDI input or channel is not valid");
-            track.setMidiInput({device.toString(), static_cast<int>(*midiInputChannel)});
-            track.setMidiChannel(static_cast<int>(*midiChannel));
+            const auto device = (*midiInputJson)[json::device];
+            const juce::int64 midiInputChannel =
+                readInteger(*midiInputJson, json::channel, 0).value_or(-1);
+            const juce::int64 midiChannel = readInteger(trackJson, json::midiChannel, 1).value_or(0);
+            if ((!device.isVoid() && !device.isString()) || midiInputChannel < 0 ||
+                midiInputChannel > 16 || midiChannel < 1 || midiChannel > 16)
+                return damaged(*version, "a track's MIDI input or channel is not valid");
+            track.setMidiInput({device.toString(), static_cast<int>(midiInputChannel)});
+            track.setMidiChannel(static_cast<int>(midiChannel));
 
             const auto& instrumentJson = trackJson[json::instrument];
             if (!instrumentJson.isVoid())
@@ -1147,13 +1151,13 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
             if (midiClip)
             {
                 const auto& clipName = clipJson[json::name];
-                const auto position = readInteger(clipJson, json::position, 0);
-                const auto offset = readInteger(clipJson, json::offset, 0);
-                const auto length = readInteger(clipJson, json::length, 0);
-                if ((!clipName.isVoid() && !clipName.isString()) || !position || !offset ||
-                    !length || *length < Clip::minimumLength)
+                const auto position = readInteger(clipJson, json::position, 0).value_or(-1);
+                const auto offset = readInteger(clipJson, json::offset, 0).value_or(-1);
+                const auto length = readInteger(clipJson, json::length, 0).value_or(-1);
+                if ((!clipName.isVoid() && !clipName.isString()) || position < 0 || offset < 0 ||
+                    length < Clip::minimumLength)
                     return damaged(*version, "a MIDI clip's name, position, offset or length is not valid");
-                auto clip = track.addMidiClip(clipName.toString(), {*position, *offset, *length});
+                auto clip = track.addMidiClip(clipName.toString(), {position, offset, length});
                 if (const auto error = readMidiContent(clipJson, MidiClip(clip.getState()));
                     error.isNotEmpty())
                     return damaged(*version, "a MIDI clip: " + error);
