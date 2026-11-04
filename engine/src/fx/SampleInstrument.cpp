@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace daw::engine::fx
 {
@@ -23,6 +24,7 @@ void SampleInstrument::reset() noexcept
         voice.amp.reset();
     }
     clock = 0;
+    lastTick = std::numeric_limits<std::uint64_t>::max();
     notesStarted = 0;
     bend = 0.0;
     sustainDown = false;
@@ -52,26 +54,32 @@ void SampleInstrument::process(const ProcessBlock& block) noexcept
             voice.active = false;
     }
 
+    // At each sample: the control tick (if one falls there) first, so that events
+    // there see the parameters of their own sample; then the events; then the sound
+    // up to the next event or tick.
     std::size_t next = 0;
     int sample = 0;
     while (sample < block.numSamples)
     {
+        if (clock % controlInterval == 0 && clock != lastTick)
+        {
+            tick(block, sample);
+            lastTick = clock;
+        }
+
         for (; next < block.events.size() && block.events[next].offset <= sample; ++next)
             handle(block.events[next]);
 
         const int until = next < block.events.size()
                               ? std::min(block.numSamples, block.events[next].offset)
                               : block.numSamples;
-        while (sample < until)
-        {
-            const auto intoInterval = static_cast<int>(clock % controlInterval);
-            if (intoInterval == 0)
-                tick(block, sample);
-            const int length = std::min(until - sample, controlInterval - intoInterval);
-            render(block.channels, block.numChannels, sample, length);
-            sample += length;
-            clock += static_cast<std::uint64_t>(length);
-        }
+        const auto intoInterval = static_cast<int>(clock % controlInterval);
+        const int length = std::min(until - sample, controlInterval - intoInterval);
+        if (length <= 0)
+            continue;
+        render(block.channels, block.numChannels, sample, length);
+        sample += length;
+        clock += static_cast<std::uint64_t>(length);
     }
 
     for (; next < block.events.size(); ++next)

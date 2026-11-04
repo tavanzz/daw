@@ -210,6 +210,7 @@ private:
     std::array<float, 512> mixScratch{};
     Controls controls;
     std::uint64_t clock = 0; // samples since reset
+    std::uint64_t lastTick = 0; // the clock of the last control tick
     std::uint64_t notesStarted = 0;
 
     // Global modulation, at control ticks.

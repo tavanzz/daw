@@ -284,11 +284,15 @@ Modules with one-way dependencies:
   1024 phases) from the level that keeps it at most 1, forward loops crossfading into
   what precedes the loop start (a continuous seam), ping-pong, ADSR, one-shot,
   choke groups, 32 voices + 4 spare for 3 ms steal fades, sustain, bend, CC7/CC11; a
-  16-sample control grid. `Sampler`: one "sample" over the keyboard (root key, C3 =
+  16-sample control grid (at a tick the parameters are read before the events of
+  that sample). `Sampler`: one "sample" over the keyboard (root key, C3 =
   60, `fx::keyName()`), transpose, fine, start, loop, envelope. `controller::
   SampleCache` loads instrument files on worker threads at the device rate (again at a
   new rate); `Session::setInstrumentFile()` (undoable), `getSamples()`; the builder's
-  `SampleLookup`; `ExportJob` loads them at the export rate.
+  `SampleLookup`; `ExportJob` loads them at the export rate. `DrumSampler` ("drums"):
+  16 pads ("pad1".."pad16") on keys 36 to 51 (General MIDI), each with a key, level,
+  pan, tune, decay (sustain 0, one-shot) and choke group (hi-hats 42, 44, 46 in
+  group 1); a pad hit again fades its last hit out over 3 ms.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -1195,7 +1199,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 11. Subtractive synth: band-limited wavetable oscillators, resonant SVF, two
       envelopes, LFO, glide, preallocated voices and stealing
 - [x] 12. Sampler: samples in memory, interpolated pitch, envelope, loop
-- [ ] 13. Drum sampler: 16 pads, choke groups
+- [x] 13. Drum sampler: 16 pads, choke groups
 - [ ] 14. Standard MIDI files: import and export, type 0 and 1, round trips
 - [ ] 15. Benchmark: cost per voice of each instrument, voices per budget (Release)
 - [ ] 16. Desktop UI: MIDI tracks in the arrange view (headers, MIDI clips with their

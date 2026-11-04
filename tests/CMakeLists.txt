@@ -33,6 +33,7 @@ add_executable(daw_tests
     engine/BusTests.cpp
     engine/DelayTests.cpp
     engine/DiskStreamerTests.cpp
+    engine/DrumSamplerTests.cpp
     engine/DynamicsTests.cpp
     engine/EffectChainTests.cpp
     engine/EffectHostTests.cpp

@@ -127,6 +127,7 @@ private:
     std::array<float, controlInterval> leftScratch{};
     std::array<float, controlInterval> rightScratch{};
     std::uint64_t clock = 0;
+    std::uint64_t lastTick = 0; // the clock of the last control tick
     std::uint64_t notesStarted = 0;
     double bend = 0.0; // -1 to 1
     bool sustainDown = false;
