@@ -648,8 +648,8 @@ apt.llvm.org.
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
 - Phase work happens on a branch (`phase-N`) with a draft pull request into `main`;
   CI must be green on Windows, macOS and Linux.
-- Don't implement later phases (multiple takes and comping, MIDI, effects, plugins,
-  automation, mobile) beyond keeping the architecture ready for them.
+- Don't implement later phases (multiple takes and comping, plugins, MPE, MIDI clock,
+  mobile) beyond keeping the architecture ready for them.
 
 ## Status
 
@@ -1005,3 +1005,149 @@ Phase 5 decisions (agreed before starting):
   track, automation on volume and two parameters; a 1600x1000 window with the mixer
   open, playing; 20 s per combination.
 - Screenshots are not committed (`build/screenshots/phase5/`).
+
+Phase 6 (in progress, branch `phase-6`): MIDI and instruments. MIDI tracks with MIDI
+clips on the timeline (create, move, trim, duplicate, delete); a piano roll (draw,
+move, resize and delete notes, velocity, multiple selection, grid and snap,
+quantisation with value and strength, transposition, a preview of the note being
+drawn); MIDI input from devices with monitoring of armed tracks and MIDI recording
+with Phase 3's count-in, punch and metronome (one undo step per recording); built-in
+instruments (a polyphonic subtractive synth, a sampler, a drum sampler with pads) at
+the start of the track's chain, so Phase 4's inserts, sends, automation and delay
+compensation apply to MIDI tracks and instrument parameters are automatable; pitch
+bend, mod wheel, sustain, aftertouch and any CC as lanes under the piano roll; import
+and export of standard MIDI files (type 0 and 1); project format version 5 with a
+migration from version 4. Out of scope: external plugins, MPE, MIDI clock and
+external sync, arpeggiator, step sequencer, score editor, mobile UI, MIDI output to
+devices, loop/take/merge recording, swing, presets.
+
+- [x] 0. Plan (this list) and draft pull request
+- [ ] 1. MIDI events and the instrument interface: `fx::Effect` takes sample-exact
+      events, `EffectInstance` delivers them (note-offs and reset on bypass and
+      removal); a test instrument
+- [ ] 2. MIDI in the arrangement and the mixer: notes and controllers in samples per
+      track, the instrument first in the chain, note-on and note-off on the exact
+      sample for any block size, at clip edges and in loops; controller chase
+- [ ] 3. No hanging notes: stop, pause, seek, loop, new arrangements (notes reconciled
+      by identity), mute and solo, bypass, removal, rate changes; export equals
+      real-time playback with instruments and automation
+- [ ] 4. MIDI input in the engine: lock-free timestamped queues per device, time to
+      sample, monitoring of armed tracks, preview notes, note-offs when a track stops
+      listening; simulated MIDI device for tests
+- [ ] 5. MIDI recording in the engine: what was heard (history, output latency and
+      delay compensation), count-in, punch, metronome; exact ticks with a known latency
+- [ ] 6. Project format version 5: track type, instrument, MIDI input and channel; MIDI
+      clips with notes and controller lanes; grid with 1/64 and triplets; migration
+      from version 4
+- [ ] 7. Undoable edits: MIDI tracks, MIDI clips (create, move, trim, duplicate,
+      delete; duplicate audio clips too), notes (add, move, resize, delete, velocity,
+      transpose) and controller events
+- [ ] 8. Note editing in the controller: quantisation (value, strength, ends), snap,
+      selection, hit tests, drag rules, transposition, `PianoRollViewport`
+- [ ] 9. Controller: MIDI tracks in the arrangement (clip overlaps and edges,
+      controller steps), instrument instances, sample loading, preview, MIDI inputs
+- [ ] 10. MIDI recording in the controller and the app: armed MIDI tracks with the
+      audio ones in one "Record" step, handles, punch, discard; MIDI devices in
+      `AudioDeviceHost`
+- [ ] 11. Subtractive synth: band-limited wavetable oscillators, resonant SVF, two
+      envelopes, LFO, glide, preallocated voices and stealing
+- [ ] 12. Sampler: samples in memory, interpolated pitch, envelope, loop
+- [ ] 13. Drum sampler: 16 pads, choke groups
+- [ ] 14. Standard MIDI files: import and export, type 0 and 1, round trips
+- [ ] 15. Benchmark: cost per voice of each instrument, voices per budget (Release)
+- [ ] 16. Desktop UI: MIDI tracks in the arrange view (headers, MIDI clips with their
+      notes), the instrument slot in the mixer, new colour roles in the three themes
+- [ ] 17. Desktop UI: piano roll (keyboard, notes, grid, selection, velocity,
+      quantisation, transposition, preview)
+- [ ] 18. Desktop UI: controller lanes (pitch bend, mod wheel, sustain, aftertouch, CC)
+- [ ] 19. Desktop UI: instrument editors (grouped generic synth editor, sampler and drum
+      pad views), MIDI settings, MIDI import and export in the menus
+- [ ] 20. UI tests of the new components in every theme; listening tests and files
+      for Phase 6 (`docs/LISTENING_TESTS.md`); version 0.6.0
+
+Phase 6 decisions (agreed before starting):
+
+- Note positions are ticks (as audio clips); a tempo change keeps notes at their time
+  position, like audio. Overlapping MIDI clips on a track: the one on top covers the
+  ones below (as audio). A clip's notes are relative to its content: trimming its
+  start hides notes, extending it reveals them; a note plays if it starts inside the
+  clip and ends at the clip's end at the latest.
+- Starting playback in the middle of a note does not play it (no note chase);
+  controllers are chased (the value at that point is sent first). At the end of a
+  clip that changed them, controllers return to their rest values: pitch bend centre,
+  CC7 and CC11 127, every other CC and aftertouch 0. Controller events are steps
+  inside their clip.
+- No hanging notes: the engine keeps a table of the notes sounding on each track and
+  sends their note-offs itself (never relying on CC123); stop, pause, seek, the loop's
+  wrap, mute/solo (a track not heard plays no notes), bypass and removal of the
+  instrument send note-offs; a new arrangement keeps unchanged notes sounding, ends
+  removed or moved ones at once and gives shortened ones their new end. A key struck
+  again while sounding gets a note-off first. At one sample: note-offs, controllers,
+  note-ons.
+- Instrument tails ring on after stop, as effect tails do.
+- Instrument interface: `fx::Effect` with events in `ProcessBlock` (note on/off with
+  note id, channel, key, velocity 0..1; controller, pitch bend, channel pressure
+  normalised), mapping one to one onto VST3 event lists, CLAP note/MIDI events and AU
+  MIDI events; exact for MIDI 1.0, ready for MIDI 2.0 resolution. The instrument is
+  the first slot of a MIDI track's chain; its parameters are automated through the
+  `effect:<id>:<parameter>` targets.
+- Voices preallocated (up to 32 per instrument, plus spare voices for stealing).
+  Stealing: the quietest releasing voice, otherwise the oldest; the stolen voice fades
+  out over 3 ms on a spare voice while the new note starts on time.
+- Instruments are independent of the host's block size: everything per sample or on
+  a 16-sample grid counted by the instrument itself.
+- MIDI input: every device enabled by default (also those plugged in later), switched
+  off in Audio Settings; per-track input = all devices or one, all channels or one.
+  Events are placed by their timestamps one audio block late (no jitter), as JUCE's
+  MidiMessageCollector does. Monitoring: auto while armed, on, off; the live input is
+  added to the clips' notes. Recording compensates the device output latency and the
+  delay compensation (no manual offset: that one measures the audio round trip).
+- MIDI recording: armed MIDI tracks record with the audio ones, one undo step
+  ("Record"); the clip runs from the start (or punch in) to the stop (or punch out);
+  notes from the count-in and before the punch stay hidden in the clip as handles;
+  notes held at the stop end there. MIDI-only recordings do not need a saved project
+  and are not recovered after a crash. No loop, take or merge recording.
+- Piano roll: a lower panel instead of the mixer (E shows it; double-clicking a MIDI
+  clip opens it). Click on empty space adds a note (length and velocity of the last
+  note touched; at first one grid step and velocity 100), drag on empty space selects
+  with a rectangle, drag a note to move it, its edges to resize it, double-click
+  deletes, Alt+drag duplicates. Q quantises the selected notes (all if none) to the
+  grid by default at 100 % strength, starts only unless "ends" is on; no swing. Up/down
+  transpose by a semitone, Shift by an octave (refused beyond 0..127). The preview
+  plays through the track while the mouse is down, and from the piano keys. Middle C
+  (note 60) is C3.
+- Lanes under the notes: velocity, then any of pitch bend, mod wheel (CC1), sustain
+  (CC64), aftertouch and any CC by number. Click adds an event, drag moves it,
+  double-click deletes it, Alt+drag draws a straight line of events.
+- Built-in instruments follow pitch bend (range +-2 semitones by default, up to 24),
+  mod wheel (vibrato), sustain, CC7 and CC11 (level); other CCs are saved, exported
+  and delivered (for future plugins).
+- Synth: two oscillators (sine, triangle, saw, square/pulse) and noise; band-limited
+  wavetables (no harmonic above Nyquist by construction, adjacent tables crossfaded as
+  the pitch moves), aliasing below -80 dB of the fundamental up to C8 at 44.1 and
+  48 kHz; a linear trapezoidal SVF (low-pass 12 and 24 dB, band-pass, high-pass) with
+  resonance, key tracking, envelope and velocity amounts; envelope 1 on the amplitude,
+  envelope 2 on the filter and the pitch (attack linear to the peak in the set time,
+  decay and release exponential, 60 dB in the set time); an LFO (free or synced) to
+  pitch, filter, amplitude and pulse width; glide 0 to 2 s, poly, mono or legato; 1 to
+  32 voices (16).
+- Sampler: WAV or AIFF in memory (decoded on a worker thread), 8-point windowed-sinc
+  interpolation with filtered copies for upward transposition, root key, transpose,
+  fine tune, start, loop with crossfade, envelope, velocity. Drum sampler: 16 pads on
+  notes 36 to 51 (General MIDI), each with a sample, level, pan, tune, decay and choke
+  group. Sample files are kept relative to the project, like audio clips.
+- Synth editor: the generic editor in sections; the sampler and the drum sampler have
+  views of their own (waveform with loop and root key; pad grid).
+- MIDI files: Cmd+I (or a drop) also imports .mid: one track per file track (and per
+  channel when a track mixes several), named after it; channel 10 gets the drum
+  sampler; positions in beats at the project tempo; an empty project first takes the
+  file's tempo and metre; tempo changes, program changes, polyphonic aftertouch, SysEx
+  and other meta events are left out and reported. File > Export MIDI File...
+  (Alt+Cmd+E): every MIDI track, type 1 (or 0), 960 PPQ, names, channels, tempo,
+  metre, notes and controllers.
+- New MIDI track: Alt+Cmd+T, with the synth (two slightly detuned saws through a
+  low-pass), every input, every channel, monitoring auto, channel 1. Cmd+D duplicates
+  the selected clips right after themselves (audio too); Alt+drag copies; a
+  double-click on an empty part of a MIDI track makes a one-bar clip.
+- Benchmark: cost per voice of each instrument at 48 kHz and how many voices fit in
+  the whole and half the budget with 128, 256 and 512-sample blocks.
