@@ -52,6 +52,8 @@ std::vector<ColourPair> makeColourPairs()
     add(outlines, outlineSurfaces, graphicKind);
     add(std::array{peakHold}, std::array{meterTrack}, graphicKind);
     add(std::array{curve, gainReduction}, std::array{inset, panel}, graphicKind);
+    add(std::array{loop, highlight}, std::array{inset}, graphicKind); // sample markers
+    add(std::array{selection}, std::array{raised}, graphicKind); // a selected drum pad
     add(std::array{keyBlack}, std::array{keyWhite}, graphicKind);
     add(std::array{text, textSecondary}, std::array{keyRow}, textKind);
 
@@ -59,7 +61,7 @@ std::vector<ColourPair> makeColourPairs()
 }
 
 constexpr std::array filled{accent, accentAlt, highlight, record,  mute,  solo,     clip,
-                            automation, monitor, warning, error, keyWhite, keyBlack};
+                            automation, monitor, warning, error, keyWhite, keyBlack, loop};
 
 constexpr std::array statuses{record, mute, solo, clip, automation};
 

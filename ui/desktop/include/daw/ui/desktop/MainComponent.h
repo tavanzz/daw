@@ -70,6 +70,7 @@ public:
         duplicate,
         togglePianoRoll,
         quantiseNotes,
+        exportMidi,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8
@@ -122,6 +123,7 @@ private:
     void showMixer(bool shouldShow);
     void showPianoRoll(bool shouldShow);
     void showLowerPanel(bool shouldShow);
+    void chooseMidiExport();
     void themeChanged() override;
     void showPanel(std::unique_ptr<PanelWindow>& window, const juce::String& title,
                    const std::function<std::unique_ptr<juce::Component>()>& makeContent);

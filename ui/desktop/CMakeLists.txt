@@ -15,6 +15,7 @@ add_library(daw_ui_desktop STATIC
     src/ExportDialog.cpp
     src/GenericEffectEditor.cpp
     src/HazardBand.cpp
+    src/InstrumentViews.cpp
     src/LevelMeter.cpp
     src/Logo.cpp
     src/MainComponent.cpp

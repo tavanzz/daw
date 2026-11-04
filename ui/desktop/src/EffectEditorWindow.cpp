@@ -2,12 +2,15 @@
 
 #include "daw/engine/fx/BuiltInEffects.h"
 #include "daw/engine/fx/Compressor.h"
+#include "daw/engine/fx/DrumSampler.h"
 #include "daw/engine/fx/Equaliser.h"
 #include "daw/engine/fx/Limiter.h"
+#include "daw/engine/fx/Sampler.h"
 #include "daw/ui/desktop/CompressorView.h"
 #include "daw/ui/desktop/EffectSlots.h"
 #include "daw/ui/desktop/EqualiserView.h"
 #include "daw/ui/desktop/GenericEffectEditor.h"
+#include "daw/ui/desktop/InstrumentViews.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <numeric>
@@ -67,7 +70,28 @@ public:
         ThemedLookAndFeel::setFontRole(title, appearance::FontRole::heading);
         addAndMakeVisible(title);
 
-        if (type == engine::fx::Equaliser::typeId)
+        int width = 520;
+        if (type == engine::fx::Sampler::typeId)
+        {
+            sampler = std::make_unique<SamplerView>(session, effectId, description);
+            addAndMakeVisible(*sampler);
+            width = 820;
+        }
+        else if (type == engine::fx::DrumSampler::typeId)
+        {
+            drums = std::make_unique<DrumPadsView>(session, effectId, description);
+            addAndMakeVisible(*drums);
+            width = 640;
+        }
+        else if (description.isInstrument)
+        {
+            // The synth (and any instrument without a view of its own): sections.
+            sections = std::make_unique<SectionedEffectEditor>(session, effectId, description,
+                                                               shownParameters(description), 3);
+            addAndMakeVisible(*sections);
+            width = 900;
+        }
+        else if (type == engine::fx::Equaliser::typeId)
         {
             equaliser = std::make_unique<EqualiserView>(session, effectId);
             equaliser->onBandSelected = [this](int band) { showBand(band); };
@@ -86,7 +110,7 @@ public:
             addAndMakeVisible(*controls);
         }
 
-        setSize(520, preferredHeight());
+        setSize(width, preferredHeight());
     }
 
     void refresh(double elapsedSeconds)
@@ -116,6 +140,17 @@ public:
             dynamics->refresh(elapsedSeconds);
         if (controls != nullptr)
             controls->refresh();
+        if (sections != nullptr)
+            sections->refresh();
+        if (sampler != nullptr)
+            sampler->refresh();
+        if (drums != nullptr)
+        {
+            const int before = drums->getPreferredHeight();
+            drums->refresh();
+            if (drums->getPreferredHeight() != before)
+                resized();
+        }
     }
 
     void resized() override
@@ -141,6 +176,12 @@ public:
         }
         if (controls != nullptr)
             controls->setBounds(area);
+        if (sections != nullptr)
+            sections->setBounds(area);
+        if (sampler != nullptr)
+            sampler->setBounds(area);
+        if (drums != nullptr)
+            drums->setBounds(area);
     }
 
     void paint(juce::Graphics& g) override
@@ -159,6 +200,12 @@ private:
             height += 176;
         if (controls != nullptr)
             height += controls->getPreferredHeight();
+        if (sections != nullptr)
+            height += sections->getPreferredHeight();
+        if (sampler != nullptr)
+            height += sampler->getPreferredHeight();
+        if (drums != nullptr)
+            height += drums->getPreferredHeight();
         return height;
     }
 
@@ -188,6 +235,9 @@ private:
     std::unique_ptr<EqualiserView> equaliser;
     std::unique_ptr<CompressorView> dynamics;
     std::unique_ptr<GenericEffectEditor> controls;
+    std::unique_ptr<SectionedEffectEditor> sections;
+    std::unique_ptr<SamplerView> sampler;
+    std::unique_ptr<DrumPadsView> drums;
 };
 
 EffectEditorWindow::EffectEditorWindow(controller::Session& session, model::ObjectId effect)

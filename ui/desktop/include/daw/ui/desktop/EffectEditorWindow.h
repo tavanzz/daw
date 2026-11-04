@@ -11,14 +11,17 @@ namespace daw::ui::desktop
 {
 
 /**
-    The editor of one effect, in its own window: a header (the effect and where it
+    The editor of one effect or instrument, in its own window: a header (the effect and where it
     is, Bypass, and a warning with Reactivate when it was silenced for producing NaN
     or infinity), then what suits the effect:
     - equaliser: its response curve with a handle per band, and the selected band's
       controls;
     - compressor: its static curve and gain reduction, and its controls;
     - limiter: its gain reduction and controls;
-    - any other: controls made from its parameters (GenericEffectEditor).
+    - sampler: its waveform with start and loop, its file (SamplerView);
+    - drum sampler: the pads, the selected pad's controls and the kit's (DrumPadsView);
+    - synth (any other instrument): controls in sections (SectionedEffectEditor);
+    - any other effect: controls made from its parameters (GenericEffectEditor).
 */
 class EffectEditorWindow final : public juce::DocumentWindow
 {

@@ -1219,6 +1219,50 @@ void ThemedLookAndFeel::drawControllerEvent(juce::Graphics& g, juce::Point<float
     g.fillEllipse(centre.x - 3.0f, centre.y - 3.0f, 6.0f, 6.0f);
 }
 
+void ThemedLookAndFeel::drawSampleWaveform(juce::Graphics& g, const juce::Path& outline) const
+{
+    g.setColour(colour(ColourRole::curveFill));
+    g.fillPath(outline);
+    g.setColour(colour(ColourRole::curve));
+    g.strokePath(outline, juce::PathStrokeType(1.0f));
+}
+
+void ThemedLookAndFeel::drawSampleMarker(juce::Graphics& g, float x, float top, float bottom,
+                                         const juce::String& label, bool loop) const
+{
+    const auto marker = colour(loop ? ColourRole::loop : ColourRole::highlight);
+    g.setColour(marker);
+    g.drawLine(x, top, x, bottom, 1.5f);
+    const auto labelFont = font(FontRole::caption);
+    const auto width = juce::GlyphArrangement::getStringWidth(labelFont, label) + 8.0f;
+    const juce::Rectangle<float> tag{x, top, width, labelFont.getHeight() + 2.0f};
+    g.fillRect(tag);
+    g.setColour(textColourOn(marker));
+    g.setFont(labelFont);
+    g.drawText(label, tag, juce::Justification::centred, false);
+}
+
+void ThemedLookAndFeel::drawDrumPad(juce::Graphics& g, juce::Rectangle<float> area,
+                                    const juce::String& title, const juce::String& detail,
+                                    bool selected, bool lit) const
+{
+    const auto shape = shapeOf(area, CornerSize::medium);
+    const auto fill = lit ? colour(ColourRole::accent) : colour(ColourRole::raised);
+    g.setColour(fill);
+    g.fillPath(shape);
+    g.setColour(colour(selected ? ColourRole::selection : ColourRole::outline));
+    g.strokePath(shape, juce::PathStrokeType(selected ? 2.0f : 1.0f));
+
+    auto text = area.reduced(6.0f, 4.0f);
+    g.setColour(lit ? textColourOn(fill) : colour(ColourRole::text));
+    g.setFont(font(FontRole::label));
+    g.drawText(labelText(FontRole::label, title), text.removeFromTop(text.getHeight() / 2.0f),
+               juce::Justification::bottomLeft, true);
+    g.setColour(lit ? textColourOn(fill) : colour(ColourRole::textSecondary));
+    g.setFont(font(FontRole::caption));
+    g.drawText(labelText(FontRole::caption, detail), text, juce::Justification::topLeft, true);
+}
+
 void ThemedLookAndFeel::drawRulerBackground(juce::Graphics& g, juce::Rectangle<float> area) const
 {
     drawPanel(g, area, ColourRole::panelAlt, true);

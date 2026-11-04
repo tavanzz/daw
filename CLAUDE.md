@@ -682,6 +682,16 @@ Modules with one-way dependencies:
   drag one gesture). A clip comes into view (its window and its keys) once the panel
   has its size. Controller lanes (`ControllerLane`) show the types the clip has events
   for and those chosen from the Lanes menu, as steps chased from the clip's start.
+- Instrument editors (Phase 6): the effect editor window shows the synth (and any
+  instrument without a view of its own) as a `SectionedEffectEditor` (a section per
+  `ParameterInfo::group`, packed into three columns), the sampler as a `SamplerView`
+  (the sample's waveform with its start and loop marked and its root key, Load...,
+  Remove or a dropped file, then its controls) and the drum sampler as a
+  `DrumPadsView` (sixteen pads, pad 1 at the bottom left, a click selects and plays
+  one, a file dropped on a pad loads it, several fill the pads from there; the
+  selected pad's controls and the kit's). Audio Settings lists the MIDI inputs (every
+  one on until switched off). Cmd+I and drops import .mid files too; File > Export
+  MIDI File... (Alt+Cmd+E) asks for type 1 or 0.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -1240,7 +1250,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 17. Desktop UI: piano roll (keyboard, notes, grid, selection, velocity,
       quantisation, transposition, preview)
 - [x] 18. Desktop UI: controller lanes (pitch bend, mod wheel, sustain, aftertouch, CC)
-- [ ] 19. Desktop UI: instrument editors (grouped generic synth editor, sampler and drum
+- [x] 19. Desktop UI: instrument editors (grouped generic synth editor, sampler and drum
       pad views), MIDI settings, MIDI import and export in the menus
 - [ ] 20. UI tests of the new components in every theme; listening tests and files
       for Phase 6 (`docs/LISTENING_TESTS.md`); version 0.6.0

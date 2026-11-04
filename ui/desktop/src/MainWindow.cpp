@@ -115,6 +115,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         menu.addSeparator();
         add(MainComponent::importAudio);
         add(MainComponent::exportMix);
+        add(MainComponent::exportMidi);
         menu.addSeparator();
         add(MainComponent::audioSettings);
 #if !JUCE_MAC

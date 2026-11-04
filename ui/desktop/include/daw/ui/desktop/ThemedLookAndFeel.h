@@ -271,6 +271,15 @@ public:
     void drawControllerSteps(juce::Graphics& g, const juce::Path& steps) const;
     void drawControllerEvent(juce::Graphics& g, juce::Point<float> centre, bool selected) const;
 
+    // Instrument editors.
+    /** A sample's waveform, a closed outline of its peaks, on a graph background. */
+    void drawSampleWaveform(juce::Graphics& g, const juce::Path& outline) const;
+    /** A position in a sample (start, loop start or end), labelled at the top. */
+    void drawSampleMarker(juce::Graphics& g, float x, float top, float bottom,
+                          const juce::String& label, bool loop) const;
+    /** A drum pad: its name and what it plays; lit while it sounds. */
+    void drawDrumPad(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& title,
+                     const juce::String& detail, bool selected, bool lit) const;
 
     virtual void drawRulerBackground(juce::Graphics& g, juce::Rectangle<float> area) const;
     void drawRulerMark(juce::Graphics& g, float x, float top, float bottom, bool major) const;

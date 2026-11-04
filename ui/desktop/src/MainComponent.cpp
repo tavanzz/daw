@@ -15,7 +15,7 @@ namespace daw::ui::desktop
 namespace
 {
 constexpr int refreshRateHz = 60;
-constexpr const char* audioFilePatterns = "*.wav;*.wave;*.aif;*.aiff;*.aifc";
+constexpr const char* audioFilePatterns = "*.wav;*.wave;*.aif;*.aiff;*.aifc;*.mid;*.midi";
 constexpr const char* projectFilePattern = "*.dawproject";
 
 bool isProjectFile(const juce::File& file)
@@ -72,6 +72,8 @@ void MainComponent::openFile(const juce::File& file)
 {
     if (isProjectFile(file))
         askToSaveChanges([this, file] { openProjectFile(file); });
+    else if (file.hasFileExtension("mid;midi;smf"))
+        session.importMidi(file, arrangeView.getInsertPosition());
     else
         session.importAudio({file}, arrangeView.getInsertPosition());
 }
@@ -403,16 +405,65 @@ void MainComponent::offerRecovery()
 
 void MainComponent::chooseAudioToImport()
 {
-    fileChooser = std::make_unique<juce::FileChooser>("Import audio files", juce::File(),
+    fileChooser = std::make_unique<juce::FileChooser>("Import audio or MIDI files", juce::File(),
                                                       audioFilePatterns);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
                                  juce::FileBrowserComponent::canSelectFiles |
                                  juce::FileBrowserComponent::canSelectMultipleItems,
                              [this](const juce::FileChooser& chooser) {
-                                 const auto files = chooser.getResults();
-                                 if (!files.isEmpty())
-                                     session.importAudio(files, arrangeView.getInsertPosition());
+                                 juce::Array<juce::File> audio;
+                                 for (const auto& file : chooser.getResults())
+                                 {
+                                     if (!file.hasFileExtension("mid;midi;smf"))
+                                     {
+                                         audio.add(file);
+                                         continue;
+                                     }
+                                     const auto import =
+                                         session.importMidi(file, arrangeView.getInsertPosition());
+                                     if (import.result.failed())
+                                         showError("The MIDI file could not be imported",
+                                                   import.result.getErrorMessage());
+                                     else if (!import.leftOut.isEmpty())
+                                         showError("Imported, with some things left out",
+                                                   file.getFileName() + " had " +
+                                                       import.leftOut.joinIntoString(", ") +
+                                                       ", which this version does not keep.");
+                                 }
+                                 if (!audio.isEmpty())
+                                     session.importAudio(audio, arrangeView.getInsertPosition());
                              });
+}
+
+void MainComponent::chooseMidiExport()
+{
+    // Type 1 (a track per MIDI track) unless the user asks for one track (type 0).
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle("Export MIDI File")
+                             .withMessage("Write each MIDI track as a track of its own (type 1), "
+                                          "or everything in one track (type 0)?")
+                             .withButton("Type 1")
+                             .withButton("Type 0")
+                             .withButton("Cancel")
+                             .withAssociatedComponent(this);
+    showAlert(options, [this](int button) {
+        if (button == 2)
+            return; // Cancel, or Escape
+        const int type = button == 0 ? 1 : 0;
+        fileChooser = std::make_unique<juce::FileChooser>("Export MIDI File", juce::File(), "*.mid");
+        fileChooser->launchAsync(juce::FileBrowserComponent::saveMode |
+                                     juce::FileBrowserComponent::warnAboutOverwriting,
+                                 [this, type](const juce::FileChooser& chooser) {
+                                     auto file = chooser.getResult();
+                                     if (file == juce::File())
+                                         return;
+                                     if (!file.hasFileExtension("mid"))
+                                         file = file.withFileExtension("mid");
+                                     if (const auto result = session.exportMidi(file, type); result.failed())
+                                         showError("Could not export", result.getErrorMessage());
+                                 });
+    });
 }
 
 void MainComponent::chooseProjectToOpen()
@@ -511,7 +562,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
                        newBus,           toggleAutomation, showThemePreviews, showAnimations,
                        toggleAllAnimations, newMidiTrack, duplicate, togglePianoRoll,
-                       quantiseNotes});
+                       quantiseNotes,    exportMidi});
 
     const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
     for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
@@ -546,7 +597,8 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.addDefaultKeypress('s', shiftCommand);
         break;
     case importAudio:
-        result.setInfo("Import Audio...", "Adds WAV or AIFF files on new tracks, at the playhead",
+        result.setInfo("Import Audio or MIDI...",
+                       "Adds WAV, AIFF or MIDI files on new tracks, at the playhead",
                        "File", 0);
         result.addDefaultKeypress('i', command);
         break;
@@ -557,7 +609,7 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         break;
     case audioSettings:
         result.setInfo("Audio Settings...",
-                       "Chooses the audio devices and sets up recording and latency", "File", 0);
+                       "Chooses the audio devices and MIDI inputs, and sets up recording", "File", 0);
         result.addDefaultKeypress(',', command);
         break;
     case undo:
@@ -683,6 +735,11 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.addDefaultKeypress('q', 0);
         result.setActive(mixerVisible && showingPianoRoll && pianoRoll.getClip() != 0);
         break;
+    case exportMidi:
+        result.setInfo("Export MIDI File...", "Writes the MIDI tracks to a standard MIDI file",
+                       "File", 0);
+        result.addDefaultKeypress('e', command | juce::ModifierKeys::altModifier);
+        break;
     case showAnimations:
         result.setInfo("Animations...", "Chooses which animations play, for every theme", "View",
                        0);
@@ -783,6 +840,9 @@ bool MainComponent::perform(const InvocationInfo& info)
         break;
     case quantiseNotes:
         pianoRoll.quantise();
+        break;
+    case exportMidi:
+        chooseMidiExport();
         break;
     case newBus:
         session.addBus();
