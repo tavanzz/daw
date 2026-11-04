@@ -99,7 +99,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # Not tests: measure how many tracks fit in an audio callback, how many stream
-# from disk and record at once, and what effects cost (see the sources).
+# from disk and record at once, what effects cost and what instruments cost per
+# voice (see the sources).
 add_executable(daw_bench bench/MixBenchmark.cpp)
 target_link_libraries(daw_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_bench)
@@ -111,6 +112,10 @@ daw_enable_warnings(daw_stream_bench)
 add_executable(daw_fx_bench bench/EffectBenchmark.cpp)
 target_link_libraries(daw_fx_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_fx_bench)
+
+add_executable(daw_instrument_bench bench/InstrumentBenchmark.cpp)
+target_link_libraries(daw_instrument_bench PRIVATE daw::engine)
+daw_enable_warnings(daw_instrument_bench)
 
 # The interface's cost per theme and animation level, in a window of its own (an app,
 # so that the system draws it as it draws the real one). See the source.

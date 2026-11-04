@@ -771,7 +771,8 @@ ctest --preset debug            # run all tests
   `build/listening-tests/`; add `--long` for the hour-long streaming file).
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
   `build/release/tests/daw_stream_bench` (streaming and recording),
-  `build/release/tests/daw_fx_bench` (effects) and the interface's cost per theme and
+  `build/release/tests/daw_fx_bench` (effects), `build/release/tests/daw_instrument_bench`
+  (instruments: cost per voice, voices per budget) and the interface's cost per theme and
   animation level, `"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI
   Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
   four minutes); results in `docs/PERFORMANCE.md`.
@@ -1214,7 +1215,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 12. Sampler: samples in memory, interpolated pitch, envelope, loop
 - [x] 13. Drum sampler: 16 pads, choke groups
 - [x] 14. Standard MIDI files: import and export, type 0 and 1, round trips
-- [ ] 15. Benchmark: cost per voice of each instrument, voices per budget (Release)
+- [x] 15. Benchmark: cost per voice of each instrument, voices per budget (Release)
 - [ ] 16. Desktop UI: MIDI tracks in the arrange view (headers, MIDI clips with their
       notes), the instrument slot in the mixer, new colour roles in the three themes
 - [ ] 17. Desktop UI: piano roll (keyboard, notes, grid, selection, velocity,
