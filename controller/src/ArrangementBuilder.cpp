@@ -49,7 +49,8 @@ std::vector<model::Effect> effectsOf(const model::EffectList& list)
 // An owner's effects as the engine plays them, with their automation if it reads.
 engine::EffectChain makeChain(const ChainOwner& owner, const std::vector<model::Effect>& effects,
                               const model::Automation& automation, bool reads,
-                              double sampleRate, const EffectLookup& lookup)
+                              double sampleRate, const EffectLookup& lookup,
+                              const SampleLookup& samples = {})
 {
     std::vector<engine::ChainSlot> slots;
     if (lookup)
@@ -78,6 +79,16 @@ engine::EffectChain makeChain(const ChainOwner& owner, const std::vector<model::
         slot.enabled = !effect.isBypassed();
         slot.parameters.clear();
         slot.automation.clear();
+
+        slot.samples.clear();
+        slot.samplePointers.clear();
+        for (const auto& key : slot.instance->getDescription().sampleSlots)
+        {
+            const auto file = effect.getFile(key);
+            auto sample = samples && file != juce::File() ? samples(file) : nullptr;
+            slot.samplePointers.push_back(sample.get());
+            slot.samples.push_back(std::move(sample));
+        }
 
         for (std::size_t p = 0; p < parameters.size(); ++p)
         {
@@ -319,7 +330,8 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
                                                       const SourceLookup& sources,
                                                       const MeterLookup& meters,
                                                       const EffectLookup& effects,
-                                                      const MidiDeviceLookup& midiDevices)
+                                                      const MidiDeviceLookup& midiDevices,
+                                                      const SampleLookup& samples)
 {
     jassert(sampleRate > 0.0);
 
@@ -417,7 +429,7 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
         if (const auto instrument = track.isMidi() ? track.getInstrument() : std::nullopt)
             chain.insert(chain.begin(), *instrument);
         arrangementTrack.inserts = makeChain(ChainOwner::track(track.getId()), chain, automation,
-                                             reads, sampleRate, effects);
+                                             reads, sampleRate, effects, samples);
 
         if (track.isMidi())
         {

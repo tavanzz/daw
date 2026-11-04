@@ -274,6 +274,21 @@ Modules with one-way dependencies:
   non-harmonic component below -80 dB (measured about -94) up to C8 at 44.1 and
   48 kHz (`strongestNonHarmonicDecibels()`, which sees a naive saw's aliasing),
   envelope times, stealing without allocation, export equal to playback.
+- Samplers (Phase 6): `engine::Sample` is a sound whole in memory at the device rate
+  with band-limited levels (level m at a 2^m-th of the rate, by `dsp::resample()`).
+  `EffectDescription::sampleSlots` names the files an instrument plays; `ChainSlot::
+  samples` (kept alive by the arrangement) reach it as `ProcessBlock::samples`; a
+  pointer that changes means the old sample may be gone, so its voices stop at once.
+  `fx::SampleInstrument` (shared by `Sampler` and the drum sampler) plays zones: speed
+  2^(semitones/12) read with `dsp::SincInterpolator` (8-point Blackman-windowed sinc,
+  1024 phases) from the level that keeps it at most 1, forward loops crossfading into
+  what precedes the loop start (a continuous seam), ping-pong, ADSR, one-shot,
+  choke groups, 32 voices + 4 spare for 3 ms steal fades, sustain, bend, CC7/CC11; a
+  16-sample control grid. `Sampler`: one "sample" over the keyboard (root key, C3 =
+  60, `fx::keyName()`), transpose, fine, start, loop, envelope. `controller::
+  SampleCache` loads instrument files on worker threads at the device rate (again at a
+  new rate); `Session::setInstrumentFile()` (undoable), `getSamples()`; the builder's
+  `SampleLookup`; `ExportJob` loads them at the export rate.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -1179,7 +1194,7 @@ devices, loop/take/merge recording, swing, presets.
       `AudioDeviceHost`
 - [x] 11. Subtractive synth: band-limited wavetable oscillators, resonant SVF, two
       envelopes, LFO, glide, preallocated voices and stealing
-- [ ] 12. Sampler: samples in memory, interpolated pitch, envelope, loop
+- [x] 12. Sampler: samples in memory, interpolated pitch, envelope, loop
 - [ ] 13. Drum sampler: 16 pads, choke groups
 - [ ] 14. Standard MIDI files: import and export, type 0 and 1, round trips
 - [ ] 15. Benchmark: cost per voice of each instrument, voices per budget (Release)

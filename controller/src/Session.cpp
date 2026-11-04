@@ -24,7 +24,10 @@ Session::Session(engine::Engine& engineToDrive, SessionOptions sessionOptions)
 {
     effectInstances.setFactory(options.effects);
     if (engine.getSampleRate() > 0.0)
+    {
         sources.setSampleRate(engine.getSampleRate());
+        instrumentSamples.setSampleRate(engine.getSampleRate());
+    }
 
     // The read-ahead follows the engine's playhead (atomics: safe from its thread).
     sources.followPlayhead([&playing = engine, &cue = seekCue] {
@@ -58,6 +61,11 @@ void Session::update()
         latencyResult = std::move(result);
 
     sources.collectFinishedLoads();
+    if (instrumentSamples.collectFinished())
+    {
+        arrangementOutOfDate = true;
+        ++revision;
+    }
 
     // Also when something removed has faded out long enough to go.
     if (arrangementOutOfDate ||
@@ -91,7 +99,8 @@ void Session::streamingTick()
 
 bool Session::waitForLoads(int timeoutMilliseconds)
 {
-    const bool idle = sources.waitForLoads(timeoutMilliseconds);
+    const bool idle = sources.waitForLoads(timeoutMilliseconds) &&
+                      instrumentSamples.waitForLoads(timeoutMilliseconds);
     update();
     return idle;
 }
@@ -110,6 +119,7 @@ void Session::setSampleRate(double sampleRate)
         return;
 
     sources.setSampleRate(sampleRate);
+    instrumentSamples.setSampleRate(sampleRate);
     effectInstances.prepare(sampleRate, effectBlockSize);
     freshEffects = true;
     fadeOutKeeper.clear();
@@ -298,6 +308,7 @@ void Session::replaceProject(model::Project newProject)
     inGesture = false;
     unsavedChanges = false;
     sources.clear();
+    instrumentSamples.clear();
     meters.clear();
     effectInstances.clear();
     fadeOutKeeper.clear();
@@ -307,6 +318,7 @@ void Session::replaceProject(model::Project newProject)
     engine.setLooping(project.isLoopEnabled());
 
     requestAllSources();
+    instrumentSamples.requestAll(project);
     arrangementOutOfDate = true;
     ++revision;
 }
@@ -1188,8 +1200,13 @@ void Session::rebuildArrangement()
         return effectInstances.chainFor(owner, chain, fadeIn);
     };
 
+    const auto samplesFor = [this](const juce::File& file) {
+        instrumentSamples.request(file);
+        return instrumentSamples.find(file);
+    };
+
     auto arrangement = buildArrangement(project, sources.getSampleRate(), lookup, meterFor,
-                                        effectsFor, midiDevices);
+                                        effectsFor, midiDevices, samplesFor);
     effectInstances.forgetUnused();
     freshEffects = false;
 
@@ -1371,6 +1388,17 @@ void Session::setEffectParameter(model::ObjectId effectId, const juce::String& p
     {
         startEdit("Change " + parameterId);
         effect->setParameter(parameterId, value, &undoManager);
+    }
+}
+
+void Session::setInstrumentFile(model::ObjectId effectId, const juce::String& key,
+                                const juce::File& file)
+{
+    if (auto effect = getEffect(effectId); effect && effect->getFile(key) != file)
+    {
+        startEdit(file == juce::File() ? "Remove Sample" : "Load Sample");
+        effect->setFile(key, file, &undoManager);
+        instrumentSamples.request(file);
     }
 }
 

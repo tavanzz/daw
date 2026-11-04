@@ -737,6 +737,7 @@ void Mixer::processChain(const EffectChain& chain, const Arrangement& arrangemen
         settings.parameters = slot.parameters;
         settings.enabled = slot.enabled;
         settings.revival = slot.revival;
+        settings.samples = slot.samplePointers;
         slot.instance->process(channels, numSamples, settings, slotContext, effectScratch);
 
         latency += slot.instance->getLatency();

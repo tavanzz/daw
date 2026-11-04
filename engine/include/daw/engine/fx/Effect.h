@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/engine/Sample.h"
 #include "daw/engine/fx/Parameter.h"
 #include "daw/engine/midi/MidiEvent.h"
 
@@ -22,6 +23,10 @@ struct EffectDescription
         sound to its input (silence, unless an instrument being replaced fades out
         before it). It sits first in a MIDI track's chain. */
     bool isInstrument = false;
+
+    /** The keys of the files it plays (a sampler's "sample", a drum sampler's pads),
+        which the host loads and hands over with every block (ProcessBlock::samples). */
+    std::vector<juce::String> sampleSlots;
 
     /** -1 if there is no parameter with that id. */
     [[nodiscard]] int indexOf(const juce::String& parameterId) const noexcept;
@@ -100,6 +105,11 @@ struct ProcessBlock
         [0, numSamples). Every note-on is followed, in this block or a later one, by
         its note-off, unless the effect is reset first. Empty for effects. */
     midi::EventSpan events;
+
+    /** One per EffectDescription::sampleSlots (null where no file is loaded): valid
+        for this block. A pointer different from the last block's means the old
+        sample may be gone: stop reading it at once. */
+    std::span<const Sample* const> samples;
 };
 
 /**

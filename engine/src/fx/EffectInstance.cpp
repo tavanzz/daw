@@ -232,6 +232,7 @@ void EffectInstance::processPiece(float* const* channels, int numSamples,
         block.time.position += offset;
     if (instrument)
         block.events = scratch.events.events();
+    block.samples = settings.samples;
 
     effect->process(block);
 

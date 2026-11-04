@@ -29,6 +29,10 @@ using EffectLookup = std::function<std::vector<engine::ChainSlot>(
     device is connected. */
 using MidiDeviceLookup = std::function<int(const juce::String& deviceName)>;
 
+/** A sample an instrument plays, loaded at the rate being built for; null while it
+    loads (or if it failed). */
+using SampleLookup = std::function<std::shared_ptr<const engine::Sample>(const juce::File& file)>;
+
 /**
     The engine's view of a project at one sample rate: ticks become samples, mute,
     solo, volume and pan become track gains, overlapping clips are resolved, the
@@ -52,7 +56,8 @@ using MidiDeviceLookup = std::function<int(const juce::String& deviceName)>;
       clip's visible part does (at least one sample); controllers step within the
       visible parts, start at their value there and return to rest at the end. A
       track that is not heard plays no notes. Its MIDI input is found by device
-      name (midiDevices; without one, every device).
+      name (midiDevices; without one, every device). Instruments get the samples of
+      their files (samples; without one, none).
 
     Runs on the thread that owns the project (the message thread, or an export's
     own copy). Allocates.
@@ -60,7 +65,7 @@ using MidiDeviceLookup = std::function<int(const juce::String& deviceName)>;
 [[nodiscard]] std::unique_ptr<engine::Arrangement>
 buildArrangement(const model::Project& project, double sampleRate, const SourceLookup& sources,
                  const MeterLookup& meters = {}, const EffectLookup& effects = {},
-                 const MidiDeviceLookup& midiDevices = {});
+                 const MidiDeviceLookup& midiDevices = {}, const SampleLookup& samples = {});
 
 /** The identity a note has in every arrangement built from its clip. */
 [[nodiscard]] std::uint64_t noteIdentity(model::ObjectId clipId, std::int32_t noteId) noexcept;

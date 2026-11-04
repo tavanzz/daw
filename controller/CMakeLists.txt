@@ -15,6 +15,7 @@ add_library(daw_controller STATIC
     src/PianoRollViewport.cpp
     src/RecordingController.cpp
     src/RecordingJournal.cpp
+    src/SampleCache.cpp
     src/Session.cpp
     src/TempoBeatGrid.cpp
     src/TimelineViewport.cpp)

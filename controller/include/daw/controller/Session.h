@@ -8,6 +8,7 @@
 #include "daw/controller/LatencyMeasurement.h"
 #include "daw/controller/RecordingController.h"
 #include "daw/controller/RecordingJournal.h"
+#include "daw/controller/SampleCache.h"
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/SourcePool.h"
 #include "daw/model/Project.h"
@@ -194,6 +195,15 @@ public:
     /** An effect silenced for a NaN or an infinity plays again, from a clean state.
         Not undoable. */
     void reviveEffect(model::ObjectId effectId);
+
+    /** Gives an instrument a file to play in one of its sample slots (a sampler's
+        "sample", a drum pad's "padN"); an empty file removes it. One undo step. */
+    void setInstrumentFile(model::ObjectId effectId, const juce::String& key,
+                           const juce::File& file);
+
+    /** The samples instruments play: loaded (find()), loading or failed (getStatus(),
+        getError()). */
+    [[nodiscard]] const SampleCache& getSamples() const noexcept { return instrumentSamples; }
 
     [[nodiscard]] std::optional<EffectLocation> findEffect(model::ObjectId effectId) const;
     [[nodiscard]] std::optional<model::Effect> getEffect(model::ObjectId effectId) const;
@@ -455,6 +465,7 @@ private:
     engine::Engine& engine;
     SessionOptions options;
     engine::io::SourcePool sources;
+    SampleCache instrumentSamples{fallbackSampleRate};
     std::unique_ptr<engine::Arrangement> pendingArrangement; // waits for its audio
     std::unique_ptr<engine::Arrangement> playingArrangement; // a copy of the engine's, for the plan
     juce::uint32 pendingSince = 0;

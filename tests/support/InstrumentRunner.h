@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/engine/Sample.h"
 #include "daw/engine/dsp/Fft.h"
 #include "daw/engine/fx/EffectInstance.h"
 #include "daw/engine/midi/MidiEvent.h"
@@ -65,6 +66,7 @@ public:
         std::vector<float> right(static_cast<std::size_t>(length));
         engine::fx::SlotSettings settings;
         settings.parameters = targets;
+        settings.samples = samples;
         std::vector<const float*> automation;
 
         heapOperations += heapOperationsDuring([&] {
@@ -106,6 +108,7 @@ public:
     engine::fx::EffectInstance instance;
     engine::fx::EffectScratch scratch;
     std::vector<float> targets;
+    std::vector<const engine::Sample*> samples; ///< what the instrument's sample slots hold
     std::vector<engine::midi::Event> blockEvents;
     std::vector<float> lastRight;
     int position = 0;

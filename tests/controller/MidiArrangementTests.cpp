@@ -1,9 +1,15 @@
 #include "daw/controller/ArrangementBuilder.h"
+#include "daw/controller/ExportJob.h"
 #include "daw/controller/Session.h"
 
+#include "support/InstrumentRunner.h"
 #include "support/RealtimeCheck.h"
+#include "support/TestAudioFiles.h"
 #include "support/TestEffects.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>
+
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <map>
@@ -271,4 +277,55 @@ TEST_CASE("Previews play a note through the track's instrument", "[controller][m
     const auto off = fixture.play(2);
     CHECK(off.front() == 0.0f);
     CHECK(fixture.instrumentOf(track).getHeldCount() == 0);
+}
+
+TEST_CASE("A sampler plays its file through the session, and the export holds the same",
+          "[controller][midi][sampler]")
+{
+    daw::test::TemporaryDirectory directory;
+    const auto file = directory.file("tone.wav");
+    {
+        // A 1 s tone at 441 Hz, written at 44.1 kHz: loaded at the device's 48 kHz.
+        juce::AudioBuffer<float> tone(1, 44100);
+        for (int i = 0; i < 44100; ++i)
+            tone.setSample(0, i, 0.5f * static_cast<float>(std::sin(2.0 * 3.141592653589793 * 441.0 * i / 44100.0)));
+        REQUIRE(daw::test::writeAudioFile(file, daw::test::AudioFileType::wav, tone, 44100.0, 32, true));
+    }
+
+    Fixture fixture;
+    auto& session = fixture.session;
+    const auto track = session.addMidiTrack("Piano", "sampler");
+    const auto sampler = session.getProject().getTrack(0).getInstrument()->getId();
+    session.setEffectParameter(sampler, "velocity", 0.0);
+    session.setInstrumentFile(sampler, "sample", file);
+    CHECK(session.getUndoDescription() == "Load Sample");
+    const auto clip = session.addMidiClip(track, 0, 48000 * sample);
+    session.setNotes(clip, {{0, 0, 24000 * sample, 72, 100}}, "Note"); // an octave up
+    REQUIRE(session.waitForLoads(30000));
+    CHECK(session.getSamples().getStatus(file) == daw::controller::SampleCache::Status::ready);
+    session.play();
+    const auto played = fixture.play(96);
+    CHECK(fixture.heapOperations == 0);
+    CHECK(daw::test::measuredFrequency(played, 1000, 23000, sampleRate) ==
+          Catch::Approx(882.0).epsilon(1e-5));
+
+    daw::test::TemporaryDirectory exports;
+    daw::controller::ExportSettings settings;
+    settings.file = exports.file("mix.wav");
+    settings.sampleRate = sampleRate;
+    settings.bitsPerSample = 32;
+    settings.includeTail = false;
+    const auto result = daw::controller::ExportJob(session, settings).run();
+    REQUIRE(result.result.wasOk());
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    const std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(settings.file));
+    REQUIRE(reader != nullptr);
+    juce::AudioBuffer<float> exported(2, static_cast<int>(reader->lengthInSamples));
+    reader->read(&exported, 0, exported.getNumSamples(), 0, true, true);
+    // After the transport's fade-in... instruments are not faded: equal from the start.
+    bool identical = true;
+    for (int i = 0; i < 24000; ++i)
+        identical = identical && exported.getSample(0, i) == played[static_cast<std::size_t>(i)];
+    CHECK(identical);
 }

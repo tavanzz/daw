@@ -55,6 +55,9 @@ struct SlotSettings
 
     /** A new value clears a failure (the user switched the effect back on). */
     std::uint32_t revival = 0;
+
+    /** The samples it plays (see ProcessBlock::samples). */
+    std::span<const Sample* const> samples;
 };
 
 /** What the host knows about one stretch of audio, besides the settings. */

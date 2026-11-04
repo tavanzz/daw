@@ -11,6 +11,7 @@ add_library(daw_engine STATIC
     src/NotePlayback.cpp
     src/OfflineRenderer.cpp
     src/Recorder.cpp
+    src/Sample.cpp
     src/TimelineHistory.cpp
     src/Transport.cpp
     src/dsp/BandLimitedWaves.cpp
@@ -26,6 +27,7 @@ add_library(daw_engine STATIC
     src/dsp/PanLaw.cpp
     src/dsp/PeakLevelMeter.cpp
     src/dsp/Resampler.cpp
+    src/dsp/SincInterpolator.cpp
     src/dsp/WaveformPeaks.cpp
     src/fx/BuiltInEffects.cpp
     src/fx/Compressor.cpp
@@ -35,6 +37,8 @@ add_library(daw_engine STATIC
     src/fx/Limiter.cpp
     src/fx/Parameter.cpp
     src/fx/Reverb.cpp
+    src/fx/SampleInstrument.cpp
+    src/fx/Sampler.cpp
     src/fx/Synth.cpp
     src/io/AudioDeviceHost.cpp
     src/io/AudioFileLoader.cpp

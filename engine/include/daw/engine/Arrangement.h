@@ -99,6 +99,11 @@ struct ChainSlot
     /** Per parameter, its automation (normalised values) or null; may be shorter
         than the parameter list. */
     std::vector<std::shared_ptr<const AutomationCurve>> automation;
+
+    /** The samples it plays, one per EffectDescription::sampleSlots (null where none
+        is loaded), kept alive by the arrangement; and the same as plain pointers. */
+    std::vector<std::shared_ptr<const Sample>> samples;
+    std::vector<const Sample*> samplePointers;
 };
 
 /** A fader and pan that automation may move: the arrangement's fixed gains apply
