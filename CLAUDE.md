@@ -355,6 +355,15 @@ Modules with one-way dependencies:
   notes (`setNotes()`, `addNote()`, `removeNotes()`) or one controller type's events,
   each one undo step (a gesture groups a drag; an edit that changes nothing adds
   none).
+- Note editing (Phase 6): `NoteEditing.h` holds the piano roll's rules for every UI,
+  pure functions on note lists (content ticks) through a `ClipFrame` (content to
+  timeline): `quantised()` (grid on the timeline, strength, ends with at least one
+  step), `transposed()` (refused off the keyboard), `movedNotes()` (the grabbed note
+  snaps, the selection follows, copies get new ids), `resizedEnds()`/`resizedStarts()`,
+  velocities (set, or along a line), `notesIn()` a rectangle, `newNoteAt()` (on the
+  line at or before), `hitNote()` (body or edge), and controller lanes
+  (`eventsAlongLine()`, `hitControllerEvent()`, `controllerValueAt()`).
+  `PianoRollViewport` is a `TimelineViewport` across and the keys up the side.
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -1115,7 +1124,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 7. Undoable edits: MIDI tracks, MIDI clips (create, move, trim, duplicate,
       delete; duplicate audio clips too), notes (add, move, resize, delete, velocity,
       transpose) and controller events
-- [ ] 8. Note editing in the controller: quantisation (value, strength, ends), snap,
+- [x] 8. Note editing in the controller: quantisation (value, strength, ends), snap,
       selection, hit tests, drag rules, transposition, `PianoRollViewport`
 - [ ] 9. Controller: MIDI tracks in the arrangement (clip overlaps and edges,
       controller steps), instrument instances, sample loading, preview, MIDI inputs

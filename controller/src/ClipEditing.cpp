@@ -15,6 +15,16 @@ model::Ticks Snapper::operator()(model::Ticks position) const noexcept
     return grid ? grid->snap(position) : position;
 }
 
+model::Ticks Snapper::lineAtOrBefore(model::Ticks position) const noexcept
+{
+    return grid ? grid->lineAtOrBefore(position) : position;
+}
+
+model::Ticks Snapper::lineAfter(model::Ticks position) const noexcept
+{
+    return grid ? grid->lineAfter(position) : position + 1;
+}
+
 model::Ticks movedPosition(model::Ticks originalPosition, model::Ticks pointerDelta,
                            const Snapper& snap) noexcept
 {
