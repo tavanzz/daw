@@ -56,6 +56,7 @@ add_executable(daw_tests
     engine/ReverbTests.cpp
     engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp
+    engine/SynthTests.cpp
     engine/TransportTests.cpp
     engine/WavRepairTests.cpp
     engine/WaveformPeaksTests.cpp

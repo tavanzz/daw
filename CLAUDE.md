@@ -255,6 +255,25 @@ Modules with one-way dependencies:
   where the recording is heard to start (effect latency included), count-in
   included, until the heard stop. The recording completes once messages stamped
   before the stop are in; a full queue is reported (`midiOverrun`).
+- Synth (Phase 6), `engine/fx/Synth`: two oscillators read from
+  `dsp::BandLimitedWaves` (sine, triangle and saw tables for every third of an octave
+  of harmonic counts up to 4096, built once for the app by inverse FFT
+  (`dsp::fft`), at least eight samples per cycle of the top harmonic, cubic Hermite
+  reads; an oscillator crossfades the two tables whose harmonics all stay under 0.45
+  of the rate; a pulse is the difference of two saws), noise (xorshift, seeded per
+  note: deterministic), a trapezoidal SVF (LP12, LP24 = a second Butterworth stage,
+  BP, HP; Q 0.5 to 20, g interpolated per sample), `dsp::Envelope` ADSR (attack a
+  line at the 0-to-1 slope, decay and release 60 dB in their times, end at -100 dB),
+  a global LFO (free or a note value at the tempo), glide, poly/mono/legato.
+  Everything moves per sample or on a 16-sample grid counted from reset(), so the
+  output never depends on the host's blocks (tested bit for bit). 32 voices plus 4
+  spare ones that fade stolen notes out over 3 ms; a key struck again takes its
+  voice; sustain, pitch bend (range a parameter), mod wheel (vibrato), CC7 and CC11
+  (gain (cc7 cc11)^2, glided). Parameters carry a `group` (the editor's sections).
+  Tests: tuning of every key to 0.1 cent at 44.1, 48 and 96 kHz, the strongest
+  non-harmonic component below -80 dB (measured about -94) up to C8 at 44.1 and
+  48 kHz (`strongestNonHarmonicDecibels()`, which sees a naive saw's aliasing),
+  envelope times, stealing without allocation, export equal to playback.
 - Meters and waveforms: the engine measures its output with `dsp::PeakLevelMeter`
   (one reader takes the peak since its last read); `dsp::MeterBallistics` turns
   readings into what a meter shows (time-based, so refresh-rate independent);
@@ -1158,7 +1177,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 10. MIDI recording in the controller and the app: armed MIDI tracks with the
       audio ones in one "Record" step, handles, punch, discard; MIDI devices in
       `AudioDeviceHost`
-- [ ] 11. Subtractive synth: band-limited wavetable oscillators, resonant SVF, two
+- [x] 11. Subtractive synth: band-limited wavetable oscillators, resonant SVF, two
       envelopes, LFO, glide, preallocated voices and stealing
 - [ ] 12. Sampler: samples in memory, interpolated pitch, envelope, loop
 - [ ] 13. Drum sampler: 16 pads, choke groups

@@ -13,8 +13,11 @@ add_library(daw_engine STATIC
     src/Recorder.cpp
     src/TimelineHistory.cpp
     src/Transport.cpp
+    src/dsp/BandLimitedWaves.cpp
     src/dsp/DelayLine.cpp
+    src/dsp/Envelope.cpp
     src/dsp/FaderLaw.cpp
+    src/dsp/Fft.cpp
     src/dsp/GainRamp.cpp
     src/dsp/InputMeters.cpp
     src/dsp/LatencyProbe.cpp
@@ -32,6 +35,7 @@ add_library(daw_engine STATIC
     src/fx/Limiter.cpp
     src/fx/Parameter.cpp
     src/fx/Reverb.cpp
+    src/fx/Synth.cpp
     src/io/AudioDeviceHost.cpp
     src/io/AudioFileLoader.cpp
     src/io/Bounce.cpp

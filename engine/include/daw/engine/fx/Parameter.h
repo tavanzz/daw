@@ -37,6 +37,7 @@ struct ParameterInfo
     ParameterScale scale = ParameterScale::linear;
     juce::StringArray choices; ///< non-empty for a choice parameter
     bool automatable = true;
+    juce::String group; ///< the section of an editor it belongs to; empty for none
 
     [[nodiscard]] bool isChoice() const noexcept { return !choices.isEmpty(); }
 
