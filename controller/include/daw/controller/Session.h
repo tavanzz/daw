@@ -33,11 +33,12 @@ inline constexpr const char* latencyWhileRecordingMessage =
     "Effects that delay the audio (such as the limiter) cannot be added, moved or removed "
     "while recording: the recording would no longer line up. Stop recording first.";
 
-/** Where an effect of the project is. */
+/** Where an effect of the project is: in an owner's chain, or a track's instrument. */
 struct EffectLocation
 {
     ChainOwner owner;
-    int index = -1;
+    int index = -1; ///< -1 for an instrument
+    [[nodiscard]] bool isInstrument() const noexcept { return index < 0; }
 };
 
 /** How a Session plays its files. */
@@ -147,6 +148,22 @@ public:
 
     /** Adds a track at the end; an empty name becomes "Track n". Returns its id. */
     model::ObjectId addTrack(const juce::String& name = {});
+
+    /** The instrument new MIDI tracks get. */
+    static constexpr const char* defaultInstrument = "synth";
+
+    /** Adds a MIDI track at the end with an instrument of this type (none if empty
+        or unknown); an empty name becomes "MIDI n". One undo step. Returns its id. */
+    model::ObjectId addMidiTrack(const juce::String& name = {},
+                                 const juce::String& instrumentType = defaultInstrument);
+    void setTrackMidiInput(model::ObjectId trackId, const model::MidiInput& input);
+    void setTrackMidiChannel(model::ObjectId trackId, int channel);
+
+    /** Gives a MIDI track an instrument of this type, replacing the one it has (and
+        the automation of its parameters). Returns its id; 0 if the track is not a MIDI
+        track or the type is not an instrument. */
+    model::ObjectId setInstrument(model::ObjectId trackId, const juce::String& type);
+    void removeInstrument(model::ObjectId trackId);
     void removeTrack(model::ObjectId trackId);
     void renameTrack(model::ObjectId trackId, const juce::String& name);
     void setTrackVolume(model::ObjectId trackId, double gain);
@@ -232,9 +249,44 @@ public:
                                              model::Ticks position,
                                              std::optional<model::ObjectId> ontoTrack = {});
 
+    /** Onto another track of the same kind only. */
     void moveClip(model::ObjectId clipId, model::ObjectId toTrackId, model::Ticks position);
     void setClipBounds(model::ObjectId clipId, const model::ClipBounds& bounds);
     void deleteClips(const std::vector<model::ObjectId>& clipIds);
+
+    /** Copies each clip right after itself on its track (at its end), on top. One
+        undo step. Returns the copies' ids, in order. */
+    std::vector<model::ObjectId> duplicateClips(const std::vector<model::ObjectId>& clipIds);
+
+    /** Copies a clip to a track of the same kind at a position, on top (Alt+drag).
+        Returns the copy's id; 0 if refused. */
+    model::ObjectId copyClip(model::ObjectId clipId, model::ObjectId toTrackId,
+                             model::Ticks position);
+
+    // MIDI clips and notes ---------------------------------------------------------------
+
+    /** An empty MIDI clip on a MIDI track, named after it. Returns its id; 0 if the
+        track is not a MIDI track. */
+    model::ObjectId addMidiClip(model::ObjectId trackId, model::Ticks position,
+                                model::Ticks length);
+    void renameClip(model::ObjectId clipId, const juce::String& name);
+
+    /** A MIDI clip of the project, if clipId is one. */
+    [[nodiscard]] std::optional<model::MidiClip> findMidiClip(model::ObjectId clipId) const;
+
+    /** Replaces a MIDI clip's notes (see model::MidiClip::setNotes()): one undo step
+        named actionName, or part of the gesture in progress. */
+    void setNotes(model::ObjectId clipId, std::vector<model::Note> notes,
+                  const juce::String& actionName);
+
+    /** Adds a note; returns its id (0 if clipId is not a MIDI clip). */
+    std::int32_t addNote(model::ObjectId clipId, model::Note note);
+    void removeNotes(model::ObjectId clipId, const std::vector<std::int32_t>& noteIds);
+
+    /** Replaces a MIDI clip's events of one controller type. */
+    void setControllerEvents(model::ObjectId clipId, const model::ControllerType& type,
+                             std::vector<model::ControllerEvent> events,
+                             const juce::String& actionName);
 
     void setTempo(double quarterNotesPerMinute);
     void setTimeSignature(model::TimeSignature timeSignature);
@@ -369,6 +421,7 @@ private:
     void rebuildArrangement();
     [[nodiscard]] std::optional<model::Bus> findBus(model::ObjectId busId) const;
     [[nodiscard]] bool refusesLatencyChange(int latency);
+    [[nodiscard]] bool isInstrumentType(const juce::String& type) const;
     void handOver(std::unique_ptr<engine::Arrangement> arrangement);
     void streamingTick();
     [[nodiscard]] double engineRate() const noexcept;

@@ -29,7 +29,8 @@ engine::io::BounceResult ExportJob::run(const std::function<bool(double)>& keepG
     {
         const auto track = project.getTrack(t);
         for (int c = 0; c < track.getNumClips(); ++c)
-            pool.request(track.getClip(c).getAudioFile());
+            if (const auto clip = track.getClip(c); !clip.isMidi())
+                pool.request(clip.getAudioFile());
     }
 
     while (!pool.waitForLoads(50))

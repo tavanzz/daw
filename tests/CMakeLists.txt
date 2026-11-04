@@ -16,6 +16,7 @@ add_executable(daw_tests
     controller/ArrangementBuilderTests.cpp
     controller/AutomationEditingTests.cpp
     controller/EffectSessionTests.cpp
+    controller/MidiEditingTests.cpp
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp

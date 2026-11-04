@@ -346,6 +346,15 @@ Modules with one-way dependencies:
   (`OfflineRenderer::setTimelineEnd()`), until the mix has stayed below -96 dBFS for
   1 s or for at most 30 s, and writes it up to its last sound: a mix without
   tails gets nothing more.
+- MIDI edits in the controller (Phase 6): `Session` adds MIDI tracks (with
+  `defaultInstrument`, "MIDI n"), sets their MIDI input, channel and instrument
+  (`setInstrument()`, only instrument types; effects never go in as instruments, nor
+  instruments in chains; `findEffect()` also finds instruments, index -1), adds,
+  renames, duplicates (`duplicateClips()`: right after themselves, audio clips too)
+  and copies clips (never across track kinds, nor moves), and replaces a MIDI clip's
+  notes (`setNotes()`, `addNote()`, `removeNotes()`) or one controller type's events,
+  each one undo step (a gesture groups a drag; an edit that changes nothing adds
+  none).
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -1103,7 +1112,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 6. Project format version 5: track type, instrument, MIDI input and channel; MIDI
       clips with notes and controller lanes; grid with 1/64 and triplets; migration
       from version 4
-- [ ] 7. Undoable edits: MIDI tracks, MIDI clips (create, move, trim, duplicate,
+- [x] 7. Undoable edits: MIDI tracks, MIDI clips (create, move, trim, duplicate,
       delete; duplicate audio clips too), notes (add, move, resize, delete, velocity,
       transpose) and controller events
 - [ ] 8. Note editing in the controller: quantisation (value, strength, ends), snap,

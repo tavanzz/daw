@@ -399,6 +399,74 @@ model::ObjectId Session::addTrack(const juce::String& name)
     return project.addTrack(trackName, &undoManager).getId();
 }
 
+model::ObjectId Session::addMidiTrack(const juce::String& name, const juce::String& instrumentType)
+{
+    startEdit("Add MIDI Track");
+    const auto trackName =
+        name.isNotEmpty() ? name : "MIDI " + juce::String(project.getNumTracks() + 1);
+    auto track = project.addTrack(trackName, model::TrackKind::midi, &undoManager);
+    if (isInstrumentType(instrumentType))
+        track.setInstrument(instrumentType, {}, &undoManager);
+    return track.getId();
+}
+
+void Session::setTrackMidiInput(model::ObjectId trackId, const model::MidiInput& input)
+{
+    if (auto track = findTrack(trackId); track && track->isMidi() && track->getMidiInput() != input)
+    {
+        startEdit("MIDI Input");
+        track->setMidiInput(input, &undoManager);
+    }
+}
+
+void Session::setTrackMidiChannel(model::ObjectId trackId, int channel)
+{
+    if (auto track = findTrack(trackId); track && track->isMidi() && track->getMidiChannel() != channel)
+    {
+        startEdit("MIDI Channel");
+        track->setMidiChannel(channel, &undoManager);
+    }
+}
+
+bool Session::isInstrumentType(const juce::String& type) const
+{
+    if (type.isEmpty())
+        return false;
+    const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
+                                                     false);
+    return probe != nullptr && probe->getDescription().isInstrument;
+}
+
+model::ObjectId Session::setInstrument(model::ObjectId trackId, const juce::String& type)
+{
+    auto track = findTrack(trackId);
+    if (!track || !track->isMidi() || !isInstrumentType(type))
+        return 0;
+
+    const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
+                                                     false);
+    const auto old = track->getInstrument();
+    const auto oldInstance = old ? effectInstances.find(old->getId()) : nullptr;
+    if (refusesLatencyChange(std::max(probe->getLatency(),
+                                      oldInstance != nullptr ? oldInstance->getLatency() : 0)))
+        return 0;
+
+    startEdit("Instrument: " + probe->getDescription().name);
+    return track->setInstrument(type, {}, &undoManager).getId();
+}
+
+void Session::removeInstrument(model::ObjectId trackId)
+{
+    if (auto track = findTrack(trackId); track && track->getInstrument())
+    {
+        const auto instance = effectInstances.find(track->getInstrument()->getId());
+        if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
+            return;
+        startEdit("Remove Instrument");
+        track->removeInstrument(&undoManager);
+    }
+}
+
 void Session::removeTrack(model::ObjectId trackId)
 {
     if (const int index = project.indexOfTrack(trackId); index >= 0)
@@ -486,8 +554,9 @@ std::vector<model::ObjectId> Session::importAudio(const juce::Array<juce::File>&
         return clipIds;
 
     startEdit(files.size() == 1 ? "Import Audio File" : "Import Audio Files");
-    const bool onExistingTrack =
-        files.size() == 1 && ontoTrack && project.indexOfTrack(*ontoTrack) >= 0;
+    const bool onExistingTrack = files.size() == 1 && ontoTrack &&
+                                 project.indexOfTrack(*ontoTrack) >= 0 &&
+                                 !project.getTrack(project.indexOfTrack(*ontoTrack)).isMidi();
 
     for (const auto& file : files)
     {
@@ -512,6 +581,9 @@ void Session::moveClip(model::ObjectId clipId, model::ObjectId toTrackId, model:
         return;
 
     const auto track = project.getTrack(location->trackIndex);
+    if (track.getKind() != project.getTrack(trackIndex).getKind())
+        return; // audio clips go on audio tracks, MIDI clips on MIDI tracks
+
     const bool onTop = location->clipIndex == track.getNumClips() - 1;
     if (location->trackIndex == trackIndex && onTop &&
         track.getClip(location->clipIndex).getPosition() == position)
@@ -544,6 +616,143 @@ void Session::deleteClips(const std::vector<model::ObjectId>& clipIds)
             startEdit(clipIds.size() == 1 ? "Delete Clip" : "Delete Clips");
         started = true;
         project.removeClip(clipId, &undoManager);
+    }
+}
+
+std::vector<model::ObjectId> Session::duplicateClips(const std::vector<model::ObjectId>& clipIds)
+{
+    std::vector<model::ObjectId> copies;
+    bool started = false;
+    for (const auto clipId : clipIds)
+    {
+        const auto location = project.findClip(clipId);
+        if (!location)
+            continue;
+        auto track = project.getTrack(location->trackIndex);
+        const auto clip = track.getClip(location->clipIndex);
+        const auto end = clip.getEnd();
+        if (!end)
+            continue; // its length is not known yet
+
+        if (!started)
+            startEdit(clipIds.size() == 1 ? "Duplicate Clip" : "Duplicate Clips");
+        started = true;
+        copies.push_back(track.addCopyOf(clip, *end, &undoManager).getId());
+    }
+    return copies;
+}
+
+model::ObjectId Session::copyClip(model::ObjectId clipId, model::ObjectId toTrackId,
+                                  model::Ticks position)
+{
+    const auto location = project.findClip(clipId);
+    const int trackIndex = project.indexOfTrack(toTrackId);
+    if (!location || trackIndex < 0)
+        return 0;
+
+    auto track = project.getTrack(trackIndex);
+    const auto clip = project.getTrack(location->trackIndex).getClip(location->clipIndex);
+    if (track.getKind() != project.getTrack(location->trackIndex).getKind())
+        return 0;
+
+    startEdit("Copy Clip");
+    return track.addCopyOf(clip, std::max(model::Ticks{0}, position), &undoManager).getId();
+}
+
+model::ObjectId Session::addMidiClip(model::ObjectId trackId, model::Ticks position,
+                                     model::Ticks length)
+{
+    auto track = findTrack(trackId);
+    if (!track || !track->isMidi())
+        return 0;
+
+    startEdit("New MIDI Clip");
+    return track
+        ->addMidiClip(track->getName(),
+                      {std::max(model::Ticks{0}, position), 0, std::max(model::Clip::minimumLength, length)},
+                      {}, {}, &undoManager)
+        .getId();
+}
+
+void Session::renameClip(model::ObjectId clipId, const juce::String& name)
+{
+    if (const auto location = project.findClip(clipId))
+    {
+        auto clip = project.getTrack(location->trackIndex).getClip(location->clipIndex);
+        if (clip.isMidi() && clip.getName() != name)
+        {
+            startEdit("Rename Clip");
+            clip.setName(name, &undoManager);
+        }
+    }
+}
+
+std::optional<model::MidiClip> Session::findMidiClip(model::ObjectId clipId) const
+{
+    if (const auto location = project.findClip(clipId))
+        if (const auto clip = project.getTrack(location->trackIndex).getClip(location->clipIndex);
+            clip.isMidi())
+            return model::MidiClip(clip.getState());
+    return std::nullopt;
+}
+
+void Session::setNotes(model::ObjectId clipId, std::vector<model::Note> notes,
+                       const juce::String& actionName)
+{
+    if (auto clip = findMidiClip(clipId))
+    {
+        model::normalise(notes);
+        if (notes == clip->getNotes())
+            return;
+        startEdit(actionName);
+        clip->setNotes(std::move(notes), &undoManager);
+    }
+}
+
+std::int32_t Session::addNote(model::ObjectId clipId, model::Note note)
+{
+    auto clip = findMidiClip(clipId);
+    if (!clip)
+        return 0;
+
+    auto notes = clip->getNotes();
+    std::int32_t largest = 0;
+    for (const auto& existing : notes)
+        largest = std::max(largest, existing.id);
+    note.id = largest + 1;
+    notes.push_back(note);
+    setNotes(clipId, std::move(notes), "Add Note");
+    return note.id;
+}
+
+void Session::removeNotes(model::ObjectId clipId, const std::vector<std::int32_t>& noteIds)
+{
+    if (const auto clip = findMidiClip(clipId))
+    {
+        auto notes = clip->getNotes();
+        notes.erase(std::remove_if(notes.begin(), notes.end(),
+                                   [&noteIds](const model::Note& note) {
+                                       return std::find(noteIds.begin(), noteIds.end(), note.id) !=
+                                              noteIds.end();
+                                   }),
+                    notes.end());
+        setNotes(clipId, std::move(notes), noteIds.size() == 1 ? "Delete Note" : "Delete Notes");
+    }
+}
+
+void Session::setControllerEvents(model::ObjectId clipId, const model::ControllerType& type,
+                                  std::vector<model::ControllerEvent> events,
+                                  const juce::String& actionName)
+{
+    if (auto clip = findMidiClip(clipId))
+    {
+        for (auto& event : events)
+            event.type = type;
+        model::normalise(events);
+        if (events == clip->getControllerEvents(type))
+            return;
+        startEdit(actionName);
+        clip->setControllerEvents(type, std::move(events), &undoManager);
     }
 }
 
@@ -868,7 +1077,8 @@ void Session::requestAllSources()
     {
         const auto track = project.getTrack(t);
         for (int c = 0; c < track.getNumClips(); ++c)
-            sources.request(track.getClip(c).getAudioFile());
+            if (const auto clip = track.getClip(c); !clip.isMidi())
+                sources.request(clip.getAudioFile());
     }
 }
 
@@ -985,13 +1195,23 @@ std::optional<EffectLocation> Session::findEffect(model::ObjectId effectId) cons
     }
     if (const int index = project.getMasterEffects().indexOf(effectId); index >= 0)
         return EffectLocation{ChainOwner::master(), index};
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        const auto track = project.getTrack(t);
+        if (const auto instrument = track.getInstrument(); instrument && instrument->getId() == effectId)
+            return EffectLocation{ChainOwner::track(track.getId()), -1};
+    }
     return std::nullopt;
 }
 
 std::optional<model::Effect> Session::getEffect(model::ObjectId effectId) const
 {
     if (const auto location = findEffect(effectId))
+    {
+        if (location->isInstrument())
+            return findTrack(location->owner.id)->getInstrument();
         return getEffects(location->owner).getEffect(location->index);
+    }
     return std::nullopt;
 }
 
@@ -1020,7 +1240,8 @@ model::ObjectId Session::addEffect(const ChainOwner& owner, const juce::String& 
                              (owner.kind == ChainOwner::Kind::bus && findBus(owner.id));
     const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
                                                      false);
-    if (!ownerExists || probe == nullptr || refusesLatencyChange(probe->getLatency()))
+    if (!ownerExists || probe == nullptr || probe->getDescription().isInstrument ||
+        refusesLatencyChange(probe->getLatency()))
         return 0;
 
     // Delay and reverb on a bus: the bus carries only the effect, fully wet.
@@ -1038,6 +1259,11 @@ bool Session::removeEffect(model::ObjectId effectId)
     const auto location = findEffect(effectId);
     if (!location)
         return false;
+    if (location->isInstrument())
+    {
+        removeInstrument(location->owner.id);
+        return true;
+    }
 
     const auto instance = effectInstances.find(effectId);
     if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
@@ -1051,7 +1277,7 @@ bool Session::removeEffect(model::ObjectId effectId)
 bool Session::moveEffect(model::ObjectId effectId, int toIndex)
 {
     const auto location = findEffect(effectId);
-    if (!location || location->index == toIndex)
+    if (!location || location->isInstrument() || location->index == toIndex)
         return false;
 
     const auto instance = effectInstances.find(effectId);
