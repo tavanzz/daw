@@ -21,6 +21,7 @@ Session::Session(engine::Engine& engineToDrive, SessionOptions sessionOptions)
               engine::io::StreamingOptions{options.streaming, &engine.getRenderClock(),
                                            options.streamingMemory, true})
 {
+    effectInstances.setFactory(options.effects);
     if (engine.getSampleRate() > 0.0)
         sources.setSampleRate(engine.getSampleRate());
 
@@ -433,7 +434,7 @@ bool Session::isInstrumentType(const juce::String& type) const
     if (type.isEmpty())
         return false;
     const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
-                                                     false);
+                                                     false, effectInstances.getFactory());
     return probe != nullptr && probe->getDescription().isInstrument;
 }
 
@@ -444,7 +445,7 @@ model::ObjectId Session::setInstrument(model::ObjectId trackId, const juce::Stri
         return 0;
 
     const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
-                                                     false);
+                                                     false, effectInstances.getFactory());
     const auto old = track->getInstrument();
     const auto oldInstance = old ? effectInstances.find(old->getId()) : nullptr;
     if (refusesLatencyChange(std::max(probe->getLatency(),
@@ -973,6 +974,25 @@ juce::String Session::takeRecordingProblem()
     return std::exchange(recordingProblem, {});
 }
 
+void Session::setMidiInputDevices(juce::StringArray names, MidiDeviceLookup lookup)
+{
+    midiInputNames = std::move(names);
+    midiDevices = std::move(lookup);
+    arrangementOutOfDate = true;
+    ++revision;
+}
+
+void Session::startNotePreview(model::ObjectId trackId, int key, int velocity)
+{
+    if (const auto track = findTrack(trackId); track && track->isMidi())
+        engine.startPreview(trackId, key, engine::midi::fromSevenBit(std::clamp(velocity, 1, 127)));
+}
+
+void Session::stopNotePreview(model::ObjectId trackId, int key)
+{
+    engine.stopPreview(trackId, key);
+}
+
 void Session::setDeviceLatency(int inputSamples, int outputSamples)
 {
     deviceInputLatency = std::max(0, inputSamples);
@@ -1120,12 +1140,13 @@ void Session::rebuildArrangement()
     };
     const auto meterFor = [this](model::ObjectId trackId) { return getTrackMeter(trackId); };
     const bool fadeIn = !freshEffects;
-    const auto effectsFor = [this, fadeIn](const ChainOwner& owner, const model::EffectList& list) {
-        return effectInstances.chainFor(owner, list, fadeIn);
+    const auto effectsFor = [this, fadeIn](const ChainOwner& owner,
+                                           const std::vector<model::Effect>& chain) {
+        return effectInstances.chainFor(owner, chain, fadeIn);
     };
 
-    auto arrangement =
-        buildArrangement(project, sources.getSampleRate(), lookup, meterFor, effectsFor);
+    auto arrangement = buildArrangement(project, sources.getSampleRate(), lookup, meterFor,
+                                        effectsFor, midiDevices);
     effectInstances.forgetUnused();
     freshEffects = false;
 
@@ -1239,7 +1260,7 @@ model::ObjectId Session::addEffect(const ChainOwner& owner, const juce::String& 
                              (owner.kind == ChainOwner::Kind::track && findTrack(owner.id)) ||
                              (owner.kind == ChainOwner::Kind::bus && findBus(owner.id));
     const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
-                                                     false);
+                                                     false, effectInstances.getFactory());
     if (!ownerExists || probe == nullptr || probe->getDescription().isInstrument ||
         refusesLatencyChange(probe->getLatency()))
         return 0;

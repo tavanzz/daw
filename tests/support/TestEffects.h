@@ -213,8 +213,8 @@ private:
 
 /**
     An instrument whose output shows exactly which notes it holds: from the sample of
-    each event on, the left channel is the sum of the held notes' velocities (times
-    its "level" parameter) and the right channel how many notes it holds. It records
+    each event on, it adds to the left channel the sum of the held notes' velocities
+    (times its "level" parameter) and to the right channel how many notes it holds. It records
     every event it gets with its sample (counted since it was prepared or reset), in
     preallocated memory, and complains (wellFormed) about a note-off for a note it
     does not hold.
@@ -265,9 +265,9 @@ public:
             float velocities = 0.0f;
             for (int n = 0; n < heldCount; ++n)
                 velocities += held[static_cast<std::size_t>(n)].value;
-            block.channels[0][i] = outputsNaN ? std::numeric_limits<float>::quiet_NaN()
-                                              : velocities * block.parameters.at(0, i);
-            block.channels[1][i] = static_cast<float>(heldCount);
+            block.channels[0][i] += outputsNaN ? std::numeric_limits<float>::quiet_NaN()
+                                               : velocities * block.parameters.at(0, i);
+            block.channels[1][i] += static_cast<float>(heldCount);
         }
         // Events past the block's end would be a host error: take them anyway.
         for (; next < block.events.size(); ++next)

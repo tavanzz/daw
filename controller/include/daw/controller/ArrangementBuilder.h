@@ -18,11 +18,16 @@ using SourceLookup =
 using MeterLookup =
     std::function<std::shared_ptr<engine::dsp::PeakLevelMeter>(model::ObjectId trackId)>;
 
-/** The engine's instances for an owner's effects: one slot per effect, in order,
-    with its instance (null for an unknown type) and revival count. Without one,
-    every effect gets a fresh instance (exports). */
+/** The engine's instances for an owner's chain (a MIDI track's instrument first,
+    then its effects): one slot per effect, in order, with its instance (null for an
+    unknown type) and revival count. Without one, every effect gets a fresh instance
+    (exports). */
 using EffectLookup = std::function<std::vector<engine::ChainSlot>(
-    const ChainOwner& owner, const model::EffectList& effects)>;
+    const ChainOwner& owner, const std::vector<model::Effect>& effects)>;
+
+/** The index the engine knows a MIDI input device by, from its name; -1 if no such
+    device is connected. */
+using MidiDeviceLookup = std::function<int(const juce::String& deviceName)>;
 
 /**
     The engine's view of a project at one sample rate: ticks become samples, mute,
@@ -41,13 +46,24 @@ using EffectLookup = std::function<std::vector<engine::ChainSlot>(
     - A clip that reaches to within one sample of its file's end plays to the end of
       the file, so converting a whole file to another rate never cuts its last sample
       (and never gives it a fade).
+    - MIDI tracks play their instrument first in their chain, and their MIDI clips as
+      notes and controller lanes in samples: a clip plays where the clips above it do
+      not cover it; a note plays if it starts there, up to where it ends or the
+      clip's visible part does (at least one sample); controllers step within the
+      visible parts, start at their value there and return to rest at the end. A
+      track that is not heard plays no notes. Its MIDI input is found by device
+      name (midiDevices; without one, every device).
 
     Runs on the thread that owns the project (the message thread, or an export's
     own copy). Allocates.
 */
 [[nodiscard]] std::unique_ptr<engine::Arrangement>
 buildArrangement(const model::Project& project, double sampleRate, const SourceLookup& sources,
-                 const MeterLookup& meters = {}, const EffectLookup& effects = {});
+                 const MeterLookup& meters = {}, const EffectLookup& effects = {},
+                 const MidiDeviceLookup& midiDevices = {});
+
+/** The identity a note has in every arrangement built from its clip. */
+[[nodiscard]] std::uint64_t noteIdentity(model::ObjectId clipId, std::int32_t noteId) noexcept;
 
 /** An automation lane as the engine plays it, at sampleRate; null without points. */
 [[nodiscard]] std::shared_ptr<const engine::AutomationCurve>

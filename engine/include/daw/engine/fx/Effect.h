@@ -18,8 +18,9 @@ struct EffectDescription
     juce::String name; ///< shown to the user
     std::vector<ParameterInfo> parameters;
 
-    /** An instrument plays the notes it receives (ProcessBlock::events); its input
-        is silence, which its sound replaces. It sits first in a MIDI track's chain. */
+    /** An instrument plays the notes it receives (ProcessBlock::events) and adds its
+        sound to its input (silence, unless an instrument being replaced fades out
+        before it). It sits first in a MIDI track's chain. */
     bool isInstrument = false;
 
     /** -1 if there is no parameter with that id. */

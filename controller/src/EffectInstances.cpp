@@ -69,9 +69,11 @@ void EffectInstances::clear()
 
 std::shared_ptr<engine::fx::EffectInstance>
 EffectInstances::makeInstance(const juce::String& type, double rate, int maximumBlockSize,
-                              bool fadeIn)
+                              bool fadeIn, const EffectFactory& factory)
 {
     auto effect = engine::fx::createBuiltInEffect(type);
+    if (effect == nullptr && factory)
+        effect = factory(type);
     if (effect == nullptr)
         return nullptr;
 
@@ -82,20 +84,19 @@ EffectInstances::makeInstance(const juce::String& type, double rate, int maximum
 }
 
 std::vector<engine::ChainSlot> EffectInstances::chainFor(const ChainOwner& owner,
-                                                         const model::EffectList& effects,
+                                                         const std::vector<model::Effect>& effects,
                                                          bool fadeIn)
 {
     std::vector<model::ObjectId> order;
-    for (int i = 0; i < effects.getNumEffects(); ++i)
-        order.push_back(effects.getEffect(i).getId());
+    for (const auto& effect : effects)
+        order.push_back(effect.getId());
 
     const auto& old = orders[owner];
     const auto kept = keptInOrder(old, order, moved);
 
     std::vector<engine::ChainSlot> slots;
-    for (int i = 0; i < effects.getNumEffects(); ++i)
+    for (const auto& effect : effects)
     {
-        const auto effect = effects.getEffect(i);
         const auto id = effect.getId();
         used.push_back(id);
 
@@ -109,7 +110,7 @@ std::vector<engine::ChainSlot> EffectInstances::chainFor(const ChainOwner& owner
         const bool movedHere = wasHere && kept.count(id) == 0;
         const bool cameFromElsewhere = !wasHere && instance != nullptr;
         if (!sameType || movedHere || cameFromElsewhere)
-            instance = makeInstance(effect.getType(), sampleRate, blockSize, fadeIn);
+            instance = makeInstance(effect.getType(), sampleRate, blockSize, fadeIn, factory);
 
         engine::ChainSlot slot;
         slot.instance = instance;

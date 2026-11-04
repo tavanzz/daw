@@ -688,9 +688,8 @@ void Mixer::processChain(const EffectChain& chain, const Arrangement& arrangemen
                          float* const* channels, int numSamples, juce::int64 timelineStart,
                          const MixContext& context, int latency, midi::EventSpan events) noexcept
 {
-    for (std::size_t index = 0; index < chain.slots.size(); ++index)
+    for (const auto& slot : chain.slots)
     {
-        const auto& slot = chain.slots[index];
         if (slot.instance == nullptr)
             continue;
 
@@ -730,9 +729,9 @@ void Mixer::processChain(const EffectChain& chain, const Arrangement& arrangemen
             slotContext.automation = std::span<const float* const>(automationPointers.data(), count);
         }
 
-        // The notes go to the instrument at the head of the chain.
-        if (index == 0)
-            slotContext.events = events;
+        // The notes go to the instruments (the one at the head of the chain, and one
+        // being replaced while it fades out); effects ignore them.
+        slotContext.events = events;
 
         fx::SlotSettings settings;
         settings.parameters = slot.parameters;

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <set>
 
 namespace daw::controller
@@ -37,8 +38,16 @@ std::shared_ptr<const engine::AutomationCurve> curveFor(const model::Automation&
     return index >= 0 ? makeCurve(automation.getLane(index), sampleRate) : nullptr;
 }
 
+std::vector<model::Effect> effectsOf(const model::EffectList& list)
+{
+    std::vector<model::Effect> effects;
+    for (int i = 0; i < list.getNumEffects(); ++i)
+        effects.push_back(list.getEffect(i));
+    return effects;
+}
+
 // An owner's effects as the engine plays them, with their automation if it reads.
-engine::EffectChain makeChain(const ChainOwner& owner, const model::EffectList& effects,
+engine::EffectChain makeChain(const ChainOwner& owner, const std::vector<model::Effect>& effects,
                               const model::Automation& automation, bool reads,
                               double sampleRate, const EffectLookup& lookup)
 {
@@ -49,23 +58,22 @@ engine::EffectChain makeChain(const ChainOwner& owner, const model::EffectList& 
     }
     else
     {
-        for (int i = 0; i < effects.getNumEffects(); ++i)
+        for (const auto& effect : effects)
         {
             engine::ChainSlot slot;
-            slot.instance = EffectInstances::makeInstance(effects.getEffect(i).getType(),
-                                                          sampleRate, 512, false);
+            slot.instance = EffectInstances::makeInstance(effect.getType(), sampleRate, 512, false);
             slots.push_back(std::move(slot));
         }
     }
 
     engine::EffectChain chain;
-    for (int i = 0; i < effects.getNumEffects() && static_cast<std::size_t>(i) < slots.size(); ++i)
+    for (std::size_t i = 0; i < effects.size() && i < slots.size(); ++i)
     {
-        auto& slot = slots[static_cast<std::size_t>(i)];
+        auto& slot = slots[i];
         if (slot.instance == nullptr)
             continue;
 
-        const auto effect = effects.getEffect(i);
+        const auto& effect = effects[i];
         const auto& parameters = slot.instance->getDescription().parameters;
         slot.enabled = !effect.isBypassed();
         slot.parameters.clear();
@@ -94,6 +102,180 @@ engine::EffectChain makeChain(const ChainOwner& owner, const model::EffectList& 
     return chain;
 }
 
+struct Interval
+{
+    model::Ticks start = 0;
+    model::Ticks end = 0;
+};
+
+// The parts of [start, end) that no interval of covered (sorted, disjoint) covers.
+std::vector<Interval> uncovered(model::Ticks start, model::Ticks end,
+                                const std::vector<Interval>& covered)
+{
+    std::vector<Interval> parts;
+    model::Ticks position = start;
+    for (const auto& interval : covered)
+    {
+        if (interval.end <= position)
+            continue;
+        if (interval.start >= end)
+            break;
+        if (interval.start > position)
+            parts.push_back({position, interval.start});
+        position = std::max(position, interval.end);
+        if (position >= end)
+            break;
+    }
+    if (position < end)
+        parts.push_back({position, end});
+    return parts;
+}
+
+void cover(std::vector<Interval>& covered, model::Ticks start, model::Ticks end)
+{
+    covered.push_back({start, end});
+    std::sort(covered.begin(), covered.end(),
+              [](const Interval& a, const Interval& b) { return a.start < b.start; });
+    std::vector<Interval> merged;
+    for (const auto& interval : covered)
+    {
+        if (!merged.empty() && interval.start <= merged.back().end)
+            merged.back().end = std::max(merged.back().end, interval.end);
+        else
+            merged.push_back(interval);
+    }
+    covered = std::move(merged);
+}
+
+engine::midi::EventType toEngine(model::ControllerType::Kind kind)
+{
+    switch (kind)
+    {
+    case model::ControllerType::Kind::pitchBend:
+        return engine::midi::EventType::pitchBend;
+    case model::ControllerType::Kind::channelPressure:
+        return engine::midi::EventType::channelPressure;
+    case model::ControllerType::Kind::controlChange:
+        break;
+    }
+    return engine::midi::EventType::controller;
+}
+
+float normalisedValue(const model::ControllerType& type, int value)
+{
+    return type.kind == model::ControllerType::Kind::pitchBend ? engine::midi::fromPitchBend(value)
+                                                              : engine::midi::fromSevenBit(value);
+}
+
+// A MIDI track's clips as notes and controller lanes in samples: each clip where the
+// clips above it leave it visible.
+void addMidiContent(const model::Track& track, double sampleRate, engine::ArrangementTrack& out,
+                    juce::int64& length)
+{
+    const auto toSamples = [sampleRate](model::Ticks ticks) {
+        return model::ticksToSamples(ticks, sampleRate);
+    };
+    const auto channel = static_cast<std::uint8_t>(track.getMidiChannel() - 1);
+
+    struct Step
+    {
+        juce::int64 position = 0;
+        int order = 0; // 0: a clip's end going back to rest; 1: anything else
+        float value = 0.0f;
+    };
+    std::map<model::ControllerType, std::vector<Step>> steps;
+
+    std::vector<Interval> covered;
+    for (int c = track.getNumClips() - 1; c >= 0; --c)
+    {
+        const auto clip = track.getClip(c);
+        const auto end = clip.getEnd();
+        if (!clip.isMidi() || !end)
+            continue;
+
+        const auto parts = uncovered(clip.getPosition(), *end, covered);
+        cover(covered, clip.getPosition(), *end);
+        length = std::max(length, toSamples(*end));
+
+        const model::MidiClip midi(clip.getState());
+        const auto origin = clip.getPosition() - clip.getOffset();
+        const auto notes = midi.getNotes();
+        const auto events = midi.getControllerEvents();
+
+        for (const auto& part : parts)
+        {
+            for (const auto& note : notes)
+            {
+                const auto start = origin + note.start;
+                if (start < part.start || start >= part.end)
+                    continue;
+
+                engine::ArrangementNote played;
+                played.start = toSamples(start);
+                played.end = std::max(played.start + 1,
+                                      toSamples(std::min(origin + note.getEnd(), part.end)));
+                played.key = static_cast<std::uint8_t>(note.key);
+                played.channel = channel;
+                played.velocity = engine::midi::fromSevenBit(note.velocity);
+                played.identity = noteIdentity(clip.getId(), note.id);
+                out.notes.push_back(played);
+            }
+
+            for (const auto& type : midi.getControllerTypes())
+            {
+                auto& lane = steps[type];
+                int value = type.restValue();
+                for (const auto& event : events)
+                {
+                    if (event.type != type)
+                        continue;
+                    const auto at = origin + event.position;
+                    if (at <= part.start)
+                    {
+                        value = event.value;
+                        continue;
+                    }
+                    if (at >= part.end)
+                        break;
+                    lane.push_back({toSamples(at), 1, normalisedValue(type, event.value)});
+                }
+                lane.push_back({toSamples(part.start), 1, normalisedValue(type, value)});
+                lane.push_back({toSamples(part.end), 0, normalisedValue(type, type.restValue())});
+            }
+        }
+    }
+
+    std::stable_sort(out.notes.begin(), out.notes.end(),
+                     [](const engine::ArrangementNote& a, const engine::ArrangementNote& b) {
+                         return a.start < b.start;
+                     });
+
+    for (auto& [type, lane] : steps)
+    {
+        std::stable_sort(lane.begin(), lane.end(), [](const Step& a, const Step& b) {
+            return a.position != b.position ? a.position < b.position : a.order < b.order;
+        });
+
+        engine::ControllerLane result;
+        result.type = toEngine(type.kind);
+        result.number = static_cast<std::uint8_t>(type.number);
+        result.channel = channel;
+        float current = normalisedValue(type, type.restValue());
+        for (std::size_t i = 0; i < lane.size(); ++i)
+        {
+            // At one position the last step holds.
+            if (i + 1 < lane.size() && lane[i + 1].position == lane[i].position)
+                continue;
+            if (juce::exactlyEqual(lane[i].value, current))
+                continue;
+            current = lane[i].value;
+            result.steps.push_back({lane[i].position, current});
+        }
+        if (!result.steps.empty())
+            out.controllers.push_back(std::move(result));
+    }
+}
+
 engine::GainAutomation makeGainAutomation(double volume, double pan,
                                           const model::Automation& automation, bool active,
                                           double sampleRate)
@@ -110,6 +292,11 @@ engine::GainAutomation makeGainAutomation(double volume, double pan,
 }
 
 } // namespace
+
+std::uint64_t noteIdentity(model::ObjectId clipId, std::int32_t noteId) noexcept
+{
+    return (static_cast<std::uint64_t>(clipId) << 32) ^ static_cast<std::uint32_t>(noteId);
+}
 
 std::shared_ptr<const engine::AutomationCurve> makeCurve(const model::AutomationLane& lane,
                                                          double sampleRate)
@@ -131,7 +318,8 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
                                                       double sampleRate,
                                                       const SourceLookup& sources,
                                                       const MeterLookup& meters,
-                                                      const EffectLookup& effects)
+                                                      const EffectLookup& effects,
+                                                      const MidiDeviceLookup& midiDevices)
 {
     jassert(sampleRate > 0.0);
 
@@ -169,7 +357,7 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
         }
         arrangementBus.automation =
             makeGainAutomation(bus.getVolume(), bus.getPan(), automation, !bus.isMuted(), sampleRate);
-        arrangementBus.inserts = makeChain(ChainOwner::bus(bus.getId()), bus.getEffects(),
+        arrangementBus.inserts = makeChain(ChainOwner::bus(bus.getId()), effectsOf(bus.getEffects()),
                                            automation, reads, sampleRate, effects);
         if (meters)
             arrangementBus.meter = meters(bus.getId());
@@ -178,8 +366,9 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
 
     const auto masterAutomation = project.getMasterAutomation();
     const bool masterReads = masterAutomation.getMode() == model::AutomationMode::read;
-    arrangement->masterInserts = makeChain(ChainOwner::master(), project.getMasterEffects(),
-                                           masterAutomation, masterReads, sampleRate, effects);
+    arrangement->masterInserts = makeChain(ChainOwner::master(),
+                                           effectsOf(project.getMasterEffects()), masterAutomation,
+                                           masterReads, sampleRate, effects);
     if (masterReads)
         arrangement->masterCurve =
             curveFor(masterAutomation, model::AutomationTarget::volume(), sampleRate);
@@ -224,8 +413,30 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
         const bool reads = automation.getMode() == model::AutomationMode::read;
         arrangementTrack.automation =
             makeGainAutomation(track.getVolume(), track.getPan(), automation, audible, sampleRate);
-        arrangementTrack.inserts = makeChain(ChainOwner::track(track.getId()), track.getEffects(),
-                                             automation, reads, sampleRate, effects);
+        auto chain = effectsOf(track.getEffects());
+        if (const auto instrument = track.isMidi() ? track.getInstrument() : std::nullopt)
+            chain.insert(chain.begin(), *instrument);
+        arrangementTrack.inserts = makeChain(ChainOwner::track(track.getId()), chain, automation,
+                                             reads, sampleRate, effects);
+
+        if (track.isMidi())
+        {
+            arrangementTrack.playsNotes = true;
+            const auto midiInput = track.getMidiInput();
+            arrangementTrack.midiInput.channel = midiInput.channel - 1;
+            if (midiInput.device.isNotEmpty() && midiDevices)
+            {
+                const int device = midiDevices(midiInput.device);
+                arrangementTrack.midiInput.device =
+                    device >= 0 ? device : engine::midi::InputFilter::noDevice;
+            }
+            if (audible)
+                addMidiContent(track, sampleRate, arrangementTrack, arrangement->length);
+            else
+                for (int c = 0; c < track.getNumClips(); ++c)
+                    if (const auto end = track.getClip(c).getEnd())
+                        arrangement->length = std::max(arrangement->length, toSamples(*end));
+        }
 
         // A track that is not heard sends nothing.
         for (int sendIndex = 0; sendIndex < track.getNumSends(); ++sendIndex)
@@ -251,6 +462,8 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
         for (int clipIndex = 0; clipIndex < track.getNumClips(); ++clipIndex)
         {
             const auto clip = track.getClip(clipIndex);
+            if (clip.isMidi())
+                continue;
             auto source = sources ? sources(clip.getAudioFile()) : nullptr;
 
             const juce::int64 start = toSamples(clip.getPosition());

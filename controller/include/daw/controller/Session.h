@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/ArrangementBuilder.h"
 #include "daw/controller/ChainOwner.h"
 #include "daw/controller/ClipEditing.h"
 #include "daw/controller/EffectInstances.h"
@@ -48,6 +49,9 @@ struct SessionOptions
         between audio blocks so that streaming is deterministic. */
     engine::io::DiskStreamer::Mode streaming = engine::io::DiskStreamer::Mode::readAhead;
     std::size_t streamingMemory = std::size_t{512} << 20;
+
+    /** Effects and instruments beyond the built-in ones (tests). */
+    EffectFactory effects = {};
 };
 
 /**
@@ -349,6 +353,20 @@ public:
     [[nodiscard]] bool needsInputs() const;
     void requestInputs() noexcept { inputsRequested = true; }
 
+    /** The MIDI input devices connected now, by name, and the index the engine knows
+        each by (set by the app when they change): a MIDI track listening to one
+        device finds it here; one that is not connected hears nothing. */
+    void setMidiInputDevices(juce::StringArray names, MidiDeviceLookup lookup);
+    [[nodiscard]] const juce::StringArray& getMidiInputDeviceNames() const noexcept
+    {
+        return midiInputNames;
+    }
+
+    /** Plays a note on a MIDI track through its instrument (the piano roll's preview,
+        whatever the monitoring) until stopNotePreview(). velocity 1 to 127. */
+    void startNotePreview(model::ObjectId trackId, int key, int velocity);
+    void stopNotePreview(model::ObjectId trackId, int key);
+
     /** The device's input channels by number, for choosing a track's input (set by
         the app when the device changes; empty while no input is open). */
     void setInputChannelNames(juce::StringArray names) { inputChannelNames = std::move(names); }
@@ -460,6 +478,8 @@ private:
     InputAccess inputAccess = InputAccess::unknown;
     bool inputsRequested = false;
     juce::StringArray inputChannelNames;
+    juce::StringArray midiInputNames;
+    MidiDeviceLookup midiDevices;
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;
     int latencyOffset = 0;

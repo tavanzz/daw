@@ -335,6 +335,19 @@ Modules with one-way dependencies:
   `Session` edits effects (`ChainOwner`: track, bus or master), buses and sends
   with undo; delay and reverb start fully wet on a bus; while recording, edits
   that would change the latency are refused (`takeEditProblem()`).
+- MIDI in the controller (Phase 6): `buildArrangement()` puts a MIDI track's
+  instrument first in its chain (`EffectLookup` now takes the chain as a list of
+  `model::Effect`s, so `EffectInstances` keeps the instrument like any effect: a
+  replaced one, with its new id, fades out switched off by `FadeOutKeeper` and ends
+  its notes, while the new one gets the events; instruments add to their input) and
+  turns its MIDI clips into `ArrangementNote`s and `ControllerLane`s
+  (`noteIdentity()` = clip id and note id): a clip plays where clips above leave it
+  visible; a note plays if it starts there, cut at the visible part's end (at least
+  one sample); controllers start at their value there, step, and rest at the end; a
+  track not heard plays no notes. The MIDI input is found by device name through
+  `Session::setMidiInputDevices()` (unknown: `InputFilter::noDevice`).
+  `Session::startNotePreview()`/`stopNotePreview()` reach the engine. Tests add
+  instruments of their own through `SessionOptions::effects` (an `EffectFactory`).
 - Automation in the controller (Phase 4): `Session` adds, moves (a drag is one
   gesture), removes and clears points of a target's lane (undoable) and switches
   an owner's mode (not undoable); `getAutomatedValue()` gives a target's value at
@@ -1126,7 +1139,7 @@ devices, loop/take/merge recording, swing, presets.
       transpose) and controller events
 - [x] 8. Note editing in the controller: quantisation (value, strength, ends), snap,
       selection, hit tests, drag rules, transposition, `PianoRollViewport`
-- [ ] 9. Controller: MIDI tracks in the arrangement (clip overlaps and edges,
+- [x] 9. Controller: MIDI tracks in the arrangement (clip overlaps and edges,
       controller steps), instrument instances, sample loading, preview, MIDI inputs
 - [ ] 10. MIDI recording in the controller and the app: armed MIDI tracks with the
       audio ones in one "Record" step, handles, punch, discard; MIDI devices in

@@ -50,12 +50,15 @@ using LiveEventSpan = std::span<const LiveEvent>;
 /** Which live input a MIDI track hears. */
 struct InputFilter
 {
-    int device = -1;  ///< a device index; -1 for every device
-    int channel = -1; ///< 0 to 15; -1 for every channel
+    static constexpr int everyDevice = -1;
+    static constexpr int noDevice = -2; ///< a device that is not connected
+
+    int device = everyDevice; ///< a device index, everyDevice or noDevice
+    int channel = -1;         ///< 0 to 15; -1 for every channel
 
     [[nodiscard]] bool accepts(const LiveEvent& live) const noexcept
     {
-        return live.device >= 0 && (device < 0 || device == live.device) &&
+        return live.device >= 0 && (device == everyDevice || device == live.device) &&
                (channel < 0 || channel == live.event.channel);
     }
 
