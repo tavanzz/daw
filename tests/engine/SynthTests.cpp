@@ -173,7 +173,9 @@ TEST_CASE("The synth's output does not depend on the host's blocks", "[engine][s
             midi::controller(4000, 64, 1.0f),    midi::noteOff(5000, 60, 0, 1),
             midi::noteOff(6000, 71, 0, 4),       midi::controller(9000, 64, 0.0f),
             midi::noteOff(12000, 67, 0, 3),      midi::noteOff(13000, 64, 0, 2)};
-        return synth.run(events, 36000, blockSize);
+        auto out = synth.run(events, 36000, blockSize);
+        CHECK(synth.heapOperations == 0);
+        return out;
     };
 
     const auto reference = play(512);

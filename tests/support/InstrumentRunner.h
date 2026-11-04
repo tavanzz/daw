@@ -55,6 +55,8 @@ public:
         automationIndex = instance.getDescription().indexOf(id);
         lane = std::move(normalised);
         lanePosition = 0;
+        // Sized here: the rendering below must not allocate.
+        automationPointers.assign(static_cast<std::size_t>(std::max(0, automationIndex + 1)), nullptr);
     }
 
     /** Renders length samples from the current position in blocks of blockSize; the
@@ -86,7 +88,6 @@ public:
                 context.time.tempo = 120.0;
                 if (automationIndex >= 0)
                 {
-                    automationPointers.assign(static_cast<std::size_t>(automationIndex + 1), nullptr);
                     automationPointers[static_cast<std::size_t>(automationIndex)] =
                         lane.data() + lanePosition;
                     context.automation = automationPointers;
