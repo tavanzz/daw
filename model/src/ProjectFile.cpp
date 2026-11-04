@@ -74,6 +74,17 @@ constexpr const char* target = "target";
 constexpr const char* points = "points";
 constexpr const char* value = "value";
 constexpr const char* curve = "curve";
+constexpr const char* kind = "kind";
+constexpr const char* midiInput = "midiInput";
+constexpr const char* device = "device";
+constexpr const char* midiChannel = "midiChannel";
+constexpr const char* instrument = "instrument";
+constexpr const char* files = "files";
+constexpr const char* notes = "notes";
+constexpr const char* key = "key";
+constexpr const char* velocity = "velocity";
+constexpr const char* controllers = "controllers";
+constexpr const char* events = "events";
 
 // Fields of older versions, read only by migrations.
 constexpr const char* loopEnabledVersion1 = "loopEnabled";
@@ -227,10 +238,36 @@ juce::var migrateVersion3To4(juce::var root)
     return root;
 }
 
+// Version 5 (Phase 6, MIDI and instruments) gives tracks and clips a kind, "audio"
+// or "midi"; everything in a version 4 project is audio.
+juce::var migrateVersion4To5(juce::var root)
+{
+    auto* project = root[json::project].getDynamicObject();
+    if (project == nullptr)
+        return root;
+
+    if (auto* tracks = project->getProperty(json::tracks).getArray())
+    {
+        for (auto& track : *tracks)
+        {
+            auto* trackObject = track.getDynamicObject();
+            if (trackObject == nullptr)
+                continue;
+            trackObject->setProperty(json::kind, "audio");
+            if (auto* clips = trackObject->getProperty(json::clips).getArray())
+                for (auto& clip : *clips)
+                    if (auto* clipObject = clip.getDynamicObject())
+                        clipObject->setProperty(json::kind, "audio");
+        }
+    }
+
+    return root;
+}
+
 // The migration chain of this build: entry i upgrades format version i + 1 to i + 2.
 // When the format changes, bump currentFormatVersion and append a migration.
 constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{
-    migrateVersion1To2, migrateVersion2To3, migrateVersion3To4};
+    migrateVersion1To2, migrateVersion2To3, migrateVersion3To4, migrateVersion4To5};
 static_assert(migrations.size() + 1 == static_cast<std::size_t>(currentFormatVersion));
 
 juce::String pathForFile(const juce::File& file, const juce::File& projectDirectory)
@@ -285,26 +322,81 @@ std::optional<int> readVersion(const juce::var& value)
 namespace
 {
 
-juce::var effectsToJson(const EffectList& list)
+juce::var effectToJson(const Effect& effect, const juce::File& projectDirectory)
+{
+    auto parameters = makeObject();
+    for (const auto& [id, value] : effect.getParameters())
+        parameters.getDynamicObject()->setProperty(id, value);
+
+    auto object = makeObject({{json::id, effect.getId()},
+                              {json::type, effect.getType()},
+                              {json::bypass, effect.isBypassed()},
+                              {json::parameters, parameters}});
+    if (const auto files = effect.getFiles(); !files.empty())
+    {
+        auto filesObject = makeObject();
+        for (const auto& [key, file] : files)
+            filesObject.getDynamicObject()->setProperty(key, pathForFile(file, projectDirectory));
+        object.getDynamicObject()->setProperty(json::files, filesObject);
+    }
+    if (const auto extra = effect.getExtraState(); !extra.isEmpty())
+        object.getDynamicObject()->setProperty(
+            json::data, juce::Base64::toBase64(extra.getData(), extra.getSize()));
+    return object;
+}
+
+juce::var effectsToJson(const EffectList& list, const juce::File& projectDirectory)
 {
     juce::Array<juce::var> effects;
     for (int i = 0; i < list.getNumEffects(); ++i)
-    {
-        const auto effect = list.getEffect(i);
-        auto parameters = makeObject();
-        for (const auto& [id, value] : effect.getParameters())
-            parameters.getDynamicObject()->setProperty(id, value);
-
-        auto object = makeObject({{json::id, effect.getId()},
-                                  {json::type, effect.getType()},
-                                  {json::bypass, effect.isBypassed()},
-                                  {json::parameters, parameters}});
-        if (const auto extra = effect.getExtraState(); !extra.isEmpty())
-            object.getDynamicObject()->setProperty(
-                json::data, juce::Base64::toBase64(extra.getData(), extra.getSize()));
-        effects.add(object);
-    }
+        effects.add(effectToJson(list.getEffect(i), projectDirectory));
     return effects;
+}
+
+juce::var clipToJson(const Clip& clip, const juce::File& projectDirectory)
+{
+    if (!clip.isMidi())
+    {
+        auto object = makeObject({
+            {json::id, clip.getId()},
+            {json::kind, "audio"},
+            {json::audioFile, pathForFile(clip.getAudioFile(), projectDirectory)},
+            {json::position, clip.getPosition()},
+            {json::offset, clip.getOffset()},
+        });
+        if (const auto length = clip.getLength())
+            object.getDynamicObject()->setProperty(json::length, *length);
+        return object;
+    }
+
+    const MidiClip midi(clip.getState());
+    juce::Array<juce::var> notes;
+    for (const auto& note : midi.getNotes())
+        notes.add(makeObject({{json::id, note.id},
+                              {json::start, note.start},
+                              {json::length, note.length},
+                              {json::key, note.key},
+                              {json::velocity, note.velocity}}));
+
+    juce::Array<juce::var> controllers;
+    for (const auto& type : midi.getControllerTypes())
+    {
+        juce::Array<juce::var> events;
+        for (const auto& event : midi.getControllerEvents(type))
+            events.add(makeObject({{json::position, event.position}, {json::value, event.value}}));
+        controllers.add(makeObject({{json::type, type.toString()}, {json::events, events}}));
+    }
+
+    return makeObject({
+        {json::id, clip.getId()},
+        {json::kind, "midi"},
+        {json::name, clip.getName()},
+        {json::position, clip.getPosition()},
+        {json::offset, clip.getOffset()},
+        {json::length, clip.getLength().value_or(Clip::minimumLength)},
+        {json::notes, notes},
+        {json::controllers, controllers},
+    });
 }
 
 juce::var automationToJson(const Automation& automation)
@@ -342,18 +434,7 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
         juce::Array<juce::var> clips;
 
         for (int c = 0; c < track.getNumClips(); ++c)
-        {
-            const auto clip = track.getClip(c);
-            auto clipObject = makeObject({
-                {json::id, clip.getId()},
-                {json::audioFile, pathForFile(clip.getAudioFile(), projectDirectory)},
-                {json::position, clip.getPosition()},
-                {json::offset, clip.getOffset()},
-            });
-            if (const auto length = clip.getLength())
-                clipObject.getDynamicObject()->setProperty(json::length, *length);
-            clips.add(clipObject);
-        }
+            clips.add(clipToJson(track.getClip(c), projectDirectory));
 
         juce::Array<juce::var> sends;
         for (int i = 0; i < track.getNumSends(); ++i)
@@ -365,21 +446,37 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
                                   {json::preFader, send.isPreFader()}}));
         }
 
-        tracks.add(makeObject({
+        auto trackObject = makeObject({
             {json::id, track.getId()},
+            {json::kind, toString(track.getKind())},
             {json::name, track.getName()},
             {json::volume, track.getVolume()},
             {json::pan, track.getPan()},
             {json::mute, track.isMuted()},
             {json::solo, track.isSoloed()},
-            {json::input, inputToJson(track.getInput())},
-            {json::monitoring, toString(track.getMonitoring())},
-            {json::armed, track.isArmed()},
-            {json::effects, effectsToJson(track.getEffects())},
-            {json::sends, sends},
-            {json::automation, automationToJson(track.getAutomation())},
-            {json::clips, clips},
-        }));
+        });
+        auto* object = trackObject.getDynamicObject();
+        if (track.isMidi())
+        {
+            const auto midiInput = track.getMidiInput();
+            object->setProperty(json::midiInput, makeObject({{json::device, midiInput.device},
+                                                             {json::channel, midiInput.channel}}));
+            object->setProperty(json::midiChannel, track.getMidiChannel());
+            const auto instrument = track.getInstrument();
+            object->setProperty(json::instrument, instrument ? effectToJson(*instrument, projectDirectory)
+                                                             : juce::var());
+        }
+        else
+        {
+            object->setProperty(json::input, inputToJson(track.getInput()));
+        }
+        object->setProperty(json::monitoring, toString(track.getMonitoring()));
+        object->setProperty(json::armed, track.isArmed());
+        object->setProperty(json::effects, effectsToJson(track.getEffects(), projectDirectory));
+        object->setProperty(json::sends, sends);
+        object->setProperty(json::automation, automationToJson(track.getAutomation()));
+        object->setProperty(json::clips, clips);
+        tracks.add(trackObject);
     }
 
     juce::Array<juce::var> buses;
@@ -392,7 +489,7 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
             {json::volume, bus.getVolume()},
             {json::pan, bus.getPan()},
             {json::mute, bus.isMuted()},
-            {json::effects, effectsToJson(bus.getEffects())},
+            {json::effects, effectsToJson(bus.getEffects(), projectDirectory)},
             {json::automation, automationToJson(bus.getAutomation())},
         }));
     }
@@ -410,7 +507,8 @@ juce::String toJson(const Project& project, const juce::File& projectDirectory)
         {json::snap, makeObject({{json::enabled, project.isSnapEnabled()},
                                  {json::grid, toString(project.getGridDivision())}})},
         {json::master, makeObject({{json::volume, project.getMasterVolume()},
-                                   {json::effects, effectsToJson(project.getMasterEffects())},
+                                   {json::effects,
+                                    effectsToJson(project.getMasterEffects(), projectDirectory)},
                                    {json::automation,
                                     automationToJson(project.getMasterAutomation())}})},
         {json::metronome, makeObject({{json::enabled, project.isMetronomeEnabled()},
@@ -515,8 +613,80 @@ bool isNumber(const juce::var& value)
     return value.isInt() || value.isInt64() || value.isDouble();
 }
 
+// What an effect's JSON says, checked.
+struct EffectFields
+{
+    juce::String type;
+    bool bypass = false;
+    std::vector<std::pair<juce::String, double>> values;
+    juce::MemoryBlock extra;
+    std::vector<std::pair<juce::String, juce::File>> files;
+};
+
+juce::String readEffectFields(const juce::var& effectJson, const juce::File& projectDirectory,
+                              EffectFields& fields)
+{
+    if (!effectJson.isObject())
+        return "an effect is not an object";
+    const auto& type = effectJson[json::type];
+    if (!type.isString() || type.toString().isEmpty())
+        return "an effect has no type";
+    fields.type = type.toString();
+    const auto bypass = readBool(effectJson, json::bypass, false);
+    if (!bypass)
+        return "an effect bypass is not true or false";
+    fields.bypass = *bypass;
+
+    const auto& parameters = effectJson[json::parameters];
+    if (!parameters.isVoid() && !parameters.isObject())
+        return "the parameters of an effect are not an object";
+    if (const auto* object = parameters.getDynamicObject())
+    {
+        for (const auto& property : object->getProperties())
+        {
+            if (!isNumber(property.value))
+                return "an effect parameter is not a number";
+            fields.values.emplace_back(property.name.toString(), static_cast<double>(property.value));
+        }
+    }
+
+    const auto& files = effectJson[json::files];
+    if (!files.isVoid() && !files.isObject())
+        return "the files of an effect are not an object";
+    if (const auto* object = files.getDynamicObject())
+    {
+        for (const auto& property : object->getProperties())
+        {
+            const auto key = property.name.toString();
+            if (!property.value.isString() ||
+                !key.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
+                return "a file of an effect is not valid";
+            fields.files.emplace_back(key, fileForPath(property.value.toString(), projectDirectory));
+        }
+    }
+
+    const auto& data = effectJson[json::data];
+    juce::MemoryOutputStream extra;
+    if (!data.isVoid() &&
+        (!data.isString() || !juce::Base64::convertFromBase64(extra, data.toString())))
+        return "the data of an effect is not valid";
+    fields.extra = extra.getMemoryBlock();
+    return {};
+}
+
+void applyEffectFields(Effect effect, const EffectFields& fields, const juce::var& effectJson,
+                       std::set<ObjectId>& usedIds)
+{
+    effect.setBypassed(fields.bypass);
+    effect.setExtraState(fields.extra);
+    for (const auto& [key, file] : fields.files)
+        effect.setFile(key, file);
+    juce::ValueTree(effect.getState()).setProperty(ids::id, acceptId(effectJson, usedIds), nullptr);
+}
+
 // Reads an owner's effects into list: a message for the user if they are damaged.
-juce::String readEffects(const juce::var& owner, EffectList list, std::set<ObjectId>& usedIds)
+juce::String readEffects(const juce::var& owner, EffectList list, const juce::File& projectDirectory,
+                         std::set<ObjectId>& usedIds)
 {
     const auto& effects = owner[json::effects];
     if (effects.isVoid())
@@ -526,40 +696,68 @@ juce::String readEffects(const juce::var& owner, EffectList list, std::set<Objec
 
     for (const auto& effectJson : *effects.getArray())
     {
-        if (!effectJson.isObject())
-            return "an effect is not an object";
-        const auto& type = effectJson[json::type];
-        if (!type.isString() || type.toString().isEmpty())
-            return "an effect has no type";
-        const auto bypass = readBool(effectJson, json::bypass, false);
-        if (!bypass)
-            return "an effect bypass is not true or false";
-
-        const auto& parameters = effectJson[json::parameters];
-        if (!parameters.isVoid() && !parameters.isObject())
-            return "the parameters of an effect are not an object";
-        std::vector<std::pair<juce::String, double>> values;
-        if (const auto* object = parameters.getDynamicObject())
-        {
-            for (const auto& property : object->getProperties())
-            {
-                if (!isNumber(property.value))
-                    return "an effect parameter is not a number";
-                values.emplace_back(property.name.toString(), static_cast<double>(property.value));
-            }
-        }
-
-        const auto& data = effectJson[json::data];
-        juce::MemoryOutputStream extra;
-        if (!data.isVoid() &&
-            (!data.isString() || !juce::Base64::convertFromBase64(extra, data.toString())))
-            return "the data of an effect is not valid";
-
-        auto effect = list.add(type.toString(), -1, values);
-        effect.setBypassed(*bypass);
-        effect.setExtraState(extra.getMemoryBlock());
-        juce::ValueTree(effect.getState()).setProperty(ids::id, acceptId(effectJson, usedIds), nullptr);
+        EffectFields fields;
+        if (const auto error = readEffectFields(effectJson, projectDirectory, fields);
+            error.isNotEmpty())
+            return error;
+        applyEffectFields(list.add(fields.type, -1, fields.values), fields, effectJson, usedIds);
     }
+    return {};
+}
+
+// Reads a MIDI clip's notes and controllers into it.
+juce::String readMidiContent(const juce::var& clipJson, MidiClip clip)
+{
+    const auto& notesJson = clipJson[json::notes];
+    if (!notesJson.isVoid() && !notesJson.isArray())
+        return "the notes of a clip are not a list";
+
+    std::vector<Note> notes;
+    for (const auto& noteJson : notesJson.isArray() ? *notesJson.getArray() : juce::Array<juce::var>{})
+    {
+        const auto id = readInteger(noteJson, json::id, 0);
+        const auto start = readInteger(noteJson, json::start, 0);
+        const auto length = readInteger(noteJson, json::length, 1);
+        const auto key = readInteger(noteJson, json::key, 60);
+        const auto velocity = readInteger(noteJson, json::velocity, Note::defaultVelocity);
+        if (!noteJson.isObject() || !id || !start || !length || !key || !velocity || *start < 0 ||
+            *length < 1 || *key < 0 || *key > 127 || *velocity < Note::minimumVelocity ||
+            *velocity > Note::maximumVelocity || *id < 0 || *id > std::numeric_limits<std::int32_t>::max())
+            return "a note is not valid";
+        notes.push_back({static_cast<std::int32_t>(*id), *start, *length, static_cast<int>(*key),
+                         static_cast<int>(*velocity)});
+    }
+
+    const auto& controllersJson = clipJson[json::controllers];
+    if (!controllersJson.isVoid() && !controllersJson.isArray())
+        return "the controllers of a clip are not a list";
+
+    std::vector<ControllerEvent> events;
+    for (const auto& laneJson :
+         controllersJson.isArray() ? *controllersJson.getArray() : juce::Array<juce::var>{})
+    {
+        if (!laneJson.isObject())
+            return "a controller lane is not an object";
+        const auto type = ControllerType::fromString(laneJson[json::type].toString());
+        const auto& eventsJson = laneJson[json::events];
+        if (!eventsJson.isVoid() && !eventsJson.isArray())
+            return "the events of a controller lane are not a list";
+        if (!type)
+            continue; // a newer kind of controller
+
+        for (const auto& eventJson : eventsJson.isArray() ? *eventsJson.getArray() : juce::Array<juce::var>{})
+        {
+            const auto position = readInteger(eventJson, json::position, 0);
+            const auto value = readInteger(eventJson, json::value, 0);
+            if (!eventJson.isObject() || !position || !value || *position < 0 || *value < 0 ||
+                *value > type->maximumValue())
+                return "a controller event is not valid";
+            events.push_back({*type, *position, static_cast<int>(*value)});
+        }
+    }
+
+    clip.setNotes(std::move(notes));
+    clip.setControllerEvents(std::move(events));
     return {};
 }
 
@@ -613,7 +811,8 @@ juce::String readAutomation(const juce::var& owner, Automation automation)
 void removeDanglingReferences(Project& project)
 {
     const auto pruneLanes = [](Automation automation, const EffectList& effects,
-                               const std::function<bool(ObjectId)>& hasSend, bool hasPan) {
+                               const std::function<bool(ObjectId)>& hasSend, bool hasPan,
+                               ObjectId instrumentId) {
         for (int i = automation.getNumLanes() - 1; i >= 0; --i)
         {
             const auto target = automation.getLane(i).getTarget();
@@ -623,7 +822,8 @@ void removeDanglingReferences(Project& project)
             if (valid && target->kind == AutomationTarget::Kind::sendLevel)
                 valid = hasSend(target->object);
             if (valid && target->kind == AutomationTarget::Kind::effectParameter)
-                valid = effects.indexOf(target->object) >= 0;
+                valid = effects.indexOf(target->object) >= 0 ||
+                        (instrumentId != 0 && target->object == instrumentId);
             if (!valid)
                 automation.removeLane(i);
         }
@@ -635,18 +835,20 @@ void removeDanglingReferences(Project& project)
         for (int i = track.getNumSends() - 1; i >= 0; --i)
             if (project.indexOfBus(track.getSend(i).getBus()) < 0)
                 track.removeSend(i);
+        const auto instrument = track.getInstrument();
         pruneLanes(track.getAutomation(), track.getEffects(),
-                   [&track](ObjectId id) { return track.indexOfSend(id) >= 0; }, true);
+                   [&track](ObjectId id) { return track.indexOfSend(id) >= 0; }, true,
+                   instrument ? instrument->getId() : 0);
     }
 
     for (int b = 0; b < project.getNumBuses(); ++b)
     {
         const auto bus = project.getBus(b);
-        pruneLanes(bus.getAutomation(), bus.getEffects(), [](ObjectId) { return false; }, true);
+        pruneLanes(bus.getAutomation(), bus.getEffects(), [](ObjectId) { return false; }, true, 0);
     }
 
     pruneLanes(project.getMasterAutomation(), project.getMasterEffects(),
-               [](ObjectId) { return false; }, false);
+               [](ObjectId) { return false; }, false, 0);
 }
 
 } // namespace
@@ -740,7 +942,8 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
     project.setMasterVolume(*masterVolume);
 
     std::set<ObjectId> usedIds;
-    if (const auto error = readEffects(*masterJson, project.getMasterEffects(), usedIds);
+    if (const auto error =
+            readEffects(*masterJson, project.getMasterEffects(), projectDirectory, usedIds);
         error.isNotEmpty())
         return damaged(*version, "master: " + error);
     if (const auto error = readAutomation(*masterJson, project.getMasterAutomation());
@@ -808,7 +1011,8 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         bus.setVolume(*volume);
         bus.setPan(*pan);
         bus.setMuted(*mute);
-        if (const auto error = readEffects(busJson, bus.getEffects(), usedIds); error.isNotEmpty())
+        if (const auto error = readEffects(busJson, bus.getEffects(), projectDirectory, usedIds);
+            error.isNotEmpty())
             return damaged(*version, "a bus: " + error);
         if (const auto error = readAutomation(busJson, bus.getAutomation()); error.isNotEmpty())
             return damaged(*version, "a bus: " + error);
@@ -839,6 +1043,11 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         if (!mute || !solo)
             return damaged(*version, "a track mute or solo is not true or false");
 
+        const auto& kindJson = trackJson[json::kind];
+        const auto kind = trackKindFromString(kindJson.isVoid() ? "audio" : kindJson.toString());
+        if (!kind)
+            return damaged(*version, "a track is neither audio nor MIDI");
+
         const auto inputJson = readObject(trackJson, json::input);
         const auto inputChannel =
             inputJson ? readInteger(*inputJson, json::channel, 1) : std::nullopt;
@@ -855,20 +1064,47 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         const auto monitoring = monitoringModeFromString(trackJson[json::monitoring].toString())
                                     .value_or(MonitoringMode::automatic);
 
-        auto track = project.addTrack(name.toString());
+        auto track = project.addTrack(name.toString(), *kind);
         juce::ValueTree(track.getState())
             .setProperty(ids::id, acceptId(trackJson, usedIds), nullptr);
         track.setVolume(*volume);
         track.setPan(*pan);
         track.setMuted(*mute);
         track.setSoloed(*solo);
-        track.setInput({static_cast<int>(*inputChannel) - 1, *inputStereo});
+        if (*kind == TrackKind::audio)
+            track.setInput({static_cast<int>(*inputChannel) - 1, *inputStereo});
         track.setMonitoring(monitoring);
         track.setArmed(*armed);
 
-        if (const auto error = readEffects(trackJson, track.getEffects(), usedIds);
+        if (const auto error = readEffects(trackJson, track.getEffects(), projectDirectory, usedIds);
             error.isNotEmpty())
             return damaged(*version, "a track: " + error);
+
+        if (track.isMidi())
+        {
+            const auto midiInputJson = readObject(trackJson, json::midiInput);
+            const auto& device = midiInputJson ? (*midiInputJson)[json::device] : juce::var();
+            const auto midiInputChannel =
+                midiInputJson ? readInteger(*midiInputJson, json::channel, 0) : std::nullopt;
+            const auto midiChannel = readInteger(trackJson, json::midiChannel, 1);
+            if (!midiInputJson || (!device.isVoid() && !device.isString()) || !midiInputChannel ||
+                *midiInputChannel < 0 || *midiInputChannel > 16 || !midiChannel ||
+                *midiChannel < 1 || *midiChannel > 16)
+                return damaged(*version, "a track's MIDI input or channel is not valid");
+            track.setMidiInput({device.toString(), static_cast<int>(*midiInputChannel)});
+            track.setMidiChannel(static_cast<int>(*midiChannel));
+
+            const auto& instrumentJson = trackJson[json::instrument];
+            if (!instrumentJson.isVoid())
+            {
+                EffectFields fields;
+                if (const auto error = readEffectFields(instrumentJson, projectDirectory, fields);
+                    error.isNotEmpty())
+                    return damaged(*version, "a track's instrument: " + error);
+                applyEffectFields(track.setInstrument(fields.type, fields.values), fields,
+                                  instrumentJson, usedIds);
+            }
+        }
 
         const auto& sends = trackJson[json::sends];
         if (!sends.isVoid() && !sends.isArray())
@@ -902,8 +1138,32 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
 
         for (const auto& clipJson : *clipList)
         {
+            if (!clipJson.isObject())
+                return damaged(*version, "a clip is not an object");
+            const bool midiClip = clipJson[json::kind].toString() == "midi";
+            if (midiClip != (*kind == TrackKind::midi))
+                return damaged(*version, "a clip is not of its track's kind");
+
+            if (midiClip)
+            {
+                const auto& clipName = clipJson[json::name];
+                const auto position = readInteger(clipJson, json::position, 0);
+                const auto offset = readInteger(clipJson, json::offset, 0);
+                const auto length = readInteger(clipJson, json::length, 0);
+                if ((!clipName.isVoid() && !clipName.isString()) || !position || !offset ||
+                    !length || *length < Clip::minimumLength)
+                    return damaged(*version, "a MIDI clip's name, position, offset or length is not valid");
+                auto clip = track.addMidiClip(clipName.toString(), {*position, *offset, *length});
+                if (const auto error = readMidiContent(clipJson, MidiClip(clip.getState()));
+                    error.isNotEmpty())
+                    return damaged(*version, "a MIDI clip: " + error);
+                juce::ValueTree(clip.getState())
+                    .setProperty(ids::id, acceptId(clipJson, usedIds), nullptr);
+                continue;
+            }
+
             const auto& audioFile = clipJson[json::audioFile];
-            if (!clipJson.isObject() || !audioFile.isString())
+            if (!audioFile.isString())
                 return damaged(*version, "a clip has no audio file");
 
             const auto position = readInteger(clipJson, json::position, 0);

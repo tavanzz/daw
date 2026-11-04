@@ -11,11 +11,22 @@ namespace daw::model
 namespace
 {
 
-// The note value of a division: 1 = whole note, 4 = quarter... 0 for bar.
+// How many lines of a division fit in a whole note: 4 for quarters, 6 for quarter
+// triplets... 0 for bar.
 int noteValue(GridDivision division) noexcept
 {
     switch (division)
     {
+    case GridDivision::sixtyFourth:
+        return 64;
+    case GridDivision::quarterTriplet:
+        return 6;
+    case GridDivision::eighthTriplet:
+        return 12;
+    case GridDivision::sixteenthTriplet:
+        return 24;
+    case GridDivision::thirtySecondTriplet:
+        return 48;
     case GridDivision::half:
         return 2;
     case GridDivision::quarter:
@@ -34,7 +45,7 @@ int noteValue(GridDivision division) noexcept
     return 0;
 }
 
-constexpr std::array<std::pair<GridDivision, const char*>, 7> divisionNames{{
+constexpr std::array<std::pair<GridDivision, const char*>, 12> divisionNames{{
     {GridDivision::automatic, "auto"},
     {GridDivision::bar, "bar"},
     {GridDivision::half, "1/2"},
@@ -42,6 +53,11 @@ constexpr std::array<std::pair<GridDivision, const char*>, 7> divisionNames{{
     {GridDivision::eighth, "1/8"},
     {GridDivision::sixteenth, "1/16"},
     {GridDivision::thirtySecond, "1/32"},
+    {GridDivision::sixtyFourth, "1/64"},
+    {GridDivision::quarterTriplet, "1/4T"},
+    {GridDivision::eighthTriplet, "1/8T"},
+    {GridDivision::sixteenthTriplet, "1/16T"},
+    {GridDivision::thirtySecondTriplet, "1/32T"},
 }};
 
 } // namespace
@@ -83,9 +99,10 @@ Grid::Grid(const TempoMap& map, GridDivision gridDivision) noexcept
 GridDivision Grid::automaticDivision(const TempoMap& map, double ticksPerPixel,
                                      double minimumSpacingPixels) noexcept
 {
-    constexpr std::array finestFirst{GridDivision::thirtySecond, GridDivision::sixteenth,
-                                     GridDivision::eighth,       GridDivision::quarter,
-                                     GridDivision::half,         GridDivision::bar};
+    constexpr std::array finestFirst{GridDivision::sixtyFourth, GridDivision::thirtySecond,
+                                     GridDivision::sixteenth,   GridDivision::eighth,
+                                     GridDivision::quarter,     GridDivision::half,
+                                     GridDivision::bar};
 
     for (const auto candidate : finestFirst)
         if (divisionTicks(map, candidate) / ticksPerPixel >= minimumSpacingPixels)

@@ -3,6 +3,7 @@
 #include "daw/model/Automation.h"
 #include "daw/model/Clip.h"
 #include "daw/model/Effect.h"
+#include "daw/model/MidiClip.h"
 #include "daw/model/Send.h"
 
 #include <juce_data_structures/juce_data_structures.h>
@@ -49,9 +50,33 @@ enum class MonitoringMode : std::uint8_t
 [[nodiscard]] juce::String toString(MonitoringMode mode);
 [[nodiscard]] std::optional<MonitoringMode> monitoringModeFromString(const juce::String& text);
 
+/** An audio track records and plays audio clips; a MIDI track records and plays MIDI
+    clips through its instrument. */
+enum class TrackKind : std::uint8_t
+{
+    audio,
+    midi
+};
+
+/** Names as stored in project files: "audio", "midi". */
+[[nodiscard]] juce::String toString(TrackKind kind);
+[[nodiscard]] std::optional<TrackKind> trackKindFromString(const juce::String& text);
+
+/** The live MIDI a MIDI track hears and records: from one device (by name) or every
+    one, on one channel or every one. */
+struct MidiInput
+{
+    juce::String device; ///< empty for every device
+    int channel = 0;     ///< 1 to 16; 0 for every channel
+
+    bool operator==(const MidiInput&) const = default;
+};
+
 /**
-    A track: its mixer settings, its input, its clips, its effects (before its
-    fader), its sends to aux buses and its automation.
+    A track: its kind, its mixer settings, its input, its clips, its effects (before
+    its fader), its sends to aux buses and its automation. A MIDI track also has an
+    instrument (before its effects), a MIDI input and the channel its notes are on in
+    MIDI files.
 
     Clips are kept in stacking order: the last one is on top. Where clips overlap,
     the one on top is heard. A handle onto part of a Project's state, like Clip.
@@ -65,6 +90,10 @@ public:
     explicit Track(juce::ValueTree trackState);
 
     [[nodiscard]] ObjectId getId() const;
+
+    /** Fixed when the track is made. */
+    [[nodiscard]] TrackKind getKind() const;
+    [[nodiscard]] bool isMidi() const { return getKind() == TrackKind::midi; }
 
     [[nodiscard]] juce::String getName() const;
     void setName(const juce::String& newName, juce::UndoManager* undoManager = nullptr);
@@ -86,6 +115,26 @@ public:
     /** Stored normalised (see TrackInput::normalised()). */
     void setInput(TrackInput input, juce::UndoManager* undoManager = nullptr);
 
+    [[nodiscard]] MidiInput getMidiInput() const;
+    /** The channel is kept within 0 to 16. */
+    void setMidiInput(const MidiInput& input, juce::UndoManager* undoManager = nullptr);
+
+    /** 1 to 16: the channel of the track's notes in MIDI files. */
+    [[nodiscard]] int getMidiChannel() const;
+    void setMidiChannel(int channel, juce::UndoManager* undoManager = nullptr);
+
+    /** A MIDI track's instrument, if it has one. */
+    [[nodiscard]] std::optional<Effect> getInstrument() const;
+
+    /** Replaces the instrument (and the automation of the old one's parameters) with
+        a new one of this type, with an id no other object of the project has. */
+    Effect setInstrument(const juce::String& type,
+                         const std::vector<std::pair<juce::String, double>>& parameters = {},
+                         juce::UndoManager* undoManager = nullptr);
+
+    /** Also removes the automation of its parameters. */
+    void removeInstrument(juce::UndoManager* undoManager = nullptr);
+
     [[nodiscard]] MonitoringMode getMonitoring() const;
     void setMonitoring(MonitoringMode mode, juce::UndoManager* undoManager = nullptr);
 
@@ -102,6 +151,16 @@ public:
         project has. */
     Clip addClip(const juce::File& audioFile, const ClipBounds& bounds = {},
                  juce::UndoManager* undoManager = nullptr);
+
+    /** Adds a MIDI clip on top of the others (bounds must have a length), with these
+        notes and controller events, with an id no other object of the project has. */
+    Clip addMidiClip(const juce::String& name, const ClipBounds& bounds,
+                     std::vector<Note> notes = {}, std::vector<ControllerEvent> controllers = {},
+                     juce::UndoManager* undoManager = nullptr);
+
+    /** Adds a copy of a clip (of this project) on top of the others, with a new id,
+        at newPosition; the copy of a MIDI clip has the same notes and controllers. */
+    Clip addCopyOf(const Clip& clip, Ticks newPosition, juce::UndoManager* undoManager = nullptr);
     void removeClip(int index, juce::UndoManager* undoManager = nullptr);
 
     [[nodiscard]] EffectList getEffects() const;

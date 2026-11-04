@@ -19,11 +19,17 @@ enum class GridDivision : std::uint8_t
     quarter,
     eighth,
     sixteenth,
-    thirtySecond
+    thirtySecond,
+    sixtyFourth,
+    quarterTriplet,
+    eighthTriplet,
+    sixteenthTriplet,
+    thirtySecondTriplet
 };
 
 /** Names of grid divisions as stored in project files and shown in menus: "auto",
-    "bar", "1/2", "1/4", "1/8", "1/16", "1/32". */
+    "bar", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/4T", "1/8T", "1/16T",
+    "1/32T" (T: triplets, three in the time of two). */
 [[nodiscard]] juce::String toString(GridDivision division);
 [[nodiscard]] std::optional<GridDivision> gridDivisionFromString(const juce::String& text);
 

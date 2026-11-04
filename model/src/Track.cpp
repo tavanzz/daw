@@ -43,6 +43,20 @@ std::optional<MonitoringMode> monitoringModeFromString(const juce::String& text)
     return std::nullopt;
 }
 
+juce::String toString(TrackKind kind)
+{
+    return kind == TrackKind::midi ? "midi" : "audio";
+}
+
+std::optional<TrackKind> trackKindFromString(const juce::String& text)
+{
+    if (text == "audio")
+        return TrackKind::audio;
+    if (text == "midi")
+        return TrackKind::midi;
+    return std::nullopt;
+}
+
 Track::Track(juce::ValueTree trackState)
     : state(std::move(trackState))
 {
@@ -52,6 +66,11 @@ Track::Track(juce::ValueTree trackState)
 ObjectId Track::getId() const
 {
     return static_cast<ObjectId>(state[ids::id]);
+}
+
+TrackKind Track::getKind() const
+{
+    return trackKindFromString(state[ids::kind].toString()).value_or(TrackKind::audio);
 }
 
 juce::String Track::getName() const
@@ -120,6 +139,73 @@ void Track::setInput(TrackInput input, juce::UndoManager* undoManager)
     state.setProperty(ids::inputStereo, stored.stereo, undoManager);
 }
 
+MidiInput Track::getMidiInput() const
+{
+    return {state[ids::midiInputDevice].toString(),
+            std::clamp(static_cast<int>(state[ids::midiInputChannel]), 0, 16)};
+}
+
+void Track::setMidiInput(const MidiInput& input, juce::UndoManager* undoManager)
+{
+    state.setProperty(ids::midiInputDevice, input.device, undoManager);
+    state.setProperty(ids::midiInputChannel, std::clamp(input.channel, 0, 16), undoManager);
+}
+
+int Track::getMidiChannel() const
+{
+    return std::clamp(static_cast<int>(state.getProperty(ids::midiChannel, 1)), 1, 16);
+}
+
+void Track::setMidiChannel(int channel, juce::UndoManager* undoManager)
+{
+    state.setProperty(ids::midiChannel, std::clamp(channel, 1, 16), undoManager);
+}
+
+std::optional<Effect> Track::getInstrument() const
+{
+    const auto container = state.getChildWithName(ids::instrument);
+    if (!container.isValid() || container.getNumChildren() == 0)
+        return std::nullopt;
+    return Effect(container.getChild(0));
+}
+
+Effect Track::setInstrument(const juce::String& type,
+                            const std::vector<std::pair<juce::String, double>>& parameters,
+                            juce::UndoManager* undoManager)
+{
+    // A new id, even though the old instrument goes: the engine then knows it as a
+    // new instrument whatever its type.
+    const auto newId = detail::nextObjectId(state);
+    removeInstrument(undoManager);
+
+    auto container = state.getChildWithName(ids::instrument);
+    if (!container.isValid())
+    {
+        container = juce::ValueTree(ids::instrument);
+        state.appendChild(container, undoManager);
+    }
+
+    juce::ValueTree effectState(ids::effect);
+    effectState.setProperty(ids::id, newId, nullptr);
+    effectState.setProperty(ids::type, type, nullptr);
+    effectState.setProperty(ids::bypass, false, nullptr);
+    Effect effect(effectState);
+    for (const auto& [id, value] : parameters)
+        effect.setParameter(id, value);
+    container.appendChild(effectState, undoManager);
+    return effect;
+}
+
+void Track::removeInstrument(juce::UndoManager* undoManager)
+{
+    auto container = state.getChildWithName(ids::instrument);
+    if (!container.isValid() || container.getNumChildren() == 0)
+        return;
+
+    getAutomation().removeLanesOfEffect(Effect(container.getChild(0)).getId(), undoManager);
+    container.removeAllChildren(undoManager);
+}
+
 MonitoringMode Track::getMonitoring() const
 {
     return monitoringModeFromString(state[ids::monitoring].toString())
@@ -172,6 +258,34 @@ Clip Track::addClip(const juce::File& audioFile, const ClipBounds& bounds,
     clip.setBounds(bounds);
     state.addChild(clip.getState(), getNumClips(), undoManager);
     return clip;
+}
+
+Clip Track::addMidiClip(const juce::String& name, const ClipBounds& bounds, std::vector<Note> notes,
+                        std::vector<ControllerEvent> controllers, juce::UndoManager* undoManager)
+{
+    jassert(bounds.length.has_value());
+    juce::ValueTree clipState(ids::clip);
+    clipState.setProperty(ids::id, detail::nextObjectId(state), nullptr);
+    clipState.setProperty(ids::kind, "midi", nullptr);
+
+    Clip clip{clipState};
+    clip.setName(name);
+    clip.setBounds({bounds.position, bounds.offset, bounds.length.value_or(Clip::minimumLength)});
+    MidiClip midi{clipState};
+    midi.setNotes(std::move(notes));
+    midi.setControllerEvents(std::move(controllers));
+    state.addChild(clipState, getNumClips(), undoManager);
+    return clip;
+}
+
+Clip Track::addCopyOf(const Clip& clip, Ticks newPosition, juce::UndoManager* undoManager)
+{
+    auto copy = clip.getState().createCopy();
+    copy.setProperty(ids::id, detail::nextObjectId(state), nullptr);
+    Clip copied{copy};
+    copied.setPosition(newPosition);
+    state.addChild(copy, getNumClips(), undoManager);
+    return copied;
 }
 
 void Track::removeClip(int index, juce::UndoManager* undoManager)

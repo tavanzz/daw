@@ -103,6 +103,51 @@ void Effect::setExtraState(const juce::MemoryBlock& extra, juce::UndoManager* un
                           undoManager);
 }
 
+std::vector<std::pair<juce::String, juce::File>> Effect::getFiles() const
+{
+    std::vector<std::pair<juce::String, juce::File>> files;
+    const auto container = state.getChildWithName(ids::files);
+    for (int i = 0; i < container.getNumProperties(); ++i)
+    {
+        const auto key = container.getPropertyName(i);
+        files.emplace_back(key.toString(), juce::File(container[key].toString()));
+    }
+    return files;
+}
+
+juce::File Effect::getFile(const juce::String& key) const
+{
+    const auto container = state.getChildWithName(ids::files);
+    const auto path = container.isValid() && key.isNotEmpty()
+                          ? container[juce::Identifier(key)].toString()
+                          : juce::String();
+    return path.isEmpty() ? juce::File() : juce::File(path);
+}
+
+void Effect::setFile(const juce::String& key, const juce::File& file, juce::UndoManager* undoManager)
+{
+    if (key.isEmpty() || !key.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
+    {
+        jassertfalse;
+        return;
+    }
+
+    auto container = state.getChildWithName(ids::files);
+    if (file == juce::File())
+    {
+        if (container.isValid())
+            container.removeProperty(juce::Identifier(key), undoManager);
+        return;
+    }
+
+    if (!container.isValid())
+    {
+        container = juce::ValueTree(ids::files);
+        state.appendChild(container, undoManager);
+    }
+    container.setProperty(juce::Identifier(key), file.getFullPathName(), undoManager);
+}
+
 EffectList::EffectList(juce::ValueTree listState)
     : state(std::move(listState))
 {

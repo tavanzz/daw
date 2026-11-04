@@ -5,6 +5,7 @@ add_library(daw_model STATIC
     src/Automation.cpp
     src/Bus.cpp
     src/Clip.cpp
+    src/MidiClip.cpp
     src/Effect.cpp
     src/FormatVersion.cpp
     src/Grid.cpp

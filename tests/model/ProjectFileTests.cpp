@@ -14,6 +14,7 @@
 using Catch::Matchers::ContainsSubstring;
 using daw::model::AutomationTarget;
 using daw::model::ClipBounds;
+using daw::model::ControllerType;
 using daw::model::FormatMigration;
 using daw::model::GridDivision;
 using daw::model::loadProject;
@@ -78,6 +79,25 @@ Project makeSampleProject(const juce::File& audioFile)
     project.getMasterAutomation()
         .getOrAddLane(AutomationTarget::volume())
         .addPoint({ticksPerSecond * 4, 0.0, 0.0});
+
+    // Version 5: a MIDI track with an instrument playing a file, its MIDI input and
+    // channel, automation of an instrument parameter, and a MIDI clip with notes and
+    // controllers.
+    auto keys = project.addTrack("Keys", daw::model::TrackKind::midi);
+    keys.setMidiInput({"Keystation 49", 2});
+    keys.setMidiChannel(3);
+    keys.setMonitoring(daw::model::MonitoringMode::automatic);
+    auto sampler = keys.setInstrument("sampler", {{"root", 60.0}});
+    sampler.setFile("sample", audioFile.getSiblingFile("piano.wav"));
+    keys.getAutomation()
+        .getOrAddLane(AutomationTarget::effectParameter(sampler.getId(), "root"))
+        .addPoint({0, 0.5, 0.0});
+    keys.addMidiClip("Chords", {ticksPerSecond, ticksPerSecond / 4, ticksPerSecond * 2},
+                     {{0, ticksPerSecond / 2, ticksPerSecond / 2, 64, 90},
+                      {0, 0, ticksPerSecond / 2, 60, 100}},
+                     {{ControllerType::pitchBend(), ticksPerSecond / 4, 10000},
+                      {ControllerType::controlChange(1), 0, 64},
+                      {ControllerType::channelPressure(), 0, 30}});
     return project;
 }
 
@@ -94,7 +114,7 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
     // and add a migration, then update this text.
     const auto expected = R"({
   "format": "daw-project",
-  "formatVersion": 4,
+  "formatVersion": 5,
   "project": {
     "tempo": 128.0,
     "timeSignature": {
@@ -190,6 +210,7 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
     "tracks": [
       {
         "id": 1,
+        "kind": "audio",
         "name": "Track 1",
         "volume": 0.25,
         "pan": -0.5,
@@ -253,10 +274,110 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
         "clips": [
           {
             "id": 2,
+            "kind": "audio",
             "audioFile": "audio/drums.wav",
             "position": 141120000,
             "offset": 0,
             "length": 1411200000
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "kind": "midi",
+        "name": "Keys",
+        "volume": 1.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "midiInput": {
+          "device": "Keystation 49",
+          "channel": 2
+        },
+        "midiChannel": 3,
+        "instrument": {
+          "id": 9,
+          "type": "sampler",
+          "bypass": false,
+          "parameters": {
+            "root": 60.0
+          },
+          "files": {
+            "sample": "audio/piano.wav"
+          }
+        },
+        "monitoring": "auto",
+        "armed": false,
+        "effects": [],
+        "sends": [],
+        "automation": {
+          "mode": "read",
+          "lanes": [
+            {
+              "target": "effect:9:root",
+              "points": [
+                {
+                  "position": 0,
+                  "value": 0.5,
+                  "curve": 0.0
+                }
+              ]
+            }
+          ]
+        },
+        "clips": [
+          {
+            "id": 10,
+            "kind": "midi",
+            "name": "Chords",
+            "position": 282240000,
+            "offset": 70560000,
+            "length": 564480000,
+            "notes": [
+              {
+                "id": 2,
+                "start": 0,
+                "length": 141120000,
+                "key": 60,
+                "velocity": 100
+              },
+              {
+                "id": 1,
+                "start": 141120000,
+                "length": 141120000,
+                "key": 64,
+                "velocity": 90
+              }
+            ],
+            "controllers": [
+              {
+                "type": "cc:1",
+                "events": [
+                  {
+                    "position": 0,
+                    "value": 64
+                  }
+                ]
+              },
+              {
+                "type": "pitchBend",
+                "events": [
+                  {
+                    "position": 70560000,
+                    "value": 10000
+                  }
+                ]
+              },
+              {
+                "type": "aftertouch",
+                "events": [
+                  {
+                    "position": 0,
+                    "value": 30
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -298,8 +419,8 @@ TEST_CASE("A saved project loads back identical", "[model][file]")
     CHECK(loaded.project->isEquivalentTo(project));
     CHECK(daw::model::toJson(*loaded.project, directory.file("")) ==
           daw::model::toJson(project, directory.file("")));
-    CHECK(loaded.project->getTrack(1).getId() == drums.getId());
-    CHECK_FALSE(loaded.project->getTrack(1).getClip(1).getLength().has_value());
+    CHECK(loaded.project->getTrack(2).getId() == drums.getId());
+    CHECK_FALSE(loaded.project->getTrack(2).getClip(1).getLength().has_value());
 }
 
 TEST_CASE("Audio inside the project folder is stored relative to it", "[model][file]")
@@ -925,4 +1046,257 @@ TEST_CASE("Version 4 fields of the wrong type make the file damaged", "[model][f
     CHECK_THAT(errorForProject(R"({"tracks": [{"automation": {"lanes": [{"target": "volume", "points": [{"position": 0.5}]}]}}]})"),
                ContainsSubstring("automation point"));
     CHECK_THAT(errorForProject(R"({"master": {"effects": [3]}})"), ContainsSubstring("master"));
+}
+
+TEST_CASE("A version 4 project opens after the migration to version 5", "[model][file]")
+{
+    // Written by Phase 4 and 5 (v0.4.0, v0.5.0): the golden text of format version 4.
+    const auto versionFour = R"({
+  "format": "daw-project",
+  "formatVersion": 4,
+  "project": {
+    "tempo": 128.0,
+    "timeSignature": {
+      "numerator": 6,
+      "denominator": 8
+    },
+    "loop": {
+      "enabled": true,
+      "start": 282240000,
+      "end": 846720000
+    },
+    "snap": {
+      "enabled": true,
+      "grid": "1/16"
+    },
+    "master": {
+      "volume": 0.5,
+      "effects": [
+        {
+          "id": 7,
+          "type": "limiter",
+          "bypass": false,
+          "parameters": {
+            "ceiling": -1.0
+          }
+        }
+      ],
+      "automation": {
+        "mode": "read",
+        "lanes": [
+          {
+            "target": "volume",
+            "points": [
+              {
+                "position": 1128960000,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "metronome": {
+      "enabled": true,
+      "volume": 0.25
+    },
+    "countIn": {
+      "enabled": true,
+      "bars": 2
+    },
+    "punch": {
+      "enabled": true
+    },
+    "recording": {
+      "bitsPerSample": 32
+    },
+    "buses": [
+      {
+        "id": 3,
+        "name": "Reverb",
+        "volume": 0.5,
+        "pan": 0.25,
+        "mute": false,
+        "effects": [
+          {
+            "id": 4,
+            "type": "reverb",
+            "bypass": false,
+            "parameters": {
+              "decay": 2.5,
+              "mix": 100.0
+            }
+          }
+        ],
+        "automation": {
+          "mode": "read",
+          "lanes": [
+            {
+              "target": "volume",
+              "points": [
+                {
+                  "position": 0,
+                  "value": 0.5,
+                  "curve": 0.0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "tracks": [
+      {
+        "id": 1,
+        "name": "Track 1",
+        "volume": 0.25,
+        "pan": -0.5,
+        "mute": true,
+        "solo": false,
+        "input": {
+          "channel": 3,
+          "stereo": true
+        },
+        "monitoring": "on",
+        "armed": true,
+        "effects": [
+          {
+            "id": 5,
+            "type": "equaliser",
+            "bypass": true,
+            "parameters": {
+              "bell1Gain": -3.5
+            },
+            "data": "c3RhdGU="
+          }
+        ],
+        "sends": [
+          {
+            "id": 6,
+            "bus": 3,
+            "level": 0.75,
+            "preFader": true
+          }
+        ],
+        "automation": {
+          "mode": "off",
+          "lanes": [
+            {
+              "target": "effect:5:bell1Gain",
+              "points": [
+                {
+                  "position": 282240000,
+                  "value": 0.25,
+                  "curve": 0.5
+                },
+                {
+                  "position": 564480000,
+                  "value": 1.0,
+                  "curve": 0.0
+                }
+              ]
+            },
+            {
+              "target": "send:6",
+              "points": [
+                {
+                  "position": 0,
+                  "value": 0.75,
+                  "curve": -0.25
+                }
+              ]
+            }
+          ]
+        },
+        "clips": [
+          {
+            "id": 2,
+            "audioFile": "audio/drums.wav",
+            "position": 141120000,
+            "offset": 0,
+            "length": 1411200000
+          }
+        ]
+      }
+    ]
+  }
+}
+)";
+
+    TemporaryDirectory directory;
+    const auto file = directory.file("phase4.dawproject");
+    REQUIRE(file.replaceWithText(versionFour));
+
+    const auto loaded = loadProject(file);
+    CAPTURE(loaded.error);
+    REQUIRE(loaded.succeeded());
+    CHECK(loaded.fileFormatVersion == 4);
+
+    // Everything is audio, and everything else is as it was.
+    const auto& project = *loaded.project;
+    REQUIRE(project.getNumTracks() == 1);
+    const auto track = project.getTrack(0);
+    CHECK(track.getKind() == daw::model::TrackKind::audio);
+    CHECK_FALSE(track.getInstrument().has_value());
+    REQUIRE(track.getNumClips() == 1);
+    CHECK_FALSE(track.getClip(0).isMidi());
+    CHECK(track.getClip(0).getAudioFile() == directory.file("audio/drums.wav"));
+    CHECK(track.getInput() == daw::model::TrackInput{2, true});
+    CHECK(track.getEffects().getNumEffects() == 1);
+    CHECK(track.getAutomation().getNumLanes() == 2);
+    CHECK(project.getNumBuses() == 1);
+    CHECK(project.getGridDivision() == GridDivision::sixteenth);
+
+    // Saved again, it is the version 5 golden text without the MIDI track.
+    REQUIRE(saveProject(project, file).wasOk());
+    const auto reloaded = loadProject(file);
+    REQUIRE(reloaded.succeeded());
+    CHECK(reloaded.fileFormatVersion == daw::model::currentFormatVersion);
+    CHECK(reloaded.project->isEquivalentTo(project));
+
+    Project expected = makeSampleProject(directory.file("audio/drums.wav"));
+    expected.removeTrack(1);
+    CHECK(daw::model::toJson(project, directory.file("")) ==
+          daw::model::toJson(expected, directory.file("")));
+}
+
+TEST_CASE("Version 5 fields of the wrong type make the file damaged", "[model][file]")
+{
+    const auto errorForTracks = [](const juce::String& tracks) {
+        return errorFor(R"({"format": "daw-project", "formatVersion": 5, "project": {"tracks": )" +
+                        tracks + "}}")
+            .toStdString();
+    };
+
+    CHECK_THAT(errorForTracks(R"([{"kind": "video"}])"), ContainsSubstring("neither audio nor MIDI"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "midiChannel": 17}])"),
+               ContainsSubstring("MIDI input or channel"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "midiInput": {"channel": "all"}}])"),
+               ContainsSubstring("MIDI input or channel"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "instrument": 3}])"),
+               ContainsSubstring("instrument"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "instrument": {"type": "sampler", "files": {"sample": 1}}}])"),
+               ContainsSubstring("file"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "audio", "clips": [{"kind": "midi", "length": 10}]}])"),
+               ContainsSubstring("kind"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "clips": [{"kind": "midi", "length": 0}]}])"),
+               ContainsSubstring("MIDI clip"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "clips": [{"kind": "midi", "length": 10, "notes": [{"key": 128}]}]}])"),
+               ContainsSubstring("note"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "clips": [{"kind": "midi", "length": 10, "notes": [{"velocity": 0}]}]}])"),
+               ContainsSubstring("note"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "clips": [{"kind": "midi", "length": 10, "controllers": [{"type": "cc:1", "events": [{"position": 0, "value": 128}]}]}]}])"),
+               ContainsSubstring("controller event"));
+    CHECK_THAT(errorForTracks(R"([{"kind": "midi", "clips": [{"kind": "midi", "length": 10, "controllers": [{"type": "pitchBend", "events": [{"position": -1, "value": 0}]}]}]}])"),
+               ContainsSubstring("controller event"));
+
+    // A newer kind of controller is left out, not refused.
+    const auto loaded = daw::model::fromJson(
+        R"({"format": "daw-project", "formatVersion": 5, "project": {"tracks": [{"kind": "midi", "clips": [{"kind": "midi", "length": 10, "controllers": [{"type": "polyPressure:60", "events": [{"position": 0, "value": 1}]}, {"type": "pitchBend", "events": [{"position": 5, "value": 16383}]}]}]}]}})",
+        juce::File());
+    REQUIRE(loaded.succeeded());
+    const daw::model::MidiClip clip(loaded.project->getTrack(0).getClip(0).getState());
+    REQUIRE(clip.getControllerEvents().size() == 1);
+    CHECK(clip.getControllerEvents()[0].value == 16383);
 }

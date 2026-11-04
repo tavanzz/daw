@@ -60,8 +60,14 @@ int Project::indexOfTrack(ObjectId trackId) const
 
 Track Project::addTrack(const juce::String& name, juce::UndoManager* undoManager)
 {
+    return addTrack(name, TrackKind::audio, undoManager);
+}
+
+Track Project::addTrack(const juce::String& name, TrackKind kind, juce::UndoManager* undoManager)
+{
     juce::ValueTree trackState(ids::track);
     trackState.setProperty(ids::id, detail::nextObjectId(state), nullptr);
+    trackState.setProperty(ids::kind, toString(kind), nullptr);
 
     Track track{trackState};
     track.setName(name);
@@ -69,9 +75,14 @@ Track Project::addTrack(const juce::String& name, juce::UndoManager* undoManager
     track.setPan(0.0);
     track.setMuted(false);
     track.setSoloed(false);
-    track.setInput(TrackInput{});
+    track.setInput(kind == TrackKind::midi ? TrackInput::none() : TrackInput{});
     track.setMonitoring(MonitoringMode::automatic);
     track.setArmed(false);
+    if (kind == TrackKind::midi)
+    {
+        track.setMidiInput({});
+        track.setMidiChannel(1);
+    }
     detail::addMixContainers(trackState);
     state.addChild(trackState, getNumTracks(), undoManager);
     return track;

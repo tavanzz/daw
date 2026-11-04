@@ -290,6 +290,21 @@ Modules with one-way dependencies:
     with points (ticks, normalised value, bend) kept sorted. Removing an effect,
     a send or a bus removes what refers to it; on load, sends and lanes whose
     targets are missing are left out.
+  - MIDI (format version 5): every track has a kind, "audio" or "midi"
+    (`TrackKind`, fixed when made; version 4 tracks and clips migrate to audio). A
+    MIDI track has a `MidiInput` (device name or every device, channel or every
+    channel), the channel its notes have in MIDI files, and an instrument
+    (`Track::getInstrument()`, an `Effect` in an `Instrument` container after the
+    clips; `setInstrument()` gives a new id and removes the old one's lanes). A MIDI
+    clip is a `Clip` with `isMidi()`, a name, and always a length; `MidiClip` gives
+    its `Note`s (id unique in the clip, start relative to the content, length, key,
+    velocity 1..127, MIDI 1.0 values) and `ControllerEvent`s (`ControllerType`: CC by
+    number, pitch bend 0..16383, aftertouch; `restValue()`), each list kept whole in
+    one binary property and replaced by every edit, so an edit is one undo step and
+    thousands of notes stay cheap. `Track::addCopyOf()` duplicates a clip.
+    `Effect::getFiles()` / `setFile()`: files an instrument plays (a sampler's), by
+    key, stored relative to the project like audio. The grid has 1/64 and triplets
+    (1/4T to 1/32T); the automatic grid goes down to 1/64.
 - Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
   integers at 282,240,000 per second, a number every common sample rate divides, so
   sample positions at any of them are exact and the project has no sample rate of its
@@ -1085,7 +1100,7 @@ devices, loop/take/merge recording, swing, presets.
       listening; simulated MIDI device for tests
 - [x] 5. MIDI recording in the engine: what was heard (history, output latency and
       delay compensation), count-in, punch, metronome; exact ticks with a known latency
-- [ ] 6. Project format version 5: track type, instrument, MIDI input and channel; MIDI
+- [x] 6. Project format version 5: track type, instrument, MIDI input and channel; MIDI
       clips with notes and controller lanes; grid with 1/64 and triplets; migration
       from version 4
 - [ ] 7. Undoable edits: MIDI tracks, MIDI clips (create, move, trim, duplicate,

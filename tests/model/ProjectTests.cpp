@@ -722,3 +722,104 @@ TEST_CASE("Buses, effects and sends get ids no other object of the project has",
     CHECK(unique(project.getMasterEffects().add("limiter", -1).getId()));
     CHECK(unique(project.addTrack("U").getId()));
 }
+
+TEST_CASE("MIDI clips keep their notes sorted, clamped and with ids of their own",
+          "[model][midi]")
+{
+    daw::model::Project project;
+    auto track = project.addTrack("Keys", daw::model::TrackKind::midi);
+    CHECK(track.isMidi());
+    CHECK(track.getInput().isNone());
+    CHECK(track.getMidiChannel() == 1);
+    CHECK(track.getMidiInput() == daw::model::MidiInput{});
+
+    auto clip = track.addMidiClip("Clip", {100, 0, 1000},
+                                  {{5, 300, 10, 64, 90}, {5, 100, 0, 200, 0}, {0, -5, 20, -1, 300}});
+    CHECK(clip.isMidi());
+    CHECK(clip.getName() == "Clip");
+    const daw::model::MidiClip midi(clip.getState());
+    const auto notes = midi.getNotes();
+    REQUIRE(notes.size() == 3);
+    // Sorted by start; values clamped; the repeated id and the missing one renewed.
+    CHECK(notes[0] == daw::model::Note{7, 0, 20, 0, 127});
+    CHECK(notes[1] == daw::model::Note{6, 100, 1, 127, 1});
+    CHECK(notes[2] == daw::model::Note{5, 300, 10, 64, 90});
+    CHECK(midi.findNote(6)->start == 100);
+    CHECK_FALSE(midi.findNote(99).has_value());
+
+    // Controller events: by type, then position; each type replaced on its own.
+    using daw::model::ControllerType;
+    daw::model::MidiClip(clip.getState())
+        .setControllerEvents({{ControllerType::pitchBend(), 50, 20000},
+                              {ControllerType::controlChange(64), 10, 127},
+                              {ControllerType::controlChange(1), 30, 5},
+                              {ControllerType::controlChange(1), 20, 4}});
+    auto events = midi.getControllerEvents();
+    REQUIRE(events.size() == 4);
+    CHECK(events[0].type == ControllerType::controlChange(1));
+    CHECK(events[0].position == 20);
+    CHECK(events[2].type == ControllerType::controlChange(64));
+    CHECK(events[3].value == 16383);
+    CHECK(midi.getControllerTypes().size() == 3);
+
+    daw::model::MidiClip(clip.getState())
+        .setControllerEvents(ControllerType::controlChange(1), {{ControllerType{}, 0, 100}});
+    CHECK(midi.getControllerEvents(ControllerType::controlChange(1)).size() == 1);
+    CHECK(midi.getControllerEvents().size() == 3);
+
+    CHECK(ControllerType::fromString("cc:74") == ControllerType::controlChange(74));
+    CHECK(ControllerType::fromString("pitchBend") == ControllerType::pitchBend());
+    CHECK(ControllerType::fromString("aftertouch") == ControllerType::channelPressure());
+    CHECK_FALSE(ControllerType::fromString("cc:128").has_value());
+    CHECK_FALSE(ControllerType::fromString("cc:").has_value());
+    CHECK(ControllerType::controlChange(7).restValue() == 127);
+    CHECK(ControllerType::pitchBend().restValue() == 8192);
+    CHECK(ControllerType::controlChange(64).restValue() == 0);
+}
+
+TEST_CASE("A MIDI track's instrument is replaced with its automation", "[model][midi]")
+{
+    daw::model::Project project;
+    auto track = project.addTrack("Keys", daw::model::TrackKind::midi);
+    juce::UndoManager undo;
+
+    auto synth = track.setInstrument("synth", {{"cutoff", 800.0}}, &undo);
+    CHECK(track.getInstrument()->getType() == "synth");
+    track.getAutomation()
+        .getOrAddLane(daw::model::AutomationTarget::effectParameter(synth.getId(), "cutoff"))
+        .addPoint({0, 0.5, 0.0});
+    undo.beginNewTransaction();
+
+    auto sampler = track.setInstrument("sampler", {}, &undo);
+    sampler.setFile("sample", juce::File::getCurrentWorkingDirectory().getChildFile("a.wav"), &undo);
+    CHECK(track.getInstrument()->getType() == "sampler");
+    CHECK(track.getAutomation().getNumLanes() == 0);
+    CHECK(sampler.getId() != synth.getId());
+    CHECK(sampler.getFile("sample").getFileName() == "a.wav");
+    CHECK(sampler.getFiles().size() == 1);
+
+    undo.undo();
+    CHECK(track.getInstrument()->getType() == "synth");
+    CHECK(track.getAutomation().getNumLanes() == 1);
+
+    track.removeInstrument(&undo);
+    CHECK_FALSE(track.getInstrument().has_value());
+    CHECK(track.getNumClips() == 0);
+}
+
+TEST_CASE("A copy of a clip has a new id and the same content", "[model][midi]")
+{
+    daw::model::Project project;
+    auto track = project.addTrack("Keys", daw::model::TrackKind::midi);
+    const auto clip = track.addMidiClip("Riff", {0, 10, 500}, {{0, 20, 30, 60, 100}});
+    const auto copy = track.addCopyOf(clip, 2000);
+
+    REQUIRE(track.getNumClips() == 2);
+    CHECK(copy.getId() != clip.getId());
+    CHECK(copy.getPosition() == 2000);
+    CHECK(copy.getOffset() == 10);
+    CHECK(copy.getLength() == std::optional<daw::model::Ticks>{500});
+    CHECK(copy.getName() == "Riff");
+    CHECK(daw::model::MidiClip(copy.getState()).getNotes() ==
+          daw::model::MidiClip(clip.getState()).getNotes());
+}

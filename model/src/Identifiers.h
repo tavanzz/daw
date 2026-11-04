@@ -25,6 +25,8 @@ inline const juce::Identifier parameters{"Parameters"};
 inline const juce::Identifier send{"Send"};
 inline const juce::Identifier lane{"Lane"};
 inline const juce::Identifier point{"Point"};
+inline const juce::Identifier instrument{"Instrument"};
+inline const juce::Identifier files{"Files"};
 
 // Project
 inline const juce::Identifier tempo{"tempo"};
@@ -58,6 +60,14 @@ inline const juce::Identifier audioFile{"audioFile"};
 inline const juce::Identifier position{"position"};
 inline const juce::Identifier offset{"offset"};
 inline const juce::Identifier length{"length"};
+
+// MIDI (Phase 6)
+inline const juce::Identifier kind{"kind"};
+inline const juce::Identifier midiInputDevice{"midiInputDevice"};
+inline const juce::Identifier midiInputChannel{"midiInputChannel"};
+inline const juce::Identifier midiChannel{"midiChannel"};
+inline const juce::Identifier notes{"notes"};
+inline const juce::Identifier controllers{"controllers"};
 
 // Effects, sends, buses and automation
 inline const juce::Identifier type{"type"};
