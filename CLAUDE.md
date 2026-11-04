@@ -1054,7 +1054,7 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 2. MIDI in the arrangement and the mixer: notes and controllers in samples per
       track, the instrument first in the chain, note-on and note-off on the exact
       sample for any block size, at clip edges and in loops; controller chase
-- [ ] 3. No hanging notes: stop, pause, seek, loop, new arrangements (notes reconciled
+- [x] 3. No hanging notes: stop, pause, seek, loop, new arrangements (notes reconciled
       by identity), mute and solo, bypass, removal, rate changes; export equals
       real-time playback with instruments and automation
 - [ ] 4. MIDI input in the engine: lock-free timestamped queues per device, time to
