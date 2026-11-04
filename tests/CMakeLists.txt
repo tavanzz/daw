@@ -81,6 +81,7 @@ add_executable(daw_ui_tests
     support/WindowManagerAtoms.cpp
     ui/AlertsTests.cpp
     ui/AnimationClockTests.cpp
+    ui/MidiUiTests.cpp
     ui/PanelsTests.cpp
     ui/PrerenderedImagesTests.cpp
     ui/ThemeManagerTests.cpp

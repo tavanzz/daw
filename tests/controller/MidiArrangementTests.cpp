@@ -128,6 +128,37 @@ TEST_CASE("MIDI clips become notes in samples, the clip on top covering the ones
     CHECK(played.notes == expected);
 }
 
+TEST_CASE("An instrument's parameters follow the track's automation lanes", "[controller][midi]")
+{
+    Project project;
+    auto track = project.addTrack("Keys", TrackKind::midi);
+    const auto synth = track.setInstrument("synth");
+    track.addMidiClip("A", {0, 0, 4000 * sample}, {{1, 0, 1000 * sample, 60, 100}});
+    auto automation = track.getAutomation();
+    automation.setMode(daw::model::AutomationMode::read);
+    automation.getOrAddLane(daw::model::AutomationTarget::effectParameter(synth.getId(), "cutoff"))
+        .addPoint({1000 * sample, 0.25, 0.0});
+
+    const auto arrangement = buildArrangement(project, sampleRate, {});
+    REQUIRE(arrangement->tracks.size() == 1);
+    const auto& slots = arrangement->tracks[0].inserts.slots;
+    REQUIRE(slots.size() == 1); // the instrument, first
+    const auto& description = slots[0].instance->getDescription();
+    CHECK(description.isInstrument);
+    const int cutoff = description.indexOf("cutoff");
+    REQUIRE(cutoff >= 0);
+    REQUIRE(slots[0].automation.size() > static_cast<std::size_t>(cutoff));
+    REQUIRE(slots[0].automation[static_cast<std::size_t>(cutoff)] != nullptr);
+    CHECK(slots[0].automation[static_cast<std::size_t>(cutoff)]->valueAt(0) == Catch::Approx(0.25));
+
+    // Off: the instrument keeps its own value.
+    automation.setMode(daw::model::AutomationMode::off);
+    const auto off = buildArrangement(project, sampleRate, {});
+    const auto& offSlot = off->tracks[0].inserts.slots[0];
+    CHECK((offSlot.automation.size() <= static_cast<std::size_t>(cutoff) ||
+           offSlot.automation[static_cast<std::size_t>(cutoff)] == nullptr));
+}
+
 TEST_CASE("Controller lanes step through the visible parts and rest after each clip",
           "[controller][midi]")
 {

@@ -1,5 +1,6 @@
 // The desktop window in every theme, with a project that uses everything the themes
-// draw: tracks with clips, effects, a bus with a send, automation, the mixer.
+// draw: tracks with clips, effects, a bus with a send, automation, the mixer, and a
+// MIDI track playing the synth.
 
 #include "daw/controller/ExportJob.h"
 #include "daw/engine/fx/Compressor.h"
@@ -77,6 +78,13 @@ struct Studio
         session.addAutomationPoint(first, {}, {0, 0.5, 0.0});
         session.addAutomationPoint(first, {}, {model::ticksPerSecond, 0.8, 0.3});
         session.setAutomationMode(first, model::AutomationMode::read);
+
+        const auto keys = session.addMidiTrack("Keys");
+        const auto clip = session.addMidiClip(keys, 0, 2 * model::ticksPerSecond);
+        session.setNotes(clip,
+                         {{0, 0, model::ticksPerSecond / 2, 60, 100},
+                          {0, model::ticksPerSecond / 4, model::ticksPerSecond, 67, 80}},
+                         "Notes");
         session.update();
     }
 

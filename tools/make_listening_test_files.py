@@ -422,6 +422,267 @@ def write_phase4_files(out):
     (folder / "phase4-latency.dawproject").write_text(json.dumps(latency, indent=2) + "\n")
 
 
+# ---------------------------------------------------------------------------- Phase 6
+
+def one_shot(rate, seconds, generator):
+    """A sound of the given length from generator(t, n), faded at the end."""
+    out = [generator(n / rate, n) for n in range(int(rate * seconds))]
+    return faded(out, rate, 0.005)
+
+
+def drum_sounds(rate):
+    """Synthetic drum hits for the drum sampler's pads."""
+    noise = random.Random(11)
+    white = [noise.random() * 2 - 1 for _ in range(rate)]
+    bright = [white[n] - white[n - 1] if n else 0.0 for n in range(rate)]  # a high-pass
+
+    def kick_hit(t, n):
+        phase = 2 * math.pi * (50 * t + 100 * (1 - math.exp(-t * 40)) / 40)
+        return 0.8 * math.exp(-t * 9) * math.sin(phase)
+
+    def snare_hit(t, n):
+        return math.exp(-t * 18) * (0.35 * math.sin(2 * math.pi * 185 * t) + 0.45 * white[n])
+
+    def clap_hit(t, n):
+        bursts = sum(math.exp(-(t - start) * 120) for start in (0.0, 0.011, 0.022) if t >= start)
+        return 0.5 * white[n] * (min(bursts, 1.0) + 0.4 * math.exp(-t * 14))
+
+    return {
+        "kick.wav": one_shot(rate, 0.5, kick_hit),
+        "snare.wav": one_shot(rate, 0.3, snare_hit),
+        "clap.wav": one_shot(rate, 0.35, clap_hit),
+        "closed-hat.wav": one_shot(rate, 0.08, lambda t, n: 0.35 * math.exp(-t * 60) * bright[n]),
+        "open-hat.wav": one_shot(rate, 0.6, lambda t, n: 0.3 * math.exp(-t * 6) * bright[n]),
+    }
+
+
+def sampler_tone(rate):
+    """C3 (261.63 Hz) with a few harmonics: a quick attack, a decay to half, then steady
+    until 3 s, where the sampler's loop (40 to 90 %) sits."""
+    frequency = 440 * 2 ** ((60 - 69) / 12)
+
+    def tone(t, n):
+        envelope = min(1.0, t / 0.005) * (0.5 + 0.5 * math.exp(-t * 6))
+        value = sum(math.sin(2 * math.pi * frequency * h * t) / (h * h) for h in range(1, 7))
+        return 0.45 * envelope * value
+
+    return one_shot(rate, 3.0, tone)
+
+
+def vlq(value):
+    """A MIDI file's variable-length quantity."""
+    out = [value & 0x7F]
+    value >>= 7
+    while value:
+        out.insert(0, (value & 0x7F) | 0x80)
+        value >>= 7
+    return bytes(out)
+
+
+def smf_track(events):
+    """events: (tick, order, bytes); at one tick note-offs (order 0) come before
+    controllers (1) and note-ons (2)."""
+    data = bytearray()
+    last = 0
+    for tick, _, message in sorted(events, key=lambda e: (e[0], e[1])):
+        data += vlq(tick - last) + message
+        last = tick
+    data += vlq(0) + b"\xff\x2f\x00"
+    return b"MTrk" + struct.pack(">I", len(data)) + bytes(data)
+
+
+def write_smf(path, file_type, ppq, tracks):
+    body = b"".join(smf_track(events) for events in tracks)
+    header = b"MThd" + struct.pack(">IHHH", 6, file_type, len(tracks), ppq)
+    Path(path).write_bytes(header + body)
+
+
+def meta(tick, kind, payload):
+    return (tick, 0, bytes([0xFF, kind]) + vlq(len(payload)) + payload)
+
+
+def note(channel, key, velocity, start, length):
+    return [(start, 2, bytes([0x90 | channel, key, velocity])),
+            (start + length, 0, bytes([0x80 | channel, key, 0]))]
+
+
+def controller(channel, number, value, tick):
+    return (tick, 1, bytes([0xB0 | channel, number, value]))
+
+
+def bend(channel, value, tick):
+    return (tick, 1, bytes([0xE0 | channel, value & 0x7F, value >> 7]))
+
+
+def song_parts(ppq):
+    """Eight bars of 4/4 at 110 BPM: drums (channel 10), bass (2), chords (1) with
+    the sustain pedal and the mod wheel."""
+    beat = ppq
+    bar = 4 * beat
+    drums, bass, chords = [], [], []
+    for b in range(8):
+        at = b * bar
+        for step in range(8):  # eighths
+            tick = at + step * beat // 2
+            if step in (0, 4) or (b % 2 and step == 5):
+                drums += note(9, 36, 110, tick, beat // 4)  # kick
+            if step in (2, 6):
+                drums += note(9, 38, 100, tick, beat // 4)  # snare
+            if step == 7:
+                drums += note(9, 46, 80, tick, beat // 2)  # open hat, choked by the next
+            else:
+                drums += note(9, 42, 70 + 20 * (step % 2 == 0), tick, beat // 4)
+        if b % 4 == 3:
+            drums += note(9, 39, 100, at + 3 * beat, beat // 4)  # clap
+
+    progression = [(45, (57, 60, 64)), (41, (53, 57, 60)), (48, (55, 60, 64)), (43, (55, 59, 62))]
+    for b in range(8):
+        root, chord = progression[b % 4]
+        at = b * bar
+        for step in range(8):
+            bass += note(1, root + (12 if step == 6 else 0), 96, at + step * beat // 2, beat // 2 - 20)
+        for key in chord:
+            chords += note(0, key, 80, at, bar - beat // 2)
+        chords += [controller(0, 64, 127, at), controller(0, 64, 0, at + bar - 10)]
+    for step in range(33):  # the mod wheel up over bars 5 to 8, then back
+        chords.append(controller(0, 1, min(127, step * 4), 4 * bar + step * bar // 8))
+    chords.append(controller(0, 1, 0, 8 * bar - 1))
+    return drums, bass, chords
+
+
+def write_midi_files(folder):
+    ppq = 480  # not the app's 960: the import converts
+    tempo = 60_000_000 // 110
+    conductor = [meta(0, 0x03, b"Song"), meta(0, 0x51, struct.pack(">I", tempo)[1:]),
+                 meta(0, 0x58, bytes([4, 2, 24, 8]))]
+    drums, bass, chords = song_parts(ppq)
+    named = [([meta(0, 0x03, b"Drums")] + drums), ([meta(0, 0x03, b"Bass")] + bass),
+             ([meta(0, 0x03, b"Chords")] + chords)]
+    write_smf(folder / "song-type1.mid", 1, ppq, [conductor] + named)
+    write_smf(folder / "song-type0.mid", 0, ppq, [conductor + drums + bass + chords])
+
+    # Every key from C-1 (24) to C7 (108), an eighth each at 120 BPM: tuning, and
+    # aliasing on the high notes.
+    scale = [meta(0, 0x51, struct.pack(">I", 500_000)[1:]), meta(0, 0x03, b"Scale")]
+    for index, key in enumerate(range(24, 109)):
+        scale += note(0, key, 100, index * ppq // 2, ppq // 2 - 10)
+    write_smf(folder / "scale.mid", 0, ppq, [scale])
+
+    # C3 held for 8 s: the pitch bend up 2 semitones and down 2, then the mod wheel
+    # (vibrato) up and down; then four short notes held by the sustain pedal.
+    moves = [meta(0, 0x51, struct.pack(">I", 500_000)[1:]), meta(0, 0x03, b"Controllers")]
+    moves += note(0, 60, 100, 0, 16 * ppq)
+    for step in range(65):
+        phase = step / 64
+        value = int(round(8192 + 8191 * math.sin(2 * math.pi * phase)))
+        moves.append(bend(0, max(0, min(16383, value)), step * 8 * ppq // 64))
+    moves.append(bend(0, 8192, 8 * ppq))
+    for step in range(33):
+        value = int(round(127 * math.sin(math.pi * step / 32)))
+        moves.append(controller(0, 1, value, 8 * ppq + step * 8 * ppq // 32))
+    moves.append(controller(0, 64, 127, 17 * ppq))
+    for index, key in enumerate((60, 64, 67, 72)):
+        moves += note(0, key, 90, 17 * ppq + index * ppq // 2, ppq // 4)
+    moves.append(controller(0, 64, 0, 22 * ppq))
+    write_smf(folder / "controllers.mid", 0, ppq, [moves])
+
+
+def midi_clip(clip_id, name, position, length, notes_list, controllers=()):
+    """notes_list: (start s, length s, key, velocity) relative to the clip."""
+    return {"id": clip_id, "kind": "midi", "name": name, "position": ticks(position), "offset": 0,
+            "length": ticks(length),
+            "notes": [{"id": i + 1, "start": ticks(s), "length": ticks(l), "key": k, "velocity": v}
+                      for i, (s, l, k, v) in enumerate(notes_list)],
+            "controllers": [{"type": kind, "events": [{"position": ticks(at), "value": value}
+                                                      for at, value in events]}
+                            for kind, events in controllers]}
+
+
+def midi_track(track_id, name, instrument, clips, effects=(), sends=(), lanes=(), volume=1.0,
+               mute=False, channel=1):
+    return {"id": track_id, "kind": "midi", "name": name, "volume": volume, "pan": 0.0,
+            "mute": mute, "solo": False, "midiInput": {"device": "", "channel": 0},
+            "midiChannel": channel, "instrument": instrument, "monitoring": "auto",
+            "armed": False, "effects": list(effects), "sends": list(sends),
+            "automation": automation(list(lanes)), "clips": clips}
+
+
+def instrument(effect_id, type_name, parameters, files=None):
+    result = effect(effect_id, type_name, parameters)
+    if files:
+        result["files"] = files
+    return result
+
+
+def write_phase6_files(out):
+    """Phase 6: sounds for the sampler and the drum pads, MIDI files to import, and a
+    project with every instrument (120 BPM, a bar is 2 s, 8 bars)."""
+    folder = out / "phase6"
+    folder.mkdir(parents=True, exist_ok=True)
+    rate = 48000
+    for name, samples in drum_sounds(rate).items():
+        write_wav(folder / name, rate, [samples])
+    write_wav(folder / "tone-c3.wav", rate, [sampler_tone(rate)])
+    write_wav(folder / "a440.wav", rate, [faded(sine(440, 10 ** (-12 / 20), rate, 4), rate)])
+    write_midi_files(folder)
+
+    beat = 0.5
+    bar = 2.0
+    progression = [(45, (57, 60, 64)), (41, (53, 57, 60)), (48, (55, 60, 64)), (43, (55, 59, 62))]
+    chords, bassline, beats = [], [], []
+    for b in range(8):
+        root, chord = progression[b % 4]
+        chords += [(b * bar, bar - beat / 2, key, 84) for key in chord]
+        # Bass: eighths, legato into the octave on the 7th (glide).
+        bassline += [(b * bar + step * beat / 2, beat / 2 + (0.02 if step == 5 else -0.02),
+                      root - 12 + (12 if step == 6 else 0), 100) for step in range(8)]
+        for step in range(8):
+            at = b * bar + step * beat / 2
+            if step in (0, 4):
+                beats.append((at, 0.1, 36, 110))
+            if step in (2, 6):
+                beats.append((at, 0.1, 38, 100))
+            beats.append((at, 0.1, 46 if step == 7 else 42, 90 if step % 2 == 0 else 64))
+        if b % 4 == 3:
+            beats.append((b * bar + 3 * beat, 0.1, 39, 100))
+    melody = [(0.0, 3.5, 60, 100), (4.0, 0.5, 64, 90), (4.5, 0.5, 67, 90), (5.0, 1.0, 72, 100),
+              (6.0, 2.0, 48, 100), (8.0, 0.25, 84, 80), (8.5, 0.25, 79, 80), (9.0, 0.25, 76, 80),
+              (9.5, 0.25, 72, 80), (10.0, 6.0, 55, 110)]
+
+    cutoff = lambda hz: math.log(hz / 20) / math.log(1000)  # the cutoff's normalised value
+    reverb = bus(900, "Reverb", [effect(901, "reverb", {"decay": 2.2, "mix": 100.0})])
+    tracks = [
+        midi_track(1, "Chords", instrument(2, "synth", {"cutoff": 500.0}),
+                   [midi_clip(3, "Chords", 0.0, 8 * bar, chords,
+                              [("cc:1", [(8.0, 0), (12.0, 100), (16.0, 0)])])],
+                   sends=[send(4, 900, 0.5)],
+                   lanes=[("effect:2:cutoff", [(8.0, cutoff(500), 0.0), (16.0, cutoff(8000), 0.0)])],
+                   volume=0.25),
+        midi_track(10, "Bass", instrument(11, "synth", {"voiceMode": 2.0, "glide": 80.0,
+                                                         "osc2Octave": 2.0, "cutoff": 900.0}),
+                   [midi_clip(12, "Bass", 0.0, 8 * bar, bassline)], volume=0.5, channel=2),
+        midi_track(20, "Sampler", instrument(21, "sampler", {"loop": 1.0, "loopStart": 40.0,
+                                                              "loopEnd": 90.0, "crossfade": 20.0},
+                                             {"sample": "tone-c3.wav"}),
+                   [midi_clip(22, "Melody", 0.0, 8 * bar, melody)], sends=[send(23, 900, 0.3)],
+                   volume=0.6, channel=3),
+        midi_track(30, "Drums", instrument(31, "drums", {}, {
+            "pad1": "kick.wav", "pad3": "snare.wav", "pad4": "clap.wav",
+            "pad7": "closed-hat.wav", "pad11": "open-hat.wav"}),
+                   [midi_clip(32, "Beat", 0.0, 8 * bar, beats)], volume=0.5, channel=10),
+        # Tuning: a sine at A3 (key 69, 440 Hz) and the 440 Hz file; solo both.
+        midi_track(40, "Sine A3", instrument(41, "synth", {"osc1Wave": 0.0, "osc2Level": 0.0,
+                                                            "cutoff": 20000.0, "resonance": 0.0,
+                                                            "filterEnvelope": 0.0}),
+                   [midi_clip(42, "A3", 0.0, 4.0, [(0.0, 4.0, 69, 100)])], mute=True),
+        dict(mixer_track(50, "A440 file", [dict(clip(51, "a440.wav", 0.0), kind="audio")], mute=True),
+             kind="audio"),
+    ]
+    project = project_v4([], [reverb], tracks)
+    project["formatVersion"] = 5
+    (folder / "phase6-instruments.dawproject").write_text(json.dumps(project, indent=2) + "\n")
+
+
 def extended80(value):
     """IEEE 754 80-bit extended float, as AIFF stores its sample rate."""
     exponent = 16383 + int(math.floor(math.log2(value)))
@@ -477,6 +738,7 @@ def main():
     write_phase2_files(out)
     write_phase3_files(out, arguments.long)
     write_phase4_files(out)
+    write_phase6_files(out)
 
     print(f"Listening test files written to {out.resolve()}")
 

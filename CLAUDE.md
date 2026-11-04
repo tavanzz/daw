@@ -795,8 +795,9 @@ ctest --preset debug            # run all tests
   project JSON, revision, undo state and export.
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
-  project, the Phase 3 recording project and the Phase 4 effects and delay
-  compensation projects from `python3 tools/make_listening_test_files.py` (into
+  project, the Phase 3 recording project, the Phase 4 effects and delay
+  compensation projects and the Phase 6 instruments project, MIDI files and samples
+  from `python3 tools/make_listening_test_files.py` (into
   `build/listening-tests/`; add `--long` for the hour-long streaming file).
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
   `build/release/tests/daw_stream_bench` (streaming and recording),
@@ -1252,8 +1253,10 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 18. Desktop UI: controller lanes (pitch bend, mod wheel, sustain, aftertouch, CC)
 - [x] 19. Desktop UI: instrument editors (grouped generic synth editor, sampler and drum
       pad views), MIDI settings, MIDI import and export in the menus
-- [ ] 20. UI tests of the new components in every theme; listening tests and files
+- [x] 20. UI tests of the new components in every theme; listening tests and files
       for Phase 6 (`docs/LISTENING_TESTS.md`); version 0.6.0
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 84 to 103): to do on macOS,
+      with a MIDI keyboard for checks 96 to 99
 
 Phase 6 decisions (agreed before starting):
 
