@@ -156,6 +156,13 @@ public:
     /** What the MIDI tracks have recorded so far, for drawing it as it comes. */
     [[nodiscard]] std::vector<RecordedMidiTake> getLiveMidiTakes() const;
 
+    /** Where the clips of the recording in progress will start (the start, or the
+        punch in), in samples. */
+    [[nodiscard]] juce::int64 getLiveKeepStart() const noexcept
+    {
+        return request.punchOut > request.punchIn ? request.punchIn : request.startPosition;
+    }
+
     /** Free bytes on the disk of a folder; empty: ask the file system. For tests. */
     std::function<juce::int64(const juce::File&)> freeSpace;
 

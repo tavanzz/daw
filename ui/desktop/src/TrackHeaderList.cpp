@@ -162,6 +162,8 @@ public:
         mute.setToggleState(track.isMuted(), juce::dontSendNotification);
         solo.setToggleState(track.isSoloed(), juce::dontSendNotification);
         recording.show(track);
+        // A MIDI track has no audio input to measure.
+        inputMeter.setVisible(!track.isMidi());
         ThemedLookAndFeel::setColourRole(name, audible ? appearance::ColourRole::text
                                                        : appearance::ColourRole::textSecondary);
 
@@ -179,6 +181,8 @@ public:
 
     void updateMeter(double elapsedSeconds)
     {
+        if (!inputMeter.isVisible())
+            return;
         const auto peaks = session.getTrackInputPeaks(trackId);
         inputMeter.update(peaks[0], peaks[1], elapsedSeconds);
     }

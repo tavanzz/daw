@@ -48,7 +48,10 @@
         "curve": "acid",
         "curveFill": { "alpha": ["acid", 0.12] },
         "gainReduction": "red",
-        "shadow": { "alpha": ["#000000", 0.6] }
+        "shadow": { "alpha": ["#000000", 0.6] },
+        "keyWhite": { "mix": ["text", "secondary", 0.15] },
+        "keyBlack": "background",
+        "keyRow": { "mix": ["background", "line", 0.4] }
     },
     "clips": {
         "colours": [

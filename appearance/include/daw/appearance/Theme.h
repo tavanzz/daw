@@ -54,6 +54,9 @@ enum class ColourRole
     curveFill,     ///< the area under a response curve (translucent)
     gainReduction, ///< compressor and limiter gain reduction
     shadow,        ///< drop shadows (translucent)
+    keyWhite,      ///< white keys of the piano roll's keyboard
+    keyBlack,      ///< black keys
+    keyRow,        ///< the piano roll's rows of black keys, behind the notes
     count
 };
 

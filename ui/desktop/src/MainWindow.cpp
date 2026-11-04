@@ -126,10 +126,14 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::undo);
         add(MainComponent::redo);
         menu.addSeparator();
+        add(MainComponent::duplicate);
         add(MainComponent::deleteSelection);
+        menu.addSeparator();
+        add(MainComponent::quantiseNotes);
         break;
     case 2:
         add(MainComponent::newTrack);
+        add(MainComponent::newMidiTrack);
         add(MainComponent::newBus);
         break;
     case 3:
@@ -151,6 +155,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::zoomToFit);
         menu.addSeparator();
         add(MainComponent::toggleMixer);
+        add(MainComponent::togglePianoRoll);
         add(MainComponent::toggleAutomation);
         menu.addSeparator();
         {

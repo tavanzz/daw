@@ -47,6 +47,11 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
     addAndMakeVisible(masterMeter);
     mixerView.openEffect = [this](model::ObjectId effectId) { effectEditors.open(effectId); };
     addAndMakeVisible(mixerView);
+    addChildComponent(pianoRoll);
+    arrangeView.onOpenClip = [this](model::ObjectId clipId) { editClip(clipId); };
+    arrangeView.onProblem = [this](const juce::String& title, const juce::String& message) {
+        showError(title, message);
+    };
     addAndMakeVisible(statusBar);
 
     mixerSlide.setWantsFrames(false);
@@ -153,14 +158,19 @@ void MainComponent::resized()
     statusBar.setBounds(area.removeFromBottom(StatusBar::height));
     area.reduce(8, 8);
 
-    // While it slides in or out, the mixer takes part of its height.
-    const int mixerHeight = juce::roundToInt(static_cast<float>(MixerView::preferredHeight + 8) *
-                                             mixerAmount);
-    mixerView.setVisible(mixerHeight > 0);
-    if (mixerHeight > 0)
+    // While it slides in or out, the lower panel (the mixer or the piano roll) takes
+    // part of its height.
+    const int panelHeight = showingPianoRoll ? std::max(MixerView::preferredHeight, area.getHeight() / 2)
+                                             : MixerView::preferredHeight;
+    const int shownHeight = juce::roundToInt(static_cast<float>(panelHeight + 8) * mixerAmount);
+    juce::Component& panel = showingPianoRoll ? static_cast<juce::Component&>(pianoRoll) : mixerView;
+    juce::Component& other = showingPianoRoll ? static_cast<juce::Component&>(mixerView) : pianoRoll;
+    other.setVisible(false);
+    panel.setVisible(shownHeight > 0);
+    if (shownHeight > 0)
     {
-        auto mixerArea = area.removeFromBottom(mixerHeight);
-        mixerView.setBounds(mixerArea.withTrimmedTop(8).withHeight(MixerView::preferredHeight));
+        auto panelArea = area.removeFromBottom(shownHeight);
+        panel.setBounds(panelArea.withTrimmedTop(8).withHeight(panelHeight));
     }
 
     masterMeter.setBounds(area.removeFromRight(40));
@@ -198,8 +208,15 @@ void MainComponent::timerCallback()
     const float left = engine.takeOutputPeak(0);
     const float right = engine.takeOutputPeak(1);
     masterMeter.update(left, right, elapsed);
-    if (mixerVisible)
+    if (mixerVisible && !showingPianoRoll)
         mixerView.refresh(left, right, elapsed);
+    if (mixerVisible && showingPianoRoll)
+    {
+        pianoRoll.setPlayhead(session.getPlayhead(),
+                              session.getTransportState() == engine::TransportState::playing);
+        if (session.getRevision() != lastRevision)
+            pianoRoll.refresh();
+    }
     effectEditors.refresh(elapsed);
 
     // Menu items show play/pause state, ticks and what can be undone.
@@ -259,6 +276,41 @@ void MainComponent::animationSettingsChanged()
 }
 
 void MainComponent::showMixer(bool shouldShow)
+{
+    if (shouldShow && showingPianoRoll && mixerVisible)
+    {
+        // The piano roll gives way to the mixer at once.
+        showingPianoRoll = false;
+        resized();
+        return;
+    }
+    if (shouldShow)
+        showingPianoRoll = false;
+    showLowerPanel(shouldShow);
+}
+
+void MainComponent::editClip(model::ObjectId clipId)
+{
+    pianoRoll.setClip(clipId);
+    showPianoRoll(true);
+    if (pianoRoll.isShowing())
+        pianoRoll.grabKeyboardFocus();
+}
+
+void MainComponent::showPianoRoll(bool shouldShow)
+{
+    if (shouldShow && !showingPianoRoll && mixerVisible)
+    {
+        showingPianoRoll = true;
+        resized();
+        return;
+    }
+    if (shouldShow)
+        showingPianoRoll = true;
+    showLowerPanel(shouldShow);
+}
+
+void MainComponent::showLowerPanel(bool shouldShow)
 {
     mixerVisible = shouldShow;
 
@@ -458,7 +510,8 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        zoomIn,           zoomOut,         zoomToFit,     toggleMixer,   record,
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
                        newBus,           toggleAutomation, showThemePreviews, showAnimations,
-                       toggleAllAnimations});
+                       toggleAllAnimations, newMidiTrack, duplicate, togglePianoRoll,
+                       quantiseNotes});
 
     const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
     for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
@@ -577,7 +630,7 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
     case toggleMixer:
         result.setInfo("Mixer", "Shows or hides the mixer", "View", 0);
         result.addDefaultKeypress('x', 0);
-        result.setTicked(mixerVisible);
+        result.setTicked(mixerVisible && !showingPianoRoll);
         break;
     case record:
         result.setInfo(recording ? "Stop Recording" : "Record",
@@ -608,6 +661,27 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         break;
     case showThemePreviews:
         result.setInfo("Show Previews...", "Shows every theme side by side", "View", 0);
+        break;
+    case newMidiTrack:
+        result.setInfo("New MIDI Track", "Adds a MIDI track with the synth", "Track", 0);
+        result.addDefaultKeypress('t', command | juce::ModifierKeys::altModifier);
+        break;
+    case duplicate:
+        result.setInfo("Duplicate", "Copies the selected clips (or notes) right after themselves",
+                       "Edit", 0);
+        result.addDefaultKeypress('d', command);
+        result.setActive(arrangeView.hasSelection() || pianoRoll.hasSelection());
+        break;
+    case togglePianoRoll:
+        result.setInfo("Piano Roll", "Shows or hides the piano roll (double-click a MIDI clip)",
+                       "View", 0);
+        result.addDefaultKeypress('e', 0);
+        result.setTicked(mixerVisible && showingPianoRoll);
+        break;
+    case quantiseNotes:
+        result.setInfo("Quantise Notes", "Moves the selected notes (or all) to the grid", "Edit", 0);
+        result.addDefaultKeypress('q', 0);
+        result.setActive(mixerVisible && showingPianoRoll && pianoRoll.getClip() != 0);
         break;
     case showAnimations:
         result.setInfo("Animations...", "Chooses which animations play, for every theme", "View",
@@ -650,6 +724,8 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
     case redo:
     case newTrack:
     case newBus:
+    case newMidiTrack:
+    case duplicate:
     case deleteSelection:
         if (recording)
             result.setActive(false);
@@ -693,6 +769,21 @@ bool MainComponent::perform(const InvocationInfo& info)
     case newTrack:
         session.addTrack();
         break;
+    case newMidiTrack:
+        session.addMidiTrack();
+        break;
+    case duplicate:
+        if (pianoRoll.isShowing() && pianoRoll.hasKeyboardFocus(true))
+            pianoRoll.duplicateSelection();
+        else
+            arrangeView.duplicateSelection();
+        break;
+    case togglePianoRoll:
+        showPianoRoll(!(mixerVisible && showingPianoRoll));
+        break;
+    case quantiseNotes:
+        pianoRoll.quantise();
+        break;
     case newBus:
         session.addBus();
         if (!mixerVisible)
@@ -728,7 +819,8 @@ bool MainComponent::perform(const InvocationInfo& info)
         arrangeView.zoomToFit();
         break;
     case toggleMixer:
-        showMixer(!mixerVisible);
+        // With the piano roll showing, X brings the mixer in its place.
+        showMixer(!(mixerVisible && !showingPianoRoll));
         commandManager.commandStatusChanged();
         break;
     case record:

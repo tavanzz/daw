@@ -663,6 +663,25 @@ Modules with one-way dependencies:
   dropped beyond 96; each look and feel has its own set, emptied when its theme
   leaves. Glows (`ThemedLookAndFeel::drawGlow()`, themes with `shape.glow` > 0) are
   painted this way.
+- Desktop MIDI (Phase 6): MIDI tracks show "MIDI: All" (device and channel menu,
+  `TrackInputControls`) instead of an audio input and no input meter; MIDI clips draw
+  their notes in the clip colour, recordings as they come in (from the
+  `RecordingController`'s live takes). A double-click on a MIDI clip opens it in the
+  piano roll, on an empty part of a MIDI track makes a one-bar clip; Alt+drag copies
+  clips, Cmd+D duplicates them (`ArrangeView::duplicateSelection()`), Alt+Cmd+T adds a
+  MIDI track. The mixer's MIDI strips list the instrument first ("+ Instrument" when
+  there is none; right-click to change, bypass or remove it). The colour roles
+  `keyWhite`, `keyBlack` and `keyRow` are the piano roll's.
+- Piano roll (Phase 6): `PianoRoll` is the lower panel in the mixer's place (E, or
+  `MainComponent::editClip()`; X brings the mixer back): a toolbar (grid, quantise
+  value, strength, ends, Quantise, Lanes), the keyboard (a click previews the key),
+  the ruler, the notes and, under them, the velocity lane and the controller lanes.
+  Its parts share a `PianoRoll::State` (session, clip, `PianoRollViewport`,
+  selection, the length and velocity of the last note touched); every rule is the
+  controller's (`NoteEditing.h`) and every edit one undo step through the session (a
+  drag one gesture). A clip comes into view (its window and its keys) once the panel
+  has its size. Controller lanes (`ControllerLane`) show the types the clip has events
+  for and those chosen from the Lanes menu, as steps chased from the clip's start.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -1216,11 +1235,11 @@ devices, loop/take/merge recording, swing, presets.
 - [x] 13. Drum sampler: 16 pads, choke groups
 - [x] 14. Standard MIDI files: import and export, type 0 and 1, round trips
 - [x] 15. Benchmark: cost per voice of each instrument, voices per budget (Release)
-- [ ] 16. Desktop UI: MIDI tracks in the arrange view (headers, MIDI clips with their
+- [x] 16. Desktop UI: MIDI tracks in the arrange view (headers, MIDI clips with their
       notes), the instrument slot in the mixer, new colour roles in the three themes
-- [ ] 17. Desktop UI: piano roll (keyboard, notes, grid, selection, velocity,
+- [x] 17. Desktop UI: piano roll (keyboard, notes, grid, selection, velocity,
       quantisation, transposition, preview)
-- [ ] 18. Desktop UI: controller lanes (pitch bend, mod wheel, sustain, aftertouch, CC)
+- [x] 18. Desktop UI: controller lanes (pitch bend, mod wheel, sustain, aftertouch, CC)
 - [ ] 19. Desktop UI: instrument editors (grouped generic synth editor, sampler and drum
       pad views), MIDI settings, MIDI import and export in the menus
 - [ ] 20. UI tests of the new components in every theme; listening tests and files

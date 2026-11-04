@@ -35,6 +35,14 @@ ArrangeView::ArrangeView(controller::Session& session)
     , trackArea(std::make_unique<TrackArea>(state))
 {
     state.onViewChanged = [this] { viewChanged(); };
+    state.onOpenClip = [this](model::ObjectId clipId) {
+        if (onOpenClip)
+            onOpenClip(clipId);
+    };
+    trackArea->lanes.onProblem = [this](const juce::String& title, const juce::String& message) {
+        if (onProblem)
+            onProblem(title, message);
+    };
 
     addAndMakeVisible(ruler);
 
@@ -51,6 +59,15 @@ ArrangeView::ArrangeView(controller::Session& session)
 ArrangeView::~ArrangeView()
 {
     timelineScrollBar.removeListener(this);
+}
+
+void ArrangeView::duplicateSelection()
+{
+    const auto copies =
+        state.session.duplicateClips({state.selection.begin(), state.selection.end()});
+    if (!copies.empty())
+        state.selection = {copies.begin(), copies.end()};
+    trackArea->lanes.contentChanged();
 }
 
 void ArrangeView::refresh()

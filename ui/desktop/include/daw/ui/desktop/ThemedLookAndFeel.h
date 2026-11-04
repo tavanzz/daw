@@ -257,6 +257,21 @@ public:
     void drawClipName(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& name,
                       const ClipStyle& style) const;
 
+    // The piano roll.
+    void drawPianoKey(juce::Graphics& g, juce::Rectangle<float> area, bool black,
+                      const juce::String& label, bool pressed) const;
+    void drawNoteRow(juce::Graphics& g, juce::Rectangle<float> area, bool black, bool octaveLine) const;
+    void drawNote(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, int velocity,
+                  bool selected) const;
+    void drawVelocityBar(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour,
+                         bool selected) const;
+    void drawSelectionBand(juce::Graphics& g, juce::Rectangle<float> area) const;
+    void drawLaneLabel(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text) const;
+    /** A controller lane: the value as steps, an event as a dot. */
+    void drawControllerSteps(juce::Graphics& g, const juce::Path& steps) const;
+    void drawControllerEvent(juce::Graphics& g, juce::Point<float> centre, bool selected) const;
+
+
     virtual void drawRulerBackground(juce::Graphics& g, juce::Rectangle<float> area) const;
     void drawRulerMark(juce::Graphics& g, float x, float top, float bottom, bool major) const;
     void drawRulerLabel(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,

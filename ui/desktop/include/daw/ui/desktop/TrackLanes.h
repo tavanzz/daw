@@ -20,7 +20,10 @@ namespace daw::ui::desktop
       edges snap to the grid unless Cmd is held. Each drag is one undo step.
     - Click empty space to move the playhead there.
     - Drop audio files: one file onto a track goes onto that track, otherwise each
-      file gets a new track; all start where they were dropped.
+      file gets a new track; all start where they were dropped. MIDI files dropped
+      become MIDI tracks there.
+    - Alt+drag copies a clip. A double-click opens a MIDI clip in the piano roll; on an
+      empty part of a MIDI track it makes a clip of one bar there and opens it.
     - In the automation view the clips are dimmed and the mouse edits each row's
       automation lane instead (AutomationLanes); the buses and the master get rows
       of their own.
@@ -31,6 +34,9 @@ public:
     explicit TrackLanes(ArrangeState& sharedState);
 
     void setPlayhead(model::Ticks position, bool isPlaying);
+
+    /** Tells the user about a problem (a MIDI file that could not be read). */
+    std::function<void(const juce::String& title, const juce::String& message)> onProblem;
 
     /** The project, the view or the selection changed: paint the lanes again (a plain
         repaint() puts back the image of the last content). */

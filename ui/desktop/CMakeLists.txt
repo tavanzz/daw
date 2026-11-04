@@ -21,6 +21,7 @@ add_library(daw_ui_desktop STATIC
     src/MainWindow.cpp
     src/MixerView.cpp
     src/PanelWindow.cpp
+    src/PianoRoll.cpp
     src/PrerenderedImages.cpp
     src/SendSlots.cpp
     src/StatusBar.cpp

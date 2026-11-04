@@ -14,7 +14,7 @@ constexpr std::array<std::string_view, colourRoleCount> colourRoleKeys{
     "focus",         "selection",    "playhead",     "loop",       "loopShade", "record",
     "mute",          "solo",         "clip",         "automation", "monitor",   "warning",
     "error",         "meterTrack",   "peakHold",     "curve",      "curveFill", "gainReduction",
-    "shadow"};
+    "shadow",        "keyWhite",     "keyBlack",     "keyRow"};
 
 constexpr std::array<std::string_view, fontRoleCount> fontRoleKeys{"title",   "heading", "label",
                                                                    "caption", "numeric", "display"};

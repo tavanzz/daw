@@ -7,6 +7,7 @@
 #include "daw/ui/desktop/LevelMeter.h"
 #include "daw/ui/desktop/MixerView.h"
 #include "daw/ui/desktop/PanelWindow.h"
+#include "daw/ui/desktop/PianoRoll.h"
 #include "daw/ui/desktop/StatusBar.h"
 #include "daw/ui/desktop/ThemeManager.h"
 #include "daw/ui/desktop/TransportBar.h"
@@ -65,6 +66,10 @@ public:
         showThemePreviews,
         showAnimations,
         toggleAllAnimations,
+        newMidiTrack,
+        duplicate,
+        togglePianoRoll,
+        quantiseNotes,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8
@@ -94,6 +99,10 @@ public:
     void lookAndFeelChanged() override;
 
     [[nodiscard]] ArrangeView& getArrangeViewForTesting() noexcept { return arrangeView; }
+    [[nodiscard]] PianoRoll& getPianoRollForTesting() noexcept { return pianoRoll; }
+
+    /** Opens a MIDI clip in the piano roll (the lower panel), as a double-click does. */
+    void editClip(model::ObjectId clipId);
 
     // juce::ApplicationCommandTarget
     juce::ApplicationCommandTarget* getNextCommandTarget() override;
@@ -111,6 +120,8 @@ private:
     void themeAboutToChange() override;
     void animationSettingsChanged() override;
     void showMixer(bool shouldShow);
+    void showPianoRoll(bool shouldShow);
+    void showLowerPanel(bool shouldShow);
     void themeChanged() override;
     void showPanel(std::unique_ptr<PanelWindow>& window, const juce::String& title,
                    const std::function<std::unique_ptr<juce::Component>()>& makeContent);
@@ -138,7 +149,9 @@ private:
     ArrangeView arrangeView;
     LevelMeter masterMeter;
     MixerView mixerView;
-    bool mixerVisible = true;
+    PianoRoll pianoRoll{session};
+    bool mixerVisible = true;      // the lower panel: the mixer or the piano roll
+    bool showingPianoRoll = false; // which of them
     float mixerAmount = 1.0f; // how much of the mixer shows, while it slides
     float mixerFrom = 1.0f;
     double mixerSlideStart = -1.0;
