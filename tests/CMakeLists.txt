@@ -137,6 +137,14 @@ add_executable(daw_instrument_bench bench/InstrumentBenchmark.cpp)
 target_link_libraries(daw_instrument_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_instrument_bench)
 
+# What hosting a plugin costs on top of the plugin (with the VST3 test plugins).
+add_executable(daw_plugin_bench bench/PluginBenchmark.cpp)
+target_include_directories(daw_plugin_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(daw_plugin_bench PRIVATE daw::engine daw::juce)
+target_compile_definitions(daw_plugin_bench PRIVATE "DAW_TEST_PLUGINS_DIR=\"${DAW_TEST_PLUGINS_DIR}\"")
+add_dependencies(daw_plugin_bench daw_test_plugins)
+daw_enable_warnings(daw_plugin_bench)
+
 # The interface's cost per theme and animation level, in a window of its own (an app,
 # so that the system draws it as it draws the real one). See the source.
 juce_add_gui_app(daw_ui_bench PRODUCT_NAME "DAW UI Bench" VERSION "${PROJECT_VERSION}")

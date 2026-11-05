@@ -940,7 +940,8 @@ ctest --preset debug            # run all tests
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
   `build/release/tests/daw_stream_bench` (streaming and recording),
   `build/release/tests/daw_fx_bench` (effects), `build/release/tests/daw_instrument_bench`
-  (instruments: cost per voice, voices per budget) and the interface's cost per theme and
+  (instruments: cost per voice, voices per budget), `build/release/tests/daw_plugin_bench`
+  (what hosting a plugin costs per block) and the interface's cost per theme and
   animation level, `"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI
   Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
   four minutes); results in `docs/PERFORMANCE.md`.
@@ -1530,7 +1531,7 @@ while playing, MIDI effects, automation writing, mobile UI.
 - [x] 10. Session: inserting, removing, moving, bypassing plugins and parameter edits
       with undo; missing plugins; opening without plugins; the plugin that was
       processing at a crash
-- [ ] 11. End-to-end tests with the test plugins (hanging notes, export equals
+- [x] 11. End-to-end tests with the test plugins (hanging notes, export equals
       playback, state round trips); benchmark of the adapter's cost per block
 - [ ] 12. Desktop UI: plugin browser, plugins in the effect and instrument menus,
       Plugin Manager; themed
