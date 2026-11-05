@@ -33,14 +33,14 @@ float clampNormalised(float value) noexcept
 } // namespace
 
 std::variant<std::unique_ptr<PluginEffect>, juce::String>
-PluginEffect::create(std::unique_ptr<juce::AudioPluginInstance> plugin)
+PluginEffect::create(std::unique_ptr<juce::AudioPluginInstance> instance)
 {
-    if (plugin == nullptr)
+    if (instance == nullptr)
         return juce::String("no plugin");
-    const auto layout = setUpStereoLayout(*plugin);
-    if (const auto* reason = std::get_if<juce::String>(&layout))
+    const auto chosen = setUpStereoLayout(*instance);
+    if (const auto* reason = std::get_if<juce::String>(&chosen))
         return *reason;
-    return std::unique_ptr<PluginEffect>(new PluginEffect(std::move(plugin), std::get<PluginLayout>(layout)));
+    return std::unique_ptr<PluginEffect>(new PluginEffect(std::move(instance), std::get<PluginLayout>(chosen)));
 }
 
 PluginEffect::PluginEffect(std::unique_ptr<juce::AudioPluginInstance> pluginToHost, PluginLayout chosenLayout)
@@ -290,7 +290,7 @@ void PluginEffect::addMidi(const midi::Event& event, int offset) noexcept
 {
     const auto channel = static_cast<juce::uint8>(event.channel & 0x0f);
     const auto key = static_cast<juce::uint8>(event.number & 0x7f);
-    const auto bit = static_cast<std::size_t>(channel) * 128 + key;
+    const auto bit = static_cast<std::size_t>(channel) * 128u + static_cast<std::size_t>(key);
     juce::uint8 bytes[3] = {};
     int size = 3;
     switch (event.type)

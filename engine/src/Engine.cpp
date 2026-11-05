@@ -440,13 +440,19 @@ void Engine::takeLiveInput(const AudioInputs& inputs, int numSamples) noexcept
 
 bool Engine::startPreview(juce::int64 trackId, int key, float velocity)
 {
-    return previews.push({trackId, static_cast<std::uint8_t>(std::clamp(key, 0, 127)),
-                          std::clamp(velocity, 1.0f / 127.0f, 1.0f)});
+    detail::PreviewCommand command;
+    command.track = trackId;
+    command.key = static_cast<std::uint8_t>(std::clamp(key, 0, 127));
+    command.velocity = std::clamp(velocity, 1.0f / 127.0f, 1.0f);
+    return previews.push(command);
 }
 
 bool Engine::stopPreview(juce::int64 trackId, int key)
 {
-    return previews.push({trackId, static_cast<std::uint8_t>(std::clamp(key, 0, 127)), 0.0f});
+    detail::PreviewCommand command;
+    command.track = trackId;
+    command.key = static_cast<std::uint8_t>(std::clamp(key, 0, 127));
+    return previews.push(command);
 }
 
 bool Engine::stopAllPreviews(juce::int64 trackId)

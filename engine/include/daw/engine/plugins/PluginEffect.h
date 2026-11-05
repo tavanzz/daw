@@ -50,7 +50,7 @@ public:
     /** Message thread. Takes a plugin just instantiated (not prepared) and sets up
         its layout; or why it cannot be hosted. */
     [[nodiscard]] static std::variant<std::unique_ptr<PluginEffect>, juce::String>
-    create(std::unique_ptr<juce::AudioPluginInstance> plugin);
+    create(std::unique_ptr<juce::AudioPluginInstance> instance);
 
     ~PluginEffect() override;
 

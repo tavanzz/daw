@@ -49,7 +49,9 @@ public:
     void initialise(const juce::String&) override
     {
         exitQuietlyOnCrashes();
+#if JUCE_MAC
         juce::Process::setDockIconVisible(false);
+#endif
         const bool started = daw::controller::runScannerProcess(getCommandLineParameterArray(), [this](int code) {
             setApplicationReturnValue(code);
             quit();
