@@ -845,8 +845,9 @@ apt.llvm.org.
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
 - Phase work happens on a branch (`phase-N`) with a draft pull request into `main`;
   CI must be green on Windows, macOS and Linux.
-- Don't implement later phases (multiple takes and comping, plugins, MPE, MIDI clock,
-  mobile) beyond keeping the architecture ready for them.
+- Don't implement later phases (multiple takes and comping, CLAP, plugin sandboxing,
+  sidechain, presets, MPE, MIDI clock, mobile) beyond keeping the architecture ready
+  for them.
 
 ## Status
 
@@ -1352,3 +1353,135 @@ Phase 6 decisions (agreed before starting):
   double-click on an empty part of a MIDI track makes a one-bar clip.
 - Benchmark: cost per voice of each instrument at 48 kHz and how many voices fit in
   the whole and half the budget with 128, 256 and 512-sample blocks.
+
+Phase 7 (in progress, branch `phase-7`): external plugins. Effect and instrument
+plugins in VST3 (Windows, macOS, Linux), AU v2 and v3 (macOS) and LV2 (Linux), through
+adapters onto the Phase 4 and 6 effect and instrument interface, so chains, sends,
+bypass, delay compensation, automation, MIDI, undo, export and Panic work as for the
+built-in ones; scanning in a separate process with a blacklist for plugins that crash
+or hang, incremental, with custom folders and a manual rescan; a plugin browser
+(search, filters by format, type and manufacturer, favourites, drag onto tracks and
+slots); plugin editors in their own windows, or the generic editor; plugin state
+saved in the project, with a placeholder that keeps a missing plugin's state and
+saves it unchanged; declared latency, tails, sample-rate and block-size changes,
+mono and stereo layouts; project format version 6 with a migration from version 5.
+First, two Phase 6 fixes: a preview note left sounding after fast drags in the piano
+roll, and a Panic command. Out of scope: CLAP, sidechain, plugin presets,
+multi-output plugins, ARA, the DAW as a plugin, running plugins in another process
+while playing, MIDI effects, automation writing, mobile UI.
+
+- [x] 0. Plan (this list) and draft pull request
+- [ ] 1. The stuck preview note: a test of fast drags (several key changes per block,
+      the button released mid-way) that fails first; notes that end on the sample
+      they start are not played; the preview keeps its notes
+      (`controller::NotePreview`) and ends them on mouse up, a clip or track change
+      and closing; stop, pause, bypass and mute end preview notes
+- [ ] 2. Panic: every instrument, built-in or plugin, ends its notes and voices;
+      Transport > Panic (Shift+Cmd+.); listening checks for both Phase 6 fixes
+- [ ] 3. Plugin hosting in the build (VST3 everywhere, AU on macOS, LV2 on Linux),
+      architecture rules, the SDKs' licences in `docs/THIRD_PARTY.md`
+- [ ] 4. Test plugins built from the SDKs (VST3 on every platform, AU v2 on macOS,
+      LV2 on Linux), in CI too: gain, known latency, deterministic synth, crash on
+      scan, hang on scan, NaN
+- [ ] 5. Plugin catalogue in the controller: descriptions, files, incremental changes,
+      blacklist, folders, favourites, search and filters
+- [ ] 6. Out-of-process scanner (`daw_plugin_scanner`): parallel scans, timeouts,
+      crashes and hangs blacklisted while the DAW carries on
+- [ ] 7. Plugin adapter in the engine (`fx::PluginEffect`): parameters, layouts,
+      sample-exact MIDI, automation in sub-blocks, play head, latency, tail, NaN
+      guard, time per block; plugin code left out of the real-time checks
+- [ ] 8. Plugin instances in the controller: loading and preparing off the audio
+      thread, rate and block-size changes, latency changes, parameter changes from
+      the plugin's editor, exports with instances of their own
+- [ ] 9. Project format version 6: plugins with their state and parameters,
+      placeholders for missing plugins that keep everything; migration from version 5
+- [ ] 10. Session: inserting, removing, moving, bypassing plugins and parameter edits
+      with undo; missing plugins; opening without plugins; the plugin that was
+      processing at a crash
+- [ ] 11. End-to-end tests with the test plugins (hanging notes, export equals
+      playback, state round trips); benchmark of the adapter's cost per block
+- [ ] 12. Desktop UI: plugin browser, plugins in the effect and instrument menus,
+      Plugin Manager; themed
+- [ ] 13. Desktop UI: plugin editor windows (the plugin's or the generic editor),
+      placeholders, slow-plugin and NaN warnings
+- [ ] 14. UI tests in every theme; listening tests for Phase 7 with the plugins
+      installed on the Mac; version 0.7.0
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`)
+
+Phase 7 decisions (agreed before starting):
+
+- Stuck preview note: the engine queued every preview command at the start of the
+  next block, and the mixer sorts a block's events with note-offs before note-ons
+  on the same sample; a note started and ended in one block (several key changes
+  between two blocks during a fast drag, or a release right after) became off then
+  on, the instrument host dropped the off (not a note it had given) and kept the
+  note. Stop did not end it, since previews were only released when their track
+  went away. Live notes that end on the sample they start are now not played at
+  all, and the instrument host drops a note-on whose note-off it already refused
+  on that sample.
+- Panic (Transport > Panic, Shift+Cmd+.): held notes get their note-offs, plugins also
+  get all notes off (CC123) and all sound off (CC120) on the 16 channels, built-in
+  instruments reset their voices, the note tables (timeline, live, previews) are
+  cleared; the transport goes on, and effect tails are left alone.
+- Formats: VST3 (Windows, macOS, Linux), AU v2 and v3 (macOS), LV2 (Linux only).
+  CLAP is postponed: JUCE 9.0.4 has neither CLAP hosting nor CLAP plugins, and the
+  catalogue and the adapter do not depend on the format, so an adapter of our own
+  (CLAP headers and clap-helpers) or JUCE's can come later. No VST2, LADSPA or ARA.
+- Scanning: one child process per plugin file, up to 4 at once, 30 s timeout. A
+  crash, a hang, a file without plugins or one that cannot load goes to the blacklist
+  with its reason (Retry in the Plugin Manager; a modified file gets another chance).
+  Incremental at launch, in the background (new or modified files by path, size and
+  modification time; AU components by identifier and version); a manual rescan of
+  one plugin or all. Default folders per format plus custom ones (VST3, LV2; AU
+  comes from the system's registry). The catalogue lives in the user settings
+  folder.
+- Adapter: `fx::PluginEffect` over JUCE's `AudioPluginInstance` (the headless
+  module, which `engine` may use). MIDI events reach the plugin on their exact
+  samples. JUCE's hosting hands parameter values over at the start of a call only,
+  so the adapter splits blocks at the exact sample of every automation point and,
+  along ramps, every 32 samples on a grid counted from the plugin's reset, so the
+  result does not depend on the device's block size. Changes from the user reach a
+  plugin without the host's 20 ms ramp (plugins smooth their own).
+- Threads: instantiation, state, editors, prepare and release on the message
+  thread, process on the audio thread; nothing a plugin does while loading,
+  scanning or opening its editor blocks the audio thread. Parameter callbacks may
+  come from any thread: they reach the message thread through lock-free queues.
+- Crashes while playing: plugins run in the DAW's process (no added latency, like
+  most DAWs); AUv3 plugins already run in their own process (macOS). The app notes
+  which plugin was processing when it crashed and offers to open the project with
+  it switched off; File > Open Without Plugins. A process per plugin is left for
+  later, behind the same `fx::Effect` interface.
+- Slow plugins: the time of each call is measured; a plugin whose average exceeds
+  50 % of the block's duration over a second, or that overruns a block, is flagged
+  (slot, status bar, editor header); no automatic bypass. NaN or infinity: reset,
+  silenced, reported, Reactivate, as for the built-in effects.
+- Editor windows: on top of the DAW's windows, hidden while another app is active;
+  position remembered per plugin in the user settings; a Plugin/Generic switch in
+  the header, with Bypass, latency and CPU.
+- Undo: every parameter gesture in a plugin's editor (or the generic one) is one
+  step; preset loads and other changes inside the plugin that are not parameters
+  are saved but not undoable. No automation writing (not planned yet).
+- Layouts: tracks are stereo. Stereo to stereo, else mono to stereo, else mono to
+  mono (mono input (L+R)/2, mono output on both channels); plugins needing more
+  than two main channels are refused; sidechain and extra outputs off; MIDI effects
+  and plugins' MIDI output are not supported.
+- Exports use fresh instances with the state copied, prepared at the export rate in
+  non-real-time mode; playback is untouched.
+- Missing plugins: the placeholder keeps the reference, state, parameters and
+  automation and saves them unchanged; an effect placeholder passes audio through,
+  an instrument placeholder is silent.
+- Project: a plugin is an effect of type "plugin" with its format, identifier, name,
+  manufacturer and version, its state (Base64) and the parameter values the host
+  set; format version 6.
+- Browser: a panel left of the tracks (B, View > Plugin Browser) listing the
+  built-in effects and instruments too; search, filters by format, type and
+  manufacturer, favourites; drag onto a track (effects go last in its chain,
+  instruments replace its instrument), a mixer slot (inserted there) or empty space
+  (an instrument makes a MIDI track). File > Plugin Manager... (folders, rescan,
+  blacklist).
+- Test plugins are written against the formats' SDKs, not with JUCE (VST3 SDK, MIT,
+  pinned; Apple's AudioUnitSDK, Apache 2.0; LV2 in C), so they build fast and
+  behave like third-party plugins. AU test plugins are registered in the test
+  process only, never installed; AU scanning is tested with Apple's built-in AUs;
+  AUv3 is checked by hand.
+
