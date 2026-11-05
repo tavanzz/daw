@@ -25,7 +25,9 @@ struct ClipBounds
 };
 
 /**
-    A part of an audio file placed on a track's timeline.
+    A part of an audio file placed on a track's timeline, or (isMidi()) a MIDI clip:
+    notes and controller events (see MidiClip), shown from its offset into them for
+    its length. A MIDI clip always knows its length and has a name of its own.
 
     A lightweight handle onto part of a Project's state: copies refer to the same
     clip, and changes go straight into the project. Changes that take an
@@ -40,6 +42,13 @@ public:
     explicit Clip(juce::ValueTree clipState);
 
     [[nodiscard]] ObjectId getId() const;
+
+    /** A MIDI clip (on a MIDI track) rather than a part of an audio file. */
+    [[nodiscard]] bool isMidi() const;
+
+    /** A MIDI clip's name (audio clips are named after their file). */
+    [[nodiscard]] juce::String getName() const;
+    void setName(const juce::String& name, juce::UndoManager* undoManager = nullptr);
 
     /** The audio file, as an absolute path (project files store it relative to the
         project when they can). */

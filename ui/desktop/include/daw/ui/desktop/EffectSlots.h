@@ -16,6 +16,9 @@ namespace daw::ui::desktop
 
     - Click an effect to open its editor (onOpen); right-click it to bypass or switch
       it on, move it up or down, remove it, or reactivate it after a failure.
+    - A MIDI track's instrument comes first, on a row of its own: click to open its
+      editor; right-click to bypass it, change it for another one or remove it; with
+      none, "+ Instrument" chooses one.
     - Bypassed effects are dimmed; one silenced for producing NaN or infinity is red.
     - The wheel scrolls when there are more effects than rows.
 */
@@ -39,17 +42,21 @@ public:
 private:
     struct Row
     {
-        model::ObjectId id = 0;
+        model::ObjectId id = 0; ///< 0: the instrument row of a MIDI track without one
         juce::String name;
         bool bypassed = false;
         bool failed = false;
+        bool instrument = false;
         bool operator==(const Row&) const = default;
     };
 
     [[nodiscard]] int visibleRows() const noexcept;
     [[nodiscard]] int rowAt(float y) const noexcept;
     void showEffectMenu(const Row& row, int index);
+    void showInstrumentMenu(const Row& row);
     void showAddMenu();
+    [[nodiscard]] int firstEffectRow() const noexcept;
+    void reportProblem();
 
     controller::Session& session;
     const controller::ChainOwner owner;
@@ -57,7 +64,8 @@ private:
     int scroll = 0;
 };
 
-/** The user-facing name of an effect type ("Equaliser"); the type itself if unknown. */
+/** The user-facing name of an effect or instrument type ("Equaliser"); the type
+    itself if unknown. */
 [[nodiscard]] juce::String effectTypeName(const juce::String& type);
 
 } // namespace daw::ui::desktop

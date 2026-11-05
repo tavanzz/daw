@@ -31,6 +31,14 @@ juce::String describeInput(model::TrackInput input)
     return "In " + juce::String(input.channel + 1);
 }
 
+juce::String describeMidiInput(const model::MidiInput& input)
+{
+    auto text = juce::String("MIDI: ") + (input.device.isEmpty() ? "All" : input.device);
+    if (input.channel > 0)
+        text << " / Ch " << input.channel;
+    return text;
+}
+
 juce::String describeMonitoring(model::MonitoringMode mode)
 {
     switch (mode)
@@ -101,7 +109,10 @@ void TrackInputControls::show(const model::Track& track)
     monitoring.setButtonText(describeMonitoring(track.getMonitoring()));
     monitoring.setToggleState(track.getMonitoring() == model::MonitoringMode::on,
                               juce::dontSendNotification);
-    input.setButtonText(describeInput(track.getInput()));
+    input.setButtonText(track.isMidi() ? describeMidiInput(track.getMidiInput())
+                                       : describeInput(track.getInput()));
+    input.setTooltip(track.isMidi() ? "The MIDI device and channel this track plays and records"
+                                    : "The device input this track records and monitors");
 }
 
 void TrackInputControls::showInputMenu()
@@ -109,6 +120,11 @@ void TrackInputControls::showInputMenu()
     const auto index = session.getProject().indexOfTrack(trackId);
     if (index < 0)
         return;
+    if (const auto track = session.getProject().getTrack(index); track.isMidi())
+    {
+        showMidiInputMenu(track);
+        return;
+    }
     const auto current = session.getProject().getTrack(index).getInput();
 
     // The device's channels; before any input is open, the usual first two.
@@ -145,6 +161,53 @@ void TrackInputControls::showInputMenu()
                                session.setTrackInput(trackId, {result - stereoItems, true});
                            else if (result >= monoItems)
                                session.setTrackInput(trackId, {result - monoItems, false});
+                       });
+}
+
+void TrackInputControls::showMidiInputMenu(const model::Track& track)
+{
+    constexpr int allDevicesItem = 1;
+    constexpr int deviceItems = 100;  // + index in the list
+    constexpr int channelItems = 1000; // + channel (0: all)
+
+    const auto current = track.getMidiInput();
+    auto devices = session.getMidiInputDeviceNames();
+    const bool missing = current.device.isNotEmpty() && !devices.contains(current.device);
+    if (missing)
+        devices.add(current.device);
+
+    juce::PopupMenu menu;
+    menu.addItem(allDevicesItem, "All MIDI inputs", true, current.device.isEmpty());
+    for (int i = 0; i < devices.size(); ++i)
+    {
+        const bool notConnected = missing && i == devices.size() - 1;
+        menu.addItem(deviceItems + i, devices[i] + (notConnected ? "  (not connected)" : ""), true,
+                     devices[i] == current.device);
+    }
+    if (session.getMidiInputDeviceNames().isEmpty())
+        menu.addItem(-1, "(No MIDI input is connected)", false);
+
+    juce::PopupMenu channels;
+    channels.addItem(channelItems, "All channels", true, current.channel == 0);
+    for (int channel = 1; channel <= 16; ++channel)
+        channels.addItem(channelItems + channel, "Channel " + juce::String(channel), true,
+                         current.channel == channel);
+    menu.addSeparator();
+    menu.addSubMenu("Channel", channels);
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&input),
+                       [this, current, devices](int result)
+                       {
+                           auto chosen = current;
+                           if (result == allDevicesItem)
+                               chosen.device = {};
+                           else if (result >= channelItems)
+                               chosen.channel = result - channelItems;
+                           else if (result >= deviceItems)
+                               chosen.device = devices[result - deviceItems];
+                           else
+                               return;
+                           session.setTrackMidiInput(trackId, chosen);
                        });
 }
 

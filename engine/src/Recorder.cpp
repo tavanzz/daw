@@ -12,6 +12,8 @@ void Recorder::begin(const RecordingSetup& setupToRecord, juce::int64 streamStar
     stopped = false;
     captureStart = streamStart + std::max(juce::int64{0}, setup->latency);
     captureEnd = std::numeric_limits<juce::int64>::max();
+    heardStart = streamStart;
+    heardEnd = std::numeric_limits<juce::int64>::max();
 
     firstPosition.store(setup->startPosition - std::max(juce::int64{0}, setup->countInLength),
                         std::memory_order_relaxed);
@@ -19,6 +21,7 @@ void Recorder::begin(const RecordingSetup& setupToRecord, juce::int64 streamStar
     stopPosition.store(0, std::memory_order_relaxed);
     overrun.store(false, std::memory_order_relaxed);
     interrupted.store(false, std::memory_order_relaxed);
+    midiOverrun.store(false, std::memory_order_relaxed);
     state.store(RecordingState::recording, std::memory_order_release);
 }
 
@@ -30,6 +33,7 @@ void Recorder::end(juce::int64 streamStop) noexcept
     stopped = true;
     const auto latency = std::max(juce::int64{0}, setup->latency);
     captureEnd = streamStop + latency;
+    heardEnd = streamStop;
     stopPosition.store(firstPosition.load(std::memory_order_relaxed) +
                            (streamStop - (captureStart - latency)),
                        std::memory_order_relaxed);
@@ -45,7 +49,24 @@ void Recorder::cancel(const RecordingSetup& setupNeverStarted) noexcept
     stopPosition.store(first, std::memory_order_relaxed);
     overrun.store(false, std::memory_order_relaxed);
     interrupted.store(false, std::memory_order_relaxed);
+    midiOverrun.store(false, std::memory_order_relaxed);
     state.store(RecordingState::complete, std::memory_order_release);
+}
+
+void Recorder::captureMidi(const midi::LiveEvent& live, juce::int64 stream) noexcept
+{
+    if (setup == nullptr || setup->midi == nullptr || live.device < 0)
+        return;
+
+    const juce::int64 heard = stream - std::max(juce::int64{0}, setup->midiLatency);
+    if (heard < heardStart || heard >= heardEnd)
+        return;
+
+    const juce::int64 position = firstPosition.load(std::memory_order_relaxed) + (heard - heardStart);
+    for (std::size_t i = 0; i < setup->midiTargets.size(); ++i)
+        if (setup->midiTargets[i].filter.accepts(live) &&
+            !setup->midi->push({static_cast<int>(i), position, live.event}))
+            midiOverrun.store(true, std::memory_order_relaxed);
 }
 
 void Recorder::capture(const AudioInputs& inputs, juce::int64 blockStart, int numSamples) noexcept
@@ -90,7 +111,12 @@ void Recorder::capture(const AudioInputs& inputs, juce::int64 blockStart, int nu
         captured.fetch_add(count, std::memory_order_release);
     }
 
-    if (stopped && blockStart + numSamples >= captureEnd)
+    // Late MIDI (played before the stop, delivered after it) is in once the heard
+    // stop has reached the device.
+    const juce::int64 midiEnd = setup->midi != nullptr ? heardEnd + std::max(juce::int64{0},
+                                                                            setup->midiLatency)
+                                                       : 0;
+    if (stopped && blockStart + numSamples >= captureEnd && blockStart >= midiEnd)
         complete();
 }
 
@@ -125,6 +151,7 @@ RecordingStatus Recorder::getStatus() const noexcept
     status.stopPosition = stopPosition.load(std::memory_order_relaxed);
     status.overrun = overrun.load(std::memory_order_relaxed);
     status.interrupted = interrupted.load(std::memory_order_relaxed);
+    status.midiOverrun = midiOverrun.load(std::memory_order_relaxed);
     return status;
 }
 

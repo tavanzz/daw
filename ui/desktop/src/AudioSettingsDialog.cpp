@@ -39,7 +39,8 @@ juce::String milliseconds(juce::int64 samples, double sampleRate)
 AudioSettingsDialog::AudioSettingsDialog(controller::Session& sessionToEdit,
                                          juce::AudioDeviceManager& devices)
     : session(sessionToEdit)
-    , selector(devices, 0, engine::AudioInputs::maxChannels, 1, 2, false, false, false, false)
+    // MIDI inputs: every device is on until switched off here (the app remembers which).
+    , selector(devices, 0, engine::AudioInputs::maxChannels, 1, 2, true, false, false, false)
 {
     // Choosing inputs needs them open: the first time, this asks for the microphone.
     session.requestInputs();
@@ -87,7 +88,7 @@ AudioSettingsDialog::AudioSettingsDialog(controller::Session& sessionToEdit,
         addAndMakeVisible(*component);
 
     showLatency();
-    setSize(560, 700);
+    setSize(560, 820);
     startTimerHz(4);
 }
 
@@ -128,7 +129,7 @@ void AudioSettingsDialog::showLatency()
 void AudioSettingsDialog::resized()
 {
     auto area = getLocalBounds().reduced(12);
-    selector.setBounds(area.removeFromTop(480));
+    selector.setBounds(area.removeFromTop(600));
     area.removeFromTop(8);
     recordingHeading.setBounds(area.removeFromTop(24));
     area.removeFromTop(6);

@@ -14,7 +14,8 @@ namespace daw::model
 /**
     One effect of a chain: its type (as the engine knows it, e.g. "equaliser"),
     whether it is bypassed, its parameter values by parameter id (in their units:
-    Hz, dB, ms...) and, for effects that have it, opaque extra state (a plugin's).
+    Hz, dB, ms...), the files it plays (a sampler's) and, for effects that have it,
+    opaque extra state (a plugin's). Instruments are effects too.
     A handle onto part of a Project's state.
 */
 class Effect
@@ -40,6 +41,15 @@ public:
 
     [[nodiscard]] juce::MemoryBlock getExtraState() const;
     void setExtraState(const juce::MemoryBlock& state, juce::UndoManager* undoManager = nullptr);
+
+    /** Files the effect plays (a sampler's samples), by key ("sample", "pad1"...):
+        absolute paths (project files store them relative when they can). Keys are
+        made of letters and digits. */
+    [[nodiscard]] std::vector<std::pair<juce::String, juce::File>> getFiles() const;
+    [[nodiscard]] juce::File getFile(const juce::String& key) const;
+    /** An empty file removes the key. */
+    void setFile(const juce::String& key, const juce::File& file,
+                 juce::UndoManager* undoManager = nullptr);
 
     [[nodiscard]] const juce::ValueTree& getState() const noexcept { return state; }
 

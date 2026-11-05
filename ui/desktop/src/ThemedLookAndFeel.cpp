@@ -1133,6 +1133,136 @@ void ThemedLookAndFeel::drawClipName(juce::Graphics& g, juce::Rectangle<float> a
     g.drawText(labelText(FontRole::caption, name), area, juce::Justification::centredLeft, true);
 }
 
+void ThemedLookAndFeel::drawPianoKey(juce::Graphics& g, juce::Rectangle<float> area, bool black,
+                                     const juce::String& label, bool pressed) const
+{
+    const auto fill = colour(pressed ? ColourRole::accent : black ? ColourRole::keyBlack : ColourRole::keyWhite);
+    g.setColour(fill);
+    g.fillRect(black ? area.withTrimmedRight(area.getWidth() * 0.35f) : area);
+    if (black)
+    {
+        g.setColour(colour(ColourRole::keyWhite));
+        g.fillRect(area.withTrimmedLeft(area.getWidth() * 0.65f));
+    }
+    g.setColour(colour(ColourRole::separator));
+    g.drawHorizontalLine(juce::roundToInt(area.getBottom()) - 1, area.getX(), area.getRight());
+
+    if (label.isNotEmpty() && area.getHeight() >= 8.0f)
+    {
+        g.setColour(textColourOn(fill));
+        g.setFont(font(appearance::FontRole::caption, std::min(area.getHeight() - 1.0f, font(appearance::FontRole::caption).getHeight())));
+        g.drawText(label, area.reduced(4.0f, 0.0f), juce::Justification::centredRight, false);
+    }
+}
+
+void ThemedLookAndFeel::drawNoteRow(juce::Graphics& g, juce::Rectangle<float> area, bool black,
+                                    bool octaveLine) const
+{
+    g.setColour(colour(black ? ColourRole::keyRow : ColourRole::lane));
+    g.fillRect(area);
+    g.setColour(colour(octaveLine ? ColourRole::gridBar : ColourRole::gridBeat));
+    g.drawHorizontalLine(juce::roundToInt(area.getBottom()) - 1, area.getX(), area.getRight());
+}
+
+void ThemedLookAndFeel::drawNote(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour fill,
+                                 int velocity, bool selected) const
+{
+    const auto body = area.reduced(0.0f, 1.0f);
+    const auto path = shapeOf(body, CornerSize::small);
+    g.setColour(fill);
+    g.fillPath(path);
+    // The velocity as a line inside the note, as long as loud.
+    const auto line = body.reduced(2.0f, body.getHeight() * 0.4f);
+    if (line.getHeight() >= 1.0f && line.getWidth() > 4.0f)
+    {
+        g.setColour(textColourOn(fill).withAlpha(0.55f));
+        g.fillRect(line.withWidth(line.getWidth() * static_cast<float>(velocity) / 127.0f));
+    }
+    g.setColour(colour(selected ? ColourRole::selection : ColourRole::outline));
+    g.strokePath(path, juce::PathStrokeType(selected ? 2.0f : 1.0f));
+}
+
+void ThemedLookAndFeel::drawVelocityBar(juce::Graphics& g, juce::Rectangle<float> area,
+                                        juce::Colour fill, bool selected) const
+{
+    g.setColour(selected ? colour(ColourRole::selection) : fill);
+    g.fillRect(area);
+    g.fillEllipse(area.getCentreX() - 3.0f, area.getY() - 3.0f, 6.0f, 6.0f);
+}
+
+void ThemedLookAndFeel::drawSelectionBand(juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    g.setColour(colour(ColourRole::selection).withAlpha(0.12f));
+    g.fillRect(area);
+    g.setColour(colour(ColourRole::selection));
+    g.drawRect(area, 1.0f);
+}
+
+void ThemedLookAndFeel::drawLaneLabel(juce::Graphics& g, juce::Rectangle<float> area,
+                                      const juce::String& text) const
+{
+    g.setColour(colour(ColourRole::textSecondary));
+    g.setFont(font(appearance::FontRole::caption));
+    g.drawText(text, area, juce::Justification::topLeft, true);
+}
+
+void ThemedLookAndFeel::drawControllerSteps(juce::Graphics& g, const juce::Path& steps) const
+{
+    g.setColour(colour(ColourRole::automation));
+    g.strokePath(steps, juce::PathStrokeType(1.5f));
+}
+
+void ThemedLookAndFeel::drawControllerEvent(juce::Graphics& g, juce::Point<float> centre,
+                                            bool selected) const
+{
+    g.setColour(colour(selected ? ColourRole::selection : ColourRole::automation));
+    g.fillEllipse(centre.x - 3.0f, centre.y - 3.0f, 6.0f, 6.0f);
+}
+
+void ThemedLookAndFeel::drawSampleWaveform(juce::Graphics& g, const juce::Path& outline) const
+{
+    g.setColour(colour(ColourRole::curveFill));
+    g.fillPath(outline);
+    g.setColour(colour(ColourRole::curve));
+    g.strokePath(outline, juce::PathStrokeType(1.0f));
+}
+
+void ThemedLookAndFeel::drawSampleMarker(juce::Graphics& g, float x, float top, float bottom,
+                                         const juce::String& label, bool loop) const
+{
+    const auto marker = colour(loop ? ColourRole::loop : ColourRole::highlight);
+    g.setColour(marker);
+    g.drawLine(x, top, x, bottom, 1.5f);
+    const auto labelFont = font(FontRole::caption);
+    const auto width = juce::GlyphArrangement::getStringWidth(labelFont, label) + 8.0f;
+    const juce::Rectangle<float> tag{x, top, width, labelFont.getHeight() + 2.0f};
+    g.fillRect(tag);
+    g.setColour(textColourOn(marker));
+    g.setFont(labelFont);
+    g.drawText(label, tag, juce::Justification::centred, false);
+}
+
+void ThemedLookAndFeel::drawDrumPad(juce::Graphics& g, juce::Rectangle<float> area,
+                                    const juce::String& title, const juce::String& detail,
+                                    bool selected, bool lit) const
+{
+    const auto shape = shapeOf(area, CornerSize::medium);
+    const auto fill = lit ? colour(ColourRole::accent) : colour(ColourRole::raised);
+    g.setColour(fill);
+    g.fillPath(shape);
+    g.setColour(colour(selected ? ColourRole::selection : ColourRole::outline));
+    g.strokePath(shape, juce::PathStrokeType(selected ? 2.0f : 1.0f));
+
+    auto text = area.reduced(6.0f, 4.0f);
+    g.setColour(lit ? textColourOn(fill) : colour(ColourRole::text));
+    g.setFont(font(FontRole::label));
+    g.drawText(labelText(FontRole::label, title), text.removeFromTop(text.getHeight() / 2.0f),
+               juce::Justification::bottomLeft, true);
+    g.setColour(lit ? textColourOn(fill) : colour(ColourRole::textSecondary));
+    g.setFont(font(FontRole::caption));
+    g.drawText(labelText(FontRole::caption, detail), text, juce::Justification::topLeft, true);
+}
+
 void ThemedLookAndFeel::drawRulerBackground(juce::Graphics& g, juce::Rectangle<float> area) const
 {
     drawPanel(g, area, ColourRole::panelAlt, true);

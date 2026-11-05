@@ -50,7 +50,10 @@
         "curve": "cyan",
         "curveFill": { "alpha": ["cyan", 0.14] },
         "gainReduction": "yellow",
-        "shadow": { "alpha": ["#000000", 0.6] }
+        "shadow": { "alpha": ["#000000", 0.6] },
+        "keyWhite": { "mix": ["text", "secondary", 0.15] },
+        "keyBlack": "panelDeep",
+        "keyRow": { "mix": ["background", "line", 0.4] }
     },
     "clips": {
         "colours": [

@@ -51,7 +51,10 @@
         "curve": "turquoise",
         "curveFill": { "alpha": ["turquoise", 0.12] },
         "gainReduction": "pink",
-        "shadow": { "alpha": ["#000000", 0.55] }
+        "shadow": { "alpha": ["#000000", 0.55] },
+        "keyWhite": { "mix": ["text", "secondary", 0.15] },
+        "keyBlack": "background",
+        "keyRow": { "mix": ["background", "line", 0.45] }
     },
     "clips": {
         "colours": [

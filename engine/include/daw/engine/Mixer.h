@@ -2,6 +2,7 @@
 
 #include "daw/engine/Arrangement.h"
 #include "daw/engine/AudioInputs.h"
+#include "daw/engine/NotePlayback.h"
 #include "daw/engine/TimelineFade.h"
 #include "daw/engine/TimelineHistory.h"
 #include "daw/engine/dsp/DelayLine.h"
@@ -57,6 +58,12 @@ struct MixState
         int latency = 0;     ///< of the inserts
         int outputDelay = 0; ///< to reach the master aligned
         dsp::DelayLine output;
+
+        /** A MIDI track's notes from the timeline (see NotePlayback), from its live
+            input and from previews (see midi::LiveNotes); null for audio tracks. */
+        std::unique_ptr<NotePlayback> notes;
+        std::unique_ptr<midi::LiveNotes> live;
+        std::unique_ptr<midi::LiveNotes> previews;
     };
 
     struct BusGains
@@ -126,6 +133,14 @@ struct MixContext
         InputMonitoring::automatic). */
     bool autoMonitorsInput = false;
 
+    /** Live MIDI of the current audio block (offsets from its start, as
+        inputOffset), from devices and previews; empty offline. */
+    midi::LiveEventSpan live;
+
+    /** Live MIDI was not heard for a while (the engine skipped rendering): MIDI
+        tracks end the live notes they hold, whose note-offs may have been missed. */
+    bool liveRestarts = false;
+
     /** What was read when (see TimelineHistory), and the stream index of the
         stretch's first sample: each point of the mix that lags by some latency
         takes its automation from the timeline position it hears. Null: the timeline
@@ -166,6 +181,11 @@ struct MixContext
     The same code renders real-time playback and offline exports, and its result
     does not depend on how the timeline is cut into blocks: every gain is a function
     of the sample's position, so exports equal playback sample for sample.
+
+    A MIDI track plays notes and controllers (see NotePlayback) through the
+    instrument first in its chain, at their samples; the transport's fades do not
+    apply to it: its notes end where playback stops, pauses or fades out, and the
+    instrument releases them.
 
     Effects run whenever the mixer renders, also while the timeline is stopped, so
     their tails ring on. A track without effects that is silent is skipped, as it
@@ -223,7 +243,11 @@ private:
                    int numSamples) noexcept;
     void processChain(const EffectChain& chain, const Arrangement& arrangement,
                       float* const* channels, int numSamples, juce::int64 timelineStart,
-                      const MixContext& context, int latency) noexcept;
+                      const MixContext& context, int latency,
+                      midi::EventSpan events = {}) noexcept;
+    void gatherNotes(const ArrangementTrack& track, MixState::TrackGains& gains,
+                     juce::int64 timelineStart, int numSamples, const MixContext& context,
+                     bool vanishing) noexcept;
 
     /** Calls callback(offset, length, position, running) for each stretch of the
         timeline heard at a point lagging latency samples behind what is read. */
@@ -255,6 +279,7 @@ private:
     std::vector<float> automationLanes; // effect parameters' automation, one lane each
     std::vector<const float*> automationPointers;
     fx::EffectScratch effectScratch;
+    midi::EventBuffer noteEvents; // one MIDI track's, for its instrument
 };
 
 } // namespace daw::engine

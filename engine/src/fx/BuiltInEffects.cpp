@@ -2,9 +2,12 @@
 
 #include "daw/engine/fx/Compressor.h"
 #include "daw/engine/fx/Delay.h"
+#include "daw/engine/fx/DrumSampler.h"
 #include "daw/engine/fx/Equaliser.h"
 #include "daw/engine/fx/Limiter.h"
 #include "daw/engine/fx/Reverb.h"
+#include "daw/engine/fx/Sampler.h"
+#include "daw/engine/fx/Synth.h"
 
 namespace daw::engine::fx
 {
@@ -19,8 +22,24 @@ const std::vector<BuiltInEffect>& builtInEffects()
     return effects;
 }
 
+const std::vector<BuiltInEffect>& builtInInstruments()
+{
+    static const std::vector<BuiltInEffect> instruments{
+        {Synth::typeId, "Synth"},
+        {Sampler::typeId, "Sampler"},
+        {DrumSampler::typeId, "Drum Sampler"},
+    };
+    return instruments;
+}
+
 std::unique_ptr<Effect> createBuiltInEffect(const juce::String& type)
 {
+    if (type == Synth::typeId)
+        return std::make_unique<Synth>();
+    if (type == Sampler::typeId)
+        return std::make_unique<Sampler>();
+    if (type == DrumSampler::typeId)
+        return std::make_unique<DrumSampler>();
     if (type == Equaliser::typeId)
         return std::make_unique<Equaliser>();
     if (type == Compressor::typeId)

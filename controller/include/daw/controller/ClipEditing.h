@@ -22,6 +22,12 @@ public:
     [[nodiscard]] model::Ticks operator()(model::Ticks position) const noexcept;
     [[nodiscard]] bool isSnapping() const noexcept { return grid.has_value(); }
 
+    /** The grid line at or before position (position itself when not snapping). */
+    [[nodiscard]] model::Ticks lineAtOrBefore(model::Ticks position) const noexcept;
+
+    /** The first grid line after position (position + 1 when not snapping). */
+    [[nodiscard]] model::Ticks lineAfter(model::Ticks position) const noexcept;
+
 private:
     std::optional<model::Grid> grid;
 };

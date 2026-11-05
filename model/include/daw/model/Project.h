@@ -50,7 +50,13 @@ public:
     [[nodiscard]] int getNumTracks() const;
     [[nodiscard]] Track getTrack(int index) const;
     [[nodiscard]] int indexOfTrack(ObjectId trackId) const; ///< -1 if there is none
+    /** An audio track at the end: 0 dB in the centre, input 1, monitoring auto. */
     Track addTrack(const juce::String& name, juce::UndoManager* undoManager = nullptr);
+
+    /** A track of either kind at the end. A MIDI track hears every MIDI input on
+        every channel, has its notes on channel 1, monitoring auto and no instrument. */
+    Track addTrack(const juce::String& name, TrackKind kind,
+                   juce::UndoManager* undoManager = nullptr);
     void removeTrack(int index, juce::UndoManager* undoManager = nullptr);
 
     /** Track mute and solo together: a track is heard if it is not muted and either

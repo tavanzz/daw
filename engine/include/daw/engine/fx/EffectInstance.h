@@ -3,6 +3,8 @@
 #include "daw/engine/dsp/DelayLine.h"
 #include "daw/engine/dsp/GainRamp.h"
 #include "daw/engine/fx/Effect.h"
+#include "daw/engine/midi/EventBuffer.h"
+#include "daw/engine/midi/HeldNotes.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -16,7 +18,8 @@ namespace daw::engine::fx
 {
 
 /** Memory shared by the effects one thread processes one after the other: the dry
-    signal and the per-sample parameter values of the effect being processed. */
+    signal, the per-sample parameter values and the events of the effect being
+    processed. */
 class EffectScratch
 {
 public:
@@ -24,8 +27,9 @@ public:
         any more jump to their value at the block's end. */
     static constexpr int maximumChangingParameters = 64;
 
-    /** Not real-time safe. */
-    void prepare(int maximumBlockSize);
+    /** Not real-time safe. eventCapacity: the most events one call to
+        EffectInstance::process() gets (see midi::EventBuffer). */
+    void prepare(int maximumBlockSize, int eventCapacity = midi::EventBuffer::defaultCapacity);
 
     [[nodiscard]] int getMaximumBlockSize() const noexcept { return blockSize; }
 
@@ -35,6 +39,7 @@ private:
     juce::AudioBuffer<float> dry;
     std::vector<float> values; // maximumChangingParameters lanes of blockSize
     std::vector<float> gains;
+    midi::EventBuffer events; // one piece's, with the host's own note-offs
     int blockSize = 0;
 };
 
@@ -50,6 +55,9 @@ struct SlotSettings
 
     /** A new value clears a failure (the user switched the effect back on). */
     std::uint32_t revival = 0;
+
+    /** The samples it plays (see ProcessBlock::samples). */
+    std::span<const Sample* const> samples;
 };
 
 /** What the host knows about one stretch of audio, besides the settings. */
@@ -60,6 +68,10 @@ struct SlotContext
     /** Automation: for each parameter, the normalised value of every sample, or null.
         May be shorter than the parameter list, or empty. */
     std::span<const float* const> automation;
+
+    /** For an instrument: the stretch's MIDI events, sorted, offsets within the
+        stretch given to process(). Ignored by effects. */
+    midi::EventSpan events;
 };
 
 /**
@@ -78,6 +90,12 @@ struct SlotContext
     - An effect that outputs a NaN or an infinity is reset and silenced (its output
       becomes silence: passing the dry signal could be much louder), and reported
       by hasFailed(), until SlotSettings::revival changes.
+    - Instruments get their events at the right sample of every piece. The host
+      keeps track of the notes it gave them: when the instrument is switched off
+      (bypassed or removed) every held note gets its note-off at once, as it fades
+      out; while off it gets no events, and switched on again it starts clean. A
+      note-off for a note it never got is not passed on, and a note-on is refused
+      while it holds midi::HeldNotes::capacity notes.
 
     Created and destroyed on the message thread (or an export's); process() on the
     audio thread. Persistent across arrangements: every arrangement playing the
@@ -123,9 +141,15 @@ public:
         processed, in its units. */
     [[nodiscard]] std::span<const float> getCurrentValues() const noexcept { return lastValues; }
 
+    /** The thread that processes: the notes the instrument holds now. */
+    [[nodiscard]] const midi::HeldNotes& getHeldNotes() const noexcept { return held; }
+
 private:
     void processPiece(float* const* channels, int numSamples, const SlotSettings& settings,
-                      const SlotContext& context, int offset, EffectScratch& scratch) noexcept;
+                      const SlotContext& context, int offset, midi::EventSpan events,
+                      EffectScratch& scratch) noexcept;
+    void gatherEvents(midi::EventSpan events, int offset, int numSamples, bool delivering,
+                      EffectScratch& scratch) noexcept;
     void start(const SlotSettings& settings, const SlotContext& context) noexcept;
     void updateParameters(const SlotSettings& settings, const SlotContext& context, int offset,
                           int numSamples, bool needValues, EffectScratch& scratch) noexcept;
@@ -149,6 +173,8 @@ private:
 
     dsp::GainRamp wet;
     dsp::DelayLine dryDelay;
+    midi::HeldNotes held; // notes given to an instrument and not ended yet
+    bool instrument = false;
     bool started = false;
     bool sleeping = false;
     bool failedHere = false;

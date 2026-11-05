@@ -13,7 +13,7 @@ open build/release/app/daw_app_artefacts/Release/DAW.app
 ```
 
 The reference files are written to `build/listening-tests/` (Phase 2 material in its
-`phase2/` folder, Phase 3 in `phase3/`, Phase 4 in `phase4/`). Use moderate volume:
+`phase2/` folder, Phase 3 in `phase3/`, Phase 4 in `phase4/`, Phase 6 in `phase6/`). Use moderate volume:
 file 05 is at full scale.
 For the streaming check (47), add `--long`: it also writes an hour-long file of about
 700 MB.
@@ -43,6 +43,10 @@ Until you answer, the clips stay "Loading".
 | New aux bus | Shift+Cmd+T |
 | Theme: Neon Grid / Acid Terminal / Synth Chrome | Cmd+1 / Cmd+2 / Cmd+3 |
 | All animations off (again: back on) | Shift+Cmd+A |
+| New MIDI track / duplicate the selected clips (or notes) | Alt+Cmd+T / Cmd+D |
+| Piano roll on/off (or double-click a MIDI clip) / quantise | E / Q |
+| Transpose the selected notes (Shift: an octave) | Up / Down |
+| Export MIDI file | Alt+Cmd+E |
 
 ## Phase 1 checks (single file, still valid)
 
@@ -208,6 +212,57 @@ the editors of the first track with effects.
 | 81 | Play with animations Full, open Activity Monitor on DAW; minimise the window, then restore it; cover it completely with another window; hide DAW with Cmd+H. | While minimised, covered or hidden, DAW's CPU drops (no animation frames are drawn); back in view, the animations resume where the clock is. |
 | 82 | With the review windows open (--show above, or open the Drums' Equaliser and Compressor from the mixer), the Export dialog (Cmd+E) and Audio Settings (Cmd+,), a track's right-click menu, a tooltip, and a question (Cmd+N with unsaved changes), switch themes with Cmd+1/2/3. | Everything is in the theme: editor graphs (background, grid, curve and its fill, band handles in theme colours, the compressor's dot and gain reduction), dialogs, menus, tooltips and the question box. Open windows restyle at once. Only the macOS menu bar, file choosers and title bars stay the system's own. |
 | 83 | In each theme, read the small text (ruler, slot names, send names, status bar, tooltips) and look at Mute, Solo, Rec (arm) and the automation Read button switched on. Take a screenshot (Shift+Cmd+4, Space, click the window) and view it in Preview with Tools > Adjust Color > Saturation all the way down. | All text is easy to read. In the grey picture Mute, Solo, Rec and Read still differ clearly in brightness, not only in colour. |
+
+## Phase 6 checks (MIDI and instruments)
+
+You need headphones or speakers and, for checks 96 to 99, a MIDI keyboard: a USB one,
+or one plugged into your interface's MIDI In. Without one, the piano roll's keys and
+the drum pads still play every instrument.
+
+`build/listening-tests/phase6/` has:
+
+- `phase6-instruments.dawproject`: 8 bars at 120 BPM (one bar = 2 s), all on MIDI
+  tracks. Chords: the synth's default sound (two slightly detuned saws through a
+  low-pass) playing Am, F, C, G, a send to the Reverb bus; its
+  cutoff is automated from 500 Hz up to 8 kHz over bars 5 to 8, where the mod wheel
+  also rises and falls (vibrato). Bass: the synth in Legato with an 80 ms glide, osc 2
+  an octave down, eighths that slide up into the octave on the 7th eighth of each bar.
+  Sampler: `tone-c3.wav` (C3 with a few harmonics, a decay and then steady),
+  looped forward from 40 to 90 % with a 20 ms crossfade, playing a melody from C2 to
+  C5 with a 3.5 s C3 and a 6 s G2 to hear the loop. Drums: the drum sampler with kick
+  (pad 1), snare (pad 3), clap (pad 4), closed hat (pad 7) and open hat (pad 11), the
+  hats in one choke group. Muted: "Sine A3" (the synth as a pure sine on A3 = 440 Hz)
+  and "A440 file" (a 440 Hz recording), to compare tuning.
+- `song-type1.mid` and `song-type0.mid`: the same 8 bars at 110 BPM, 480 PPQ (drums on
+  channel 10, bass on 2, chords on 1 with the sustain pedal and the mod wheel), as a
+  type 1 file (a track each) and a type 0 file (everything in one track).
+- `scale.mid`: every key from 24 (C1) to 108 (C7), an eighth each at 120 BPM.
+- `controllers.mid`: C3 held while the pitch bend goes up 2 semitones, down 2 and
+  back, then the mod wheel up and down; then four short notes held by the pedal.
+- The drum and sampler sounds as WAV files, and `a440.wav`.
+
+| # | Do | You should hear / see |
+|---|----|------------------------|
+| 84 | Open `phase6/phase6-instruments.dawproject`, show the mixer (X) and play to the end. | Four MIDI strips list their instrument first (Synth, Synth, Sampler, Drum Sampler). A short song, never clipping (the master meter stays under 0 dB): chords, a gliding bass, the sampled melody, drums. The open hat on the last eighth of each bar is cut short by the next closed hat. In bars 5 to 8 the chords brighten steadily and wobble with vibrato. The 3.5 s and 6 s sampler notes sustain without a click or bump where the loop repeats. At the end every note stops (nothing keeps sounding but the reverb tail). No clicks, crackles or stuck notes. |
+| 85 | Unmute "Sine A3" and "A440 file" and solo both; play the first 4 s; then mute one, then the other. | Together one steady tone, without beating or wobble (the synth's A3 is 440 Hz to a fraction of a cent); alone each sounds the same pitch. Mute both again and release solo. |
+| 86 | While playing: press L (loop bars 1 to 2, drag across the ruler if needed) and let it wrap a few times; click the ruler in the middle of a long chord; press Return; Space twice quickly; M and S on Chords while chords sound; in the Chords strip right-click Synth > Bypass, then Switch On; Change Instrument > Sampler, then Cmd+Z. Also Cmd+Z / Shift+Cmd+Z on any edit while notes sound. | Never a hanging note. At the loop's wrap the notes of bar 1 start again on time. After a jump, notes already started are silent until the next note starts (no note chase), while the mod wheel and pedal take their value at once. Stop, pause, mute, solo, bypass and a changed instrument end the sounding notes at once, with their release and without a click; a bypassed synth is silent, switched on it plays the next notes. |
+| 87 | Double-click the Chords clip. In the piano roll: click an empty spot (hold the button); drag a note across and up; drag a note's right edge, then its left edge; Alt+drag a note; drag a rectangle over several notes; Up, Down, Shift+Up; Cmd+D; Backspace; double-click a note. Cmd+Z after each. | The piano roll replaces the mixer (E hides and shows it): keys on the left (C3 is middle C), the bars over it, the notes in the track's colour, the velocity bars and the Mod Wheel lane below. A click adds a note on the grid line at or before it, as long and loud as the last note touched, and you hear it while the button is down; dragging previews the key under the note. The grabbed note snaps to the grid (hold Cmd to place it freely), the others in the selection follow. Every action is one undo step, and playback follows every change at once. |
+| 88 | Select the notes of bar 1 and drag them slightly off the grid (with Cmd); "To 1/16", strength 50 %, Quantise (or Q); then 100 %; tick Ends and quantise again. Choose Grid 1/8T. | 50 %: the notes move halfway to the nearest 1/16 line; 100 %: onto it; with Ends their ends land on the grid too. Q with nothing selected quantises every note. With 1/8T the grid shows triplets and notes snap to them. |
+| 89 | Drag velocity bars up and down; Alt+drag across the velocity lane. Play. | Louder and brighter notes where the bars are high (the synth's level and cutoff follow velocity); Alt+drag sets velocities along a straight line. |
+| 90 | Lanes > Pitch Bend. Alt+drag a line from the bottom to the top over bar 1; click in the middle of the lane at bar 2; drag that point up and down; double-click it. Lanes > Sustain (CC64): click near the top at bar 3 and near the bottom at bar 4. Right-click a lane > Clear, then Hide Lane. Play bars 1 to 5 after each. | The lanes show their values as steps (the pitch bend resting in the middle). The line bends the chords smoothly from 2 semitones down to 2 up over bar 1; from the point at bar 2 they are back in tune (dragging it bends them from there on); without it they stay bent until the clip ends, where the bend goes back to rest. The sustain holds the chords over bar 3 and lets them go at bar 4. Each change is one undo step. |
+| 91 | Alt+Cmd+T. Double-click an empty part of the new track at bar 3; double-click the clip and add a few notes; drag the clip's left edge right over a note, then back; Alt+drag the clip to bar 5; select it and Cmd+D; drag a clip over another so that it overlaps. | A new track "MIDI n" with the synth, showing "MIDI: All". A one-bar clip appears; trimming hides the note (silent), extending shows it again. Alt+drag copies the clip, Cmd+D puts a copy right after it. Where clips overlap, only the one on top plays. |
+| 92 | Open the editors: Chords' Synth (click its name in the mixer), Bass's Synth, the Sampler, the Drum Sampler. With Loop on over bars 1 to 2 and playing, change the Chords synth's Osc 1 Wave, Cutoff, Resonance, Filter Type, Amp Release, LFO to Pitch. Then Resonance 100 % and sweep Cutoff slowly from low to high in Low-pass 12, Low-pass 24 and High-pass. In the Sampler: change Loop Start and End, Root Key, Transpose; drop `a440.wav` on the window, then Cmd+Z. In the Drum Sampler: click the pads; drop `clap.wav` on pad 2; set pad 7's Choke to None and play. | The synth's controls in sections (Oscillator 1, Oscillator 2, Filter, Envelope 1 and 2, LFO, Voices); every change is smooth (no zipper noise or clicks). At 100 % resonance the filter whistles and sings at the cutoff, picking out each harmonic as it passes, but the level stays about where it was: the master meter never reaches 0 dB and nothing crackles or clips. The sampler shows the waveform, Start and the loop (Loop and End markers) moving with the sliders, and "Root C3". The dropped file replaces the sample (its waveform shows); undo brings back the tone. Pads play their sound when clicked (empty ones are silent); pad 2 plays the clap; without the choke the open hat rings on under the closed hat. |
+| 93 | Press A; on the Chords row open the target menu and choose "Instrument: Synth" > "Filter" > "Cutoff". Play bars 5 to 8 with the Chords synth's editor open. | The lane rises from bar 5 to bar 9; the Cutoff slider follows it and cannot be dragged. Change the lane's points: the sound follows. |
+| 94 | Cmd+N (Don't Save). Cmd+I `song-type1.mid`. Then drop `kick.wav`, `snare.wav`, `closed-hat.wav` and `open-hat.wav` on pads 1, 3, 7 and 11 of the Drums' editor (or several files at once on pad 1: they fill pads 1, 2, 3...). Play. Then Cmd+I `song-type0.mid` and `controllers.mid`; and `scale.mid` on a new project. | The project takes 110 BPM and 4/4; three MIDI tracks named Drums (drum sampler), Bass and Chords (synth), each with one clip to bar 9. The drums are silent until their pads have sounds. The type 0 file gives tracks named "Song (Ch 1)", "(Ch 2)" and "(Ch 10)" with the same notes. `controllers.mid`: the note bends smoothly up a whole tone and down, then gets vibrato, then four notes held by the pedal. `scale.mid`: every key in tune, evenly loud, and on the highest notes no whistling or low tones that should not be there (aliasing). |
+| 95 | Back to `phase6-instruments.dawproject`. File > Export MIDI File... > Type 1; open the file in another app (GarageBand, Logic, MuseScore) or import it into a new project. Do it again with Type 0. | Every MIDI track with its name, channel, notes, sustain pedal, mod wheel and pitch bend, at 120 BPM in 4/4, as heard in the project (notes hidden by clip edges are left out). |
+| 96 | Plug in the MIDI keyboard. Cmd+, | Audio Settings lists the keyboard under the MIDI inputs, ticked. Unticking it makes the app ignore it (and remember that after a restart). |
+| 97 | Alt+Cmd+T and arm the new track (R in its header): play the keyboard. Then the monitoring button to Off, to On (with the track disarmed), back to Auto. Click "MIDI: All" and choose your keyboard and channel 1, then channel 2. Use the pitch bend wheel, the mod wheel, a sustain pedal, and hammer chords with velocity. | Armed, the synth plays what you play at once, without noticeable delay or jitter, loud with hard keys and soft with gentle ones; the wheel bends, the mod wheel adds vibrato, the pedal sustains. Off: silence; On: heard even disarmed. A different channel from the keyboard's: silence. No mic permission is asked. Switching the input or disarming while holding notes ends them. |
+| 98 | Press K and Shift+K, arm the MIDI track, press R and play along with the click for 4 bars, holding a chord when you press R again. Look, then Cmd+Z and Shift+Cmd+Z. Then do it again with an audio track armed too (Phase 3 setup). | After a bar of count-in the recording starts; the notes appear in a growing clip as you play. Stop: a clip named after the track from where recording started to the stop, its notes where you played them: in time with the clicks (check in the piano roll at the grid: not consistently early or late), the held chord ending at the stop; notes from the count-in are hidden before the clip's start (drag its left edge to see them). One undo removes the clip; with an audio track both clips come and go together in one "Record" step. A project never saved is fine for MIDI alone. |
+| 99 | Set the loop region to bars 2 to 3, press P and record while playing from bar 1 to bar 4. | The clip covers bars 2 to 3 only; what you played before and after is in the clip as hidden notes (drag its edges out to see them). |
+| 100 | Save As under a new name, quit, reopen. Then open `phase4/phase4-effects.dawproject`. | Everything as saved: instruments and their settings, sample and pad files, notes, velocities, controllers, automation, MIDI inputs. The file says `"formatVersion": 5`. The Phase 4 project opens and sounds as before (its tracks are audio tracks). |
+| 101 | Export the instruments project (Cmd+E, 24-bit, Include tail) and listen to it in QuickTime Player. | Exactly what playback sounds like: instruments, automation, vibrato, the bass glides, the reverb tail, about 3 s longer than the song. |
+| 102 | Cmd+1, Cmd+2, Cmd+3 with the piano roll open and the instrument editors open; play. | Keys, note rows (black-key rows darker), notes with velocity, lanes and pads in each theme's colours and fonts, all readable; the playhead runs through the piano roll; the mixer's instrument slots too. |
+| 103 | Play the project with Activity Monitor open. | No dropouts or warnings in the status bar. DAW's CPU stays moderate (the four instruments and the reverb need a fraction of a core). |
 
 Anything else (a click, a crackle, wrong pitch, swapped channels, a meter that
 disagrees with the file, a clip in the wrong place) is a bug: note the check number

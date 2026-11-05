@@ -42,7 +42,17 @@ Phase 5 (v0.5.0): themes and animations. Three themes for the whole interface
 (Neon Grid, Acid Terminal, Synth Chrome), switched live from View > Theme, with
 bundled fonts and readable contrast checked by the tests; animations at three levels
 with a switch per effect, following the system's "Reduce motion". The project
-format does not change. See [CLAUDE.md](CLAUDE.md#status) for the steps.
+format does not change.
+
+Phase 6 (v0.6.0): MIDI and instruments. MIDI tracks with MIDI clips; a piano roll
+(draw, move, resize, delete, velocity, quantise with strength, transpose, previews)
+with controller lanes for pitch bend, mod wheel, sustain, aftertouch and any CC; MIDI
+input from every connected keyboard, monitored on armed tracks and recorded with the
+count-in, punch and metronome; three built-in instruments (a polyphonic subtractive
+synth with band-limited oscillators, a sampler and a sixteen-pad drum sampler) at the
+start of the track's chain, so effects, sends, automation and delay compensation
+apply; standard MIDI file import and export (type 0 and 1). Project format version 5.
+See [CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 
@@ -119,6 +129,28 @@ Recording:
 - Files play from disk; projects of any length need no more than about 600 MB of
   memory for their audio.
 
+MIDI and instruments:
+
+- Alt+Cmd+T adds a MIDI track with the synth. Double-click an empty part of it to make
+  a one-bar clip, double-click a clip to edit it in the piano roll (E shows and hides
+  it in the mixer's place). Cmd+D duplicates the selected clips; Alt+drag copies one.
+- In the piano roll: click to add a note (you hear it), drag a note to move it (Alt
+  copies), its edges to resize it, drag on empty space to select, double-click to
+  delete. Up and Down transpose (Shift: an octave), Q quantises to the value in the
+  toolbar with its strength (and the ends, if ticked). Drag the velocity bars; Lanes
+  adds controller lanes (pitch bend, mod wheel, sustain, aftertouch, any CC): click to
+  add an event, drag it, double-click to delete it, Alt+drag to draw a line.
+- Every connected MIDI keyboard plays the armed MIDI tracks (Auto monitoring), or
+  every track whose monitoring is On; the track's "MIDI: All" button picks a device
+  and a channel; File > Audio Settings switches keyboards off. R records the armed
+  MIDI tracks with the audio ones, with the count-in, punch and metronome.
+- The mixer lists a MIDI track's instrument first; click it for its editor (the
+  sampler shows its waveform and loop, the drum sampler its pads: drop WAV or AIFF
+  files on them), right-click to change, bypass or remove it. Instrument parameters
+  can be automated like effect parameters.
+- Cmd+I imports MIDI files (one track per part; channel 10 gets the drum sampler);
+  File > Export MIDI File... writes the MIDI tracks as a type 1 or type 0 file.
+
 Effects, buses and automation:
 
 - Every mixer strip lists its effects (inserts): "+ Effect" adds an equaliser,
@@ -151,7 +183,7 @@ Effects, buses and automation:
 | Undo / Redo | Cmd+Z / Shift+Cmd+Z |
 | Delete the selected clips | Backspace or Delete |
 | New track | Cmd+T |
-| Import audio / Export mix | Cmd+I / Cmd+E |
+| Import audio or MIDI / Export mix | Cmd+I / Cmd+E |
 | New / Open / Save / Save As project | Cmd+N / Cmd+O / Cmd+S / Shift+Cmd+S |
 | Zoom in / out / to fit | Cmd+= / Cmd+- / Cmd+0 (or Cmd + wheel, or pinch) |
 | Record / stop recording | R |
@@ -162,6 +194,11 @@ Effects, buses and automation:
 | Audio settings | Cmd+, |
 | Theme: Neon Grid / Acid Terminal / Synth Chrome | Cmd+1 / Cmd+2 / Cmd+3 |
 | All animations off (again: back on) | Shift+Cmd+A |
+| New MIDI track | Alt+Cmd+T |
+| Duplicate the selected clips (or notes) | Cmd+D |
+| Piano roll / quantise | E / Q |
+| Transpose the selected notes (Shift: an octave) | Up / Down |
+| Export MIDI file | Alt+Cmd+E |
 
 (Ctrl instead of Cmd on Windows and Linux.)
 
@@ -176,7 +213,8 @@ Projects (`.dawproject`) are small JSON files that refer to the audio files; kee
 audio next to the project (or in a subfolder) and the folder can be moved as a whole.
 Projects saved by earlier phases open too. Manual checks with reference files:
 [docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md). How many tracks fit in an audio
-callback, stream from disk and record, and what each effect costs:
+callback, stream from disk and record, what each effect costs and what each
+instrument's voice costs:
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Repository layout

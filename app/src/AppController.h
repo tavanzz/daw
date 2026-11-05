@@ -23,7 +23,9 @@ namespace daw::app
 
     Inputs: the device opens its inputs only with the microphone permission. The
     permission is asked for the first time a track needs an input (armed, or
-    monitoring always), never at launch.
+    monitoring always), never at launch. MIDI inputs need none: every one is listened
+    to (also those plugged in later) unless switched off in the device settings,
+    which the user settings remember.
 
     Message thread only.
 */
@@ -49,6 +51,7 @@ private:
     void updateWindowTitle();
     void saveDeviceState();
     void deviceChanged();
+    void midiDevicesChanged();
     void openInputsIfNeeded();
     [[nodiscard]] juce::String latencyOffsetKey();
     [[nodiscard]] ui::desktop::MainComponent& view();

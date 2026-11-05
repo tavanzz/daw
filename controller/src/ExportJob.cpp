@@ -1,6 +1,7 @@
 #include "daw/controller/ExportJob.h"
 
 #include "daw/controller/ArrangementBuilder.h"
+#include "daw/controller/SampleCache.h"
 #include "daw/controller/Session.h"
 #include "daw/engine/io/SourcePool.h"
 
@@ -29,7 +30,8 @@ engine::io::BounceResult ExportJob::run(const std::function<bool(double)>& keepG
     {
         const auto track = project.getTrack(t);
         for (int c = 0; c < track.getNumClips(); ++c)
-            pool.request(track.getClip(c).getAudioFile());
+            if (const auto clip = track.getClip(c); !clip.isMidi())
+                pool.request(clip.getAudioFile());
     }
 
     while (!pool.waitForLoads(50))
@@ -48,7 +50,22 @@ engine::io::BounceResult ExportJob::run(const std::function<bool(double)>& keepG
         return source != nullptr ? source->audio : nullptr;
     };
 
-    const auto arrangement = buildArrangement(project, settings.sampleRate, lookup);
+    // The instruments' samples, at the export's rate.
+    SampleCache samples(settings.sampleRate);
+    samples.requestAll(project);
+    while (!samples.waitForLoads(50))
+    {
+        if (keepGoing && !keepGoing(0.0))
+        {
+            engine::io::BounceResult cancelled;
+            cancelled.cancelled = true;
+            return cancelled;
+        }
+    }
+
+    const auto arrangement =
+        buildArrangement(project, settings.sampleRate, lookup, {}, {}, {},
+                         [&samples](const juce::File& file) { return samples.find(file); });
 
     engine::io::BounceSettings bounce;
     bounce.file = settings.file;

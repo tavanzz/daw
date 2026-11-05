@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/TrackLanes.h"
 
 #include "daw/controller/ClipEditing.h"
+#include "daw/controller/MidiTakes.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
@@ -20,6 +21,40 @@ using ClipState = ThemedLookAndFeel::ClipState;
 bool isAudioFile(const juce::String& path)
 {
     return juce::File(path).hasFileExtension("wav;wave;aif;aiff;aifc");
+}
+
+bool isMidiFile(const juce::String& path)
+{
+    return juce::File(path).hasFileExtension("mid;midi;smf");
+}
+
+// Notes drawn small in a clip: the clip's keys spread over its height.
+void drawNotes(juce::Graphics& g, juce::Rectangle<float> area, const std::vector<model::Note>& notes,
+               model::Ticks origin, const controller::TimelineViewport& viewport)
+{
+    if (notes.empty())
+        return;
+    int lowest = 127;
+    int highest = 0;
+    for (const auto& note : notes)
+    {
+        lowest = std::min(lowest, note.key);
+        highest = std::max(highest, note.key);
+    }
+    lowest = std::max(0, lowest - 2);
+    highest = std::min(127, highest + 2);
+    const float rowHeight = area.getHeight() / static_cast<float>(highest - lowest + 1);
+    const float noteHeight = std::max(1.5f, rowHeight - 1.0f);
+
+    for (const auto& note : notes)
+    {
+        const auto x0 = static_cast<float>(viewport.ticksToX(origin + note.start));
+        const auto x1 = static_cast<float>(viewport.ticksToX(origin + note.getEnd()));
+        if (x1 < area.getX() || x0 > area.getRight())
+            continue;
+        const float y = area.getBottom() - static_cast<float>(note.key - lowest + 1) * rowHeight;
+        g.fillRect(juce::Rectangle<float>(x0, y, std::max(1.0f, x1 - x0 - 1.0f), noteHeight));
+    }
 }
 
 } // namespace
@@ -216,6 +251,27 @@ void TrackLanes::drawClip(juce::Graphics& g, int trackIndex, const model::Clip& 
     if (!g.clipRegionIntersects(bounds.getSmallestIntegerContainer()))
         return;
 
+    if (clip.isMidi())
+    {
+        const auto& look = ThemedLookAndFeel::get(*this);
+        const auto style = look.clipStyle(trackIndex, ClipState::ready, trackIndex);
+        const float nameHeight = look.clipHeaderHeight();
+        {
+            juce::Graphics::ScopedSaveState saved(g);
+            g.reduceClipRegion(bounds.toNearestInt());
+            look.drawClipFrame(g, bounds, style);
+            g.setColour(style.waveform);
+            drawNotes(g, bounds.withTrimmedTop(nameHeight).reduced(0.0f, 2.0f),
+                      model::MidiClip(clip.getState()).getNotes(),
+                      clip.getPosition() - clip.getOffset(), state.viewport);
+            const auto textArea = bounds.withHeight(nameHeight).reduced(4.0f, 0.0f);
+            look.drawClipName(g, textArea.withX(std::max(textArea.getX(), 2.0f)), clip.getName(),
+                              style);
+        }
+        look.drawClipOutline(g, bounds, style, state.selection.contains(clip.getId()));
+        return;
+    }
+
     const auto* source = state.session.findSource(clip.getAudioFile());
     using Status = engine::io::PooledSource::Status;
     const bool ready = source != nullptr && source->status == Status::ready;
@@ -322,6 +378,39 @@ void TrackLanes::drawRecordings(juce::Graphics& g) const
                                         ThemedLookAndFeel::pulseAt(
                                             look.getAnimationClock()->getTime()));
     }
+
+    // MIDI being recorded: from where the clip will start to where it is heard now,
+    // with the notes played so far (held ones up to now).
+    const auto& recording = state.session.getRecording();
+    const auto takes = recording.getLiveMidiTakes();
+    if (takes.empty())
+        return;
+    const auto now = std::max(playhead, model::Ticks{0});
+    for (const auto& take : takes)
+    {
+        const int trackIndex = project.indexOfTrack(take.trackId);
+        const auto keepStart = model::samplesToTicks(recording.getLiveKeepStart(), rate);
+        if (trackIndex < 0 || now <= keepStart)
+            continue;
+        const auto x0 = static_cast<float>(state.viewport.ticksToX(keepStart));
+        const auto x1 = static_cast<float>(state.viewport.ticksToX(now));
+        const juce::Rectangle<float> bounds(
+            x0, static_cast<float>(trackIndex * ArrangeState::laneHeight + 3),
+            std::max(1.0f, x1 - x0), static_cast<float>(ArrangeState::laneHeight - 6));
+        const auto style = look.clipStyle(trackIndex, ClipState::recording, trackIndex);
+
+        const auto content =
+            controller::midiTakeContent(take, model::ticksToSamples(now, rate), rate);
+        juce::Graphics::ScopedSaveState saved(g);
+        g.reduceClipRegion(bounds.toNearestInt());
+        look.drawClipFrame(g, bounds, style);
+        g.setColour(style.waveform);
+        drawNotes(g, bounds.withTrimmedTop(nameHeight).reduced(0.0f, 2.0f), content.notes,
+                  model::samplesToTicks(take.firstPosition, rate), state.viewport);
+        look.drawClipName(g, bounds.withHeight(nameHeight).reduced(4.0f, 0.0f), "Recording MIDI",
+                          style);
+        look.drawClipOutline(g, bounds, style, false);
+    }
 }
 
 void TrackLanes::drawWaveform(juce::Graphics& g, juce::Rectangle<float> area,
@@ -402,8 +491,39 @@ juce::Rectangle<float> TrackLanes::rowBounds(int row) const
 void TrackLanes::mouseDoubleClick(const juce::MouseEvent& event)
 {
     const int row = trackIndexAt(event.position.y);
-    if (state.showAutomation && row >= 0 && row < state.numRows())
-        automation.mouseDoubleClick(event, rowBounds(row), state.ownerOfRow(row));
+    if (state.showAutomation)
+    {
+        if (row >= 0 && row < state.numRows())
+            automation.mouseDoubleClick(event, rowBounds(row), state.ownerOfRow(row));
+        return;
+    }
+
+    // A MIDI clip opens in the piano roll; an empty part of a MIDI track gets a new
+    // clip of one bar, from the bar line before the click, and opens it.
+    auto& session = state.session;
+    const auto& project = session.getProject();
+    if (const auto hit = clipAt(event.position))
+    {
+        const auto location = project.findClip(hit->clipId);
+        if (location && project.getTrack(location->trackIndex).getClip(location->clipIndex).isMidi() &&
+            state.onOpenClip)
+            state.onOpenClip(hit->clipId);
+        return;
+    }
+
+    if (row < 0 || row >= project.getNumTracks() || !project.getTrack(row).isMidi())
+        return;
+    const auto tempoMap = project.getTempoMap();
+    const auto bar = tempoMap.barAt(state.viewport.xToTicks(event.position.x));
+    const auto clipId = session.addMidiClip(project.getTrack(row).getId(), tempoMap.barStart(bar),
+                                            tempoMap.barStart(bar + 1) - tempoMap.barStart(bar));
+    if (clipId != 0)
+    {
+        state.selection = {clipId};
+        if (state.onOpenClip)
+            state.onOpenClip(clipId);
+    }
+    contentChanged();
 }
 
 void TrackLanes::mouseMove(const juce::MouseEvent& event)
@@ -479,7 +599,26 @@ void TrackLanes::mouseDrag(const juce::MouseEvent& event)
         if (event.getDistanceFromDragStart() < 3)
             return;
         drag->started = true;
-        session.beginGesture(drag->hit.zone == Zone::body ? "Move Clip" : "Trim Clip");
+        const bool copying = drag->hit.zone == Zone::body && event.mods.isAltDown();
+        session.beginGesture(copying ? "Copy Clip" : drag->hit.zone == Zone::body ? "Move Clip" : "Trim Clip");
+
+        // Alt+drag: the copy is what moves; the original stays.
+        if (copying)
+        {
+            const auto& project = session.getProject();
+            const auto location = project.findClip(drag->hit.clipId);
+            if (location)
+            {
+                const auto copy = session.copyClip(drag->hit.clipId,
+                                                   project.getTrack(location->trackIndex).getId(),
+                                                   drag->original.position);
+                if (copy != 0)
+                {
+                    drag->hit.clipId = copy;
+                    state.selection = {copy};
+                }
+            }
+        }
     }
 
     const auto& project = session.getProject();
@@ -543,7 +682,9 @@ void TrackLanes::mouseMagnify(const juce::MouseEvent& event, float scaleFactor)
 
 bool TrackLanes::isInterestedInFileDrag(const juce::StringArray& files)
 {
-    return !files.isEmpty() && std::all_of(files.begin(), files.end(), isAudioFile);
+    return !files.isEmpty() && std::all_of(files.begin(), files.end(), [](const juce::String& path) {
+        return isAudioFile(path) || isMidiFile(path);
+    });
 }
 
 void TrackLanes::fileDragMove(const juce::StringArray& files, int x, int y)
@@ -586,10 +727,27 @@ void TrackLanes::filesDropped(const juce::StringArray& files, int x, int y)
 
     juce::Array<juce::File> audioFiles;
     for (const auto& path : files)
+    {
+        if (isMidiFile(path))
+        {
+            const auto import = session.importMidi(juce::File(path), position);
+            if (import.result.failed() && onProblem)
+                onProblem("The MIDI file could not be imported", import.result.getErrorMessage());
+            else if (!import.leftOut.isEmpty() && onProblem)
+                onProblem("Imported, with some things left out",
+                          juce::File(path).getFileName() + " had " +
+                              import.leftOut.joinIntoString(", ") +
+                              ", which this version does not keep.");
+            continue;
+        }
         audioFiles.add(juce::File(path));
+    }
 
-    const auto clips = session.importAudio(audioFiles, position, ontoTrack);
-    state.selection = {clips.begin(), clips.end()};
+    if (!audioFiles.isEmpty())
+    {
+        const auto clips = session.importAudio(audioFiles, position, ontoTrack);
+        state.selection = {clips.begin(), clips.end()};
+    }
     contentChanged();
 }
 

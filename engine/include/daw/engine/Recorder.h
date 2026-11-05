@@ -1,7 +1,9 @@
 #pragma once
 
 #include "daw/engine/AudioInputs.h"
+#include "daw/engine/midi/LiveInput.h"
 #include "daw/engine/rt/AudioFifo.h"
+#include "daw/engine/rt/SpscQueue.h"
 
 #include <juce_core/juce_core.h>
 
@@ -11,6 +13,19 @@
 
 namespace daw::engine
 {
+
+/** A MIDI event a recording captured: for which of its MIDI targets, and the
+    timeline position (in samples) where it was heard to happen. */
+struct RecordedMidi
+{
+    int target = 0;
+    juce::int64 position = 0;
+    midi::Event event; ///< its offset means nothing here
+};
+
+/** Where a recording's MIDI goes, from the audio thread to the message thread. Large:
+    allocate it on the heap. */
+using MidiRecordingQueue = rt::SpscQueue<RecordedMidi, 16384>;
 
 /** What one recording records. Built on the message thread and handed to the
     engine whole; it must outlive the recording (until its state is complete). */
@@ -26,6 +41,23 @@ struct RecordingSetup
     };
 
     std::vector<Target> targets;
+
+    /** One MIDI track being recorded: the live input it hears. */
+    struct MidiTarget
+    {
+        juce::int64 trackId = 0;
+        midi::InputFilter filter;
+    };
+
+    std::vector<MidiTarget> midiTargets;
+
+    /** Where the MIDI targets' events go; null without MIDI targets. */
+    MidiRecordingQueue* midi = nullptr;
+
+    /** Samples from the moment the engine plays a sample to the moment it is heard
+        (the device's output latency): a key played then belongs where that sample
+        is on the timeline. */
+    juce::int64 midiLatency = 0;
 
     /** Where playback, and so the recording, starts on the timeline. */
     juce::int64 startPosition = 0;
@@ -83,6 +115,9 @@ struct RecordingStatus
 
     /** Capture ended early: the audio device stopped or restarted. */
     bool interrupted = false;
+
+    /** MIDI was lost: the MIDI queue was full. */
+    bool midiOverrun = false;
 };
 
 /**
@@ -100,6 +135,12 @@ struct RecordingStatus
     All targets capture the same samples: if any FIFO lacks room for a block, the
     capture stops for all of them (an overrun), never blocking.
 
+    MIDI targets capture the live events their filter accepts that were played
+    while the recording was heard: a key played at stream index s, when the device
+    output carried what the engine played at s - midiLatency, belongs at
+    firstPosition + (s - midiLatency - s0). Count-in included; capture ends with
+    the stop, once late messages (stamped before it) are in.
+
     begin(), end() and capture(): audio thread. interrupt(): message thread, while the
     audio thread is not running. getStatus(): any thread.
 */
@@ -113,6 +154,9 @@ public:
         captured nothing. */
     void cancel(const RecordingSetup& setup) noexcept;
     void capture(const AudioInputs& inputs, juce::int64 blockStart, int numSamples) noexcept;
+
+    /** Audio thread: a live event that happened at stream index stream. */
+    void captureMidi(const midi::LiveEvent& live, juce::int64 stream) noexcept;
     void interrupt() noexcept;
 
     /** Message thread: a setup was handed to the engine. */
@@ -136,6 +180,8 @@ private:
     const RecordingSetup* setup = nullptr;
     juce::int64 captureStart = 0;
     juce::int64 captureEnd = 0;
+    juce::int64 heardStart = 0; // s0: where firstPosition is heard (before the device)
+    juce::int64 heardEnd = 0;   // where the stop is
     bool stopped = false;
 
     // Published.
@@ -145,6 +191,7 @@ private:
     std::atomic<juce::int64> stopPosition{0};
     std::atomic<bool> overrun{false};
     std::atomic<bool> interrupted{false};
+    std::atomic<bool> midiOverrun{false};
 };
 
 } // namespace daw::engine

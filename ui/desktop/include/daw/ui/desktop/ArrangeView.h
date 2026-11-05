@@ -36,11 +36,21 @@ public:
 
     /** The automation view (A): each row's automation lane over its clips. */
     [[nodiscard]] bool isShowingAutomation() const noexcept { return state.showAutomation; }
+    [[nodiscard]] ArrangeState& getStateForTesting() noexcept { return state; }
     void setShowingAutomation(bool show);
     void deleteSelection();
 
     /** Where new material goes: the playhead. */
     [[nodiscard]] model::Ticks getInsertPosition() const;
+
+    /** Copies the selected clips right after themselves. */
+    void duplicateSelection();
+
+    /** A MIDI clip to open in the piano roll (double-clicked). */
+    std::function<void(model::ObjectId clipId)> onOpenClip;
+
+    /** A problem to show the user (a MIDI file that could not be read). */
+    std::function<void(const juce::String& title, const juce::String& message)> onProblem;
 
     void resized() override;
     void paint(juce::Graphics& g) override;

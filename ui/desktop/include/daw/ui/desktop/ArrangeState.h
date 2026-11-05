@@ -62,6 +62,9 @@ struct ArrangeState
     /** Called after zooming or scrolling, so every part redraws. */
     std::function<void()> onViewChanged;
 
+    /** Opens a MIDI clip in the piano roll (a double-click on it). */
+    std::function<void(model::ObjectId clipId)> onOpenClip;
+
     /** Trackpad and wheel: Cmd + vertical zooms around the pointer, horizontal (or
         Shift + vertical) scrolls the timeline. Returns false for plain vertical
         movement, which scrolls the tracks instead. */

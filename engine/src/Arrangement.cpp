@@ -86,6 +86,20 @@ std::uint64_t mix(std::uint64_t hash, std::uint64_t value) noexcept
 
 } // namespace
 
+float ControllerLane::valueAt(juce::int64 position) const noexcept
+{
+    const auto after = std::upper_bound(steps.begin(), steps.end(), position,
+                                        [](juce::int64 p, const ControllerStep& step) {
+                                            return p < step.position;
+                                        });
+    return after == steps.begin() ? midi::restValue(type, number) : std::prev(after)->value;
+}
+
+float ControllerLane::valueBefore(juce::int64 position) const noexcept
+{
+    return valueAt(position - 1);
+}
+
 int EffectChain::getLatency() const noexcept
 {
     int latency = 0;

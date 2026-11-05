@@ -15,12 +15,14 @@ add_library(daw_ui_desktop STATIC
     src/ExportDialog.cpp
     src/GenericEffectEditor.cpp
     src/HazardBand.cpp
+    src/InstrumentViews.cpp
     src/LevelMeter.cpp
     src/Logo.cpp
     src/MainComponent.cpp
     src/MainWindow.cpp
     src/MixerView.cpp
     src/PanelWindow.cpp
+    src/PianoRoll.cpp
     src/PrerenderedImages.cpp
     src/SendSlots.cpp
     src/StatusBar.cpp

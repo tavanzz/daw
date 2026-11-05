@@ -4,6 +4,7 @@
 #include "daw/engine/Arrangement.h"
 #include "daw/model/Effect.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -11,6 +12,10 @@
 
 namespace daw::controller
 {
+
+/** Makes effects of types beyond the built-in ones (tests; later, plugins); null for
+    a type it does not know. Message thread. */
+using EffectFactory = std::function<std::unique_ptr<engine::fx::Effect>(const juce::String& type)>;
 
 /**
     The engine's instances of a project's effects, one per effect of the model, kept
@@ -39,7 +44,7 @@ public:
         for an unknown type) and revival count; parameters and automation are left
         to the caller. */
     [[nodiscard]] std::vector<engine::ChainSlot> chainFor(const ChainOwner& owner,
-                                                          const model::EffectList& effects,
+                                                          const std::vector<model::Effect>& effects,
                                                           bool fadeIn);
 
     /** The instance an effect has now; null if none. */
@@ -56,13 +61,20 @@ public:
         (the arrangements still holding them keep them alive). */
     void forgetUnused();
 
-    /** A fresh instance of a built-in effect for this format; null for an unknown type. */
+    /** A fresh instance of a built-in effect (or one factory makes) for this format;
+        null for an unknown type. */
     [[nodiscard]] static std::shared_ptr<engine::fx::EffectInstance>
-    makeInstance(const juce::String& type, double sampleRate, int maximumBlockSize, bool fadeIn);
+    makeInstance(const juce::String& type, double sampleRate, int maximumBlockSize, bool fadeIn,
+                 const EffectFactory& factory = {});
+
+    /** Effects of types beyond the built-in ones come from factory. */
+    void setFactory(EffectFactory newFactory) { factory = std::move(newFactory); }
+    [[nodiscard]] const EffectFactory& getFactory() const noexcept { return factory; }
 
 private:
     double sampleRate = 0.0;
     int blockSize = 512;
+    EffectFactory factory;
     std::map<model::ObjectId, std::shared_ptr<engine::fx::EffectInstance>> instances;
     std::map<ChainOwner, std::vector<model::ObjectId>> orders; // as last built
     std::map<model::ObjectId, std::uint32_t> revivals;

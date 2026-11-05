@@ -251,10 +251,33 @@ TEST_CASE("The automatic grid is the finest one that is not too dense", "[model]
 
     // At least 16 pixels between lines; ticksPerPixel = quarter / n puts quarters n
     // pixels apart.
-    CHECK(Grid::automaticDivision(map, quarter / 1000.0, 16.0) == GridDivision::thirtySecond);
+    CHECK(Grid::automaticDivision(map, quarter / 1000.0, 16.0) == GridDivision::sixtyFourth);
+    CHECK(Grid::automaticDivision(map, quarter / 256.0, 16.0) == GridDivision::sixtyFourth);
+    CHECK(Grid::automaticDivision(map, quarter / 255.0, 16.0) == GridDivision::thirtySecond);
     CHECK(Grid::automaticDivision(map, quarter / 128.0, 16.0) == GridDivision::thirtySecond);
     CHECK(Grid::automaticDivision(map, quarter / 127.0, 16.0) == GridDivision::sixteenth);
     CHECK(Grid::automaticDivision(map, quarter / 16.0, 16.0) == GridDivision::quarter);
     CHECK(Grid::automaticDivision(map, quarter / 15.0, 16.0) == GridDivision::half);
     CHECK(Grid::automaticDivision(map, quarter, 16.0) == GridDivision::bar); // even bars too dense
+}
+
+TEST_CASE("Triplet grids put three lines where two straight ones go", "[model][timeline][grid]")
+{
+    const TempoMap map(120.0, {4, 4});
+    const auto quarter = map.ticksPerQuarterNote();
+
+    const Grid eighthTriplets(map, GridDivision::eighthTriplet);
+    const auto lines = eighthTriplets.linesBetween(0, static_cast<Ticks>(quarter * 2.0));
+    REQUIRE(lines.size() == 6);
+    for (std::size_t i = 0; i < lines.size(); ++i)
+        CHECK(lines[i] == static_cast<Ticks>(std::llround(static_cast<double>(i) * quarter / 3.0)));
+
+    const Grid sixtyFourths(map, GridDivision::sixtyFourth);
+    CHECK(sixtyFourths.linesBetween(0, static_cast<Ticks>(quarter)).size() == 16);
+    CHECK(Grid(map, GridDivision::quarterTriplet).linesBetween(0, map.barStart(1)).size() == 6);
+    CHECK(Grid(map, GridDivision::sixteenthTriplet).linesBetween(0, map.barStart(1)).size() == 24);
+    CHECK(Grid(map, GridDivision::thirtySecondTriplet).linesBetween(0, map.barStart(1)).size() == 48);
+
+    for (const auto* name : {"1/64", "1/4T", "1/8T", "1/16T", "1/32T"})
+        CHECK(daw::model::toString(*daw::model::gridDivisionFromString(name)) == name);
 }

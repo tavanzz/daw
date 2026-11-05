@@ -18,6 +18,21 @@ ObjectId Clip::getId() const
     return static_cast<ObjectId>(state[ids::id]);
 }
 
+bool Clip::isMidi() const
+{
+    return state[ids::kind].toString() == "midi";
+}
+
+juce::String Clip::getName() const
+{
+    return state[ids::name].toString();
+}
+
+void Clip::setName(const juce::String& name, juce::UndoManager* undoManager)
+{
+    state.setProperty(ids::name, name, undoManager);
+}
+
 juce::File Clip::getAudioFile() const
 {
     const auto path = state[ids::audioFile].toString();

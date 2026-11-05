@@ -45,7 +45,7 @@ RecordingController::RecordingController(engine::Engine& engineToUse)
 
 RecordingController::~RecordingController()
 {
-    if (writer == nullptr)
+    if (setup == nullptr)
         return;
 
     // The engine must let go of the setup before it is freed: stop, and give it the
@@ -57,17 +57,64 @@ RecordingController::~RecordingController()
         juce::Thread::sleep(1);
 
     if (engine.getRecordingStatus().state != engine::RecordingState::complete)
+    {
         (void) setup.release(); // the audio thread may still hold it: never free it
+        (void) midiQueue.release();
+    }
 
-    writer->finish();
+    if (writer != nullptr)
+        writer->finish();
 }
 
 juce::Result RecordingController::start(const RecordingRequest& newRequest)
 {
     if (isActive())
         return juce::Result::fail("A recording is already running.");
-    if (newRequest.tracks.empty())
+    if (newRequest.tracks.empty() && newRequest.midiTracks.empty())
         return juce::Result::fail("Arm a track with an input to record.");
+
+    auto newSetup = std::make_unique<engine::RecordingSetup>();
+    std::unique_ptr<engine::io::RecordingWriter> newWriter;
+    if (!newRequest.tracks.empty())
+    {
+        if (const auto made = startWriter(newRequest, *newSetup, newWriter); made.failed())
+            return made;
+    }
+
+    std::unique_ptr<engine::MidiRecordingQueue> newQueue;
+    if (!newRequest.midiTracks.empty())
+    {
+        newQueue = std::make_unique<engine::MidiRecordingQueue>();
+        for (const auto& track : newRequest.midiTracks)
+            newSetup->midiTargets.push_back({track.trackId, track.filter});
+        newSetup->midi = newQueue.get();
+        newSetup->midiLatency = std::max(juce::int64{0}, newRequest.midiLatency);
+    }
+
+    newSetup->startPosition = newRequest.startPosition;
+    newSetup->countInLength = std::max(juce::int64{0}, newRequest.countInLength);
+    newSetup->latency = std::max(juce::int64{0}, newRequest.latency);
+    newSetup->punchIn = newRequest.punchIn;
+    newSetup->punchOut = newRequest.punchOut;
+
+    request = newRequest;
+    writer = std::move(newWriter);
+    setup = std::move(newSetup);
+    midiQueue = std::move(newQueue);
+    midiEvents.assign(request.midiTracks.size(), {});
+    stopRequested = false;
+    finishRequested = false;
+    discarding = false;
+    problem.clear();
+
+    engine.startRecording(*setup);
+    return juce::Result::ok();
+}
+
+juce::Result RecordingController::startWriter(const RecordingRequest& newRequest,
+                                              engine::RecordingSetup& newSetup,
+                                              std::unique_ptr<engine::io::RecordingWriter>& newWriter)
+{
     if (!newRequest.folder.createDirectory())
         return juce::Result::fail("The folder \"" + newRequest.folder.getFullPathName() +
                                   "\" could not be created.");
@@ -93,37 +140,27 @@ juce::Result RecordingController::start(const RecordingRequest& newRequest)
     if (adjustWriterSettings)
         adjustWriterSettings(settings);
 
-    auto newWriter = std::make_unique<engine::io::RecordingWriter>(settings);
-    auto newSetup = std::make_unique<engine::RecordingSetup>();
+    newWriter = std::make_unique<engine::io::RecordingWriter>(settings);
     std::set<juce::String> taken;
 
     for (const auto& track : newRequest.tracks)
     {
         const auto file = nameForTake(newRequest.folder, track.name, taken);
         auto& fifo = newWriter->addFile(file, track.numInputChannels);
-        newSetup->targets.push_back(
+        newSetup.targets.push_back(
             {track.trackId, track.inputChannel, track.numInputChannels, &fifo});
     }
 
-    if (const auto started = newWriter->start(); started.failed())
-        return started;
+    return newWriter->start();
+}
 
-    newSetup->startPosition = newRequest.startPosition;
-    newSetup->countInLength = std::max(juce::int64{0}, newRequest.countInLength);
-    newSetup->latency = std::max(juce::int64{0}, newRequest.latency);
-    newSetup->punchIn = newRequest.punchIn;
-    newSetup->punchOut = newRequest.punchOut;
-
-    request = newRequest;
-    writer = std::move(newWriter);
-    setup = std::move(newSetup);
-    stopRequested = false;
-    finishRequested = false;
-    discarding = false;
-    problem.clear();
-
-    engine.startRecording(*setup);
-    return juce::Result::ok();
+void RecordingController::drainMidi()
+{
+    if (midiQueue == nullptr)
+        return;
+    while (const auto event = midiQueue->pop())
+        if (event->target >= 0 && static_cast<std::size_t>(event->target) < midiEvents.size())
+            midiEvents[static_cast<std::size_t>(event->target)].push_back(*event);
 }
 
 void RecordingController::stop()
@@ -152,9 +189,10 @@ std::optional<RecordingOutcome> RecordingController::update()
     const auto status = engine.getRecordingStatus();
     const bool capturing = status.state == engine::RecordingState::starting ||
                            status.state == engine::RecordingState::recording;
+    drainMidi();
 
     // Problems end the recording; what was captured is kept.
-    if (capturing)
+    if (capturing && writer != nullptr)
     {
         const auto writerProblem = writer->getProblem();
         if (writerProblem == engine::io::RecordingWriter::Problem::lowDiskSpace)
@@ -180,20 +218,25 @@ std::optional<RecordingOutcome> RecordingController::update()
     // Everything captured is in the FIFOs: the writer can complete the files.
     if (discarding)
     {
-        writer->discard();
+        if (writer != nullptr)
+            writer->discard();
         RecordingOutcome outcome;
         reset();
         return outcome;
     }
 
-    if (!finishRequested)
+    if (writer != nullptr && !finishRequested)
     {
         writer->finish();
         finishRequested = true;
     }
 
-    if (!writer->isFinished())
+    if (writer != nullptr && !writer->isFinished())
         return std::nullopt;
+
+    drainMidi();
+    if (status.midiOverrun && problem.isEmpty())
+        problem = "Some MIDI was lost while recording: too much arrived at once.";
 
     RecordingOutcome outcome;
     outcome.problem = problem;
@@ -206,7 +249,9 @@ std::optional<RecordingOutcome> RecordingController::update()
     outcome.keepEnd = std::min(punches ? std::min(request.punchOut, stopPosition) : stopPosition,
                                endOfCapture);
 
-    for (int index = 0; index < writer->getNumFiles(); ++index)
+    outcome.stopPosition = stopPosition;
+
+    for (int index = 0; writer != nullptr && index < writer->getNumFiles(); ++index)
     {
         RecordedTake take;
         take.trackId = setup->targets[static_cast<std::size_t>(index)].trackId;
@@ -216,8 +261,23 @@ std::optional<RecordingOutcome> RecordingController::update()
         outcome.takes.push_back(take);
     }
 
+    for (std::size_t index = 0; index < request.midiTracks.size(); ++index)
+        outcome.midiTakes.push_back(
+            {request.midiTracks[index].trackId, status.firstPosition, std::move(midiEvents[index])});
+
     reset();
     return outcome;
+}
+
+std::vector<RecordedMidiTake> RecordingController::getLiveMidiTakes() const
+{
+    std::vector<RecordedMidiTake> takes;
+    if (!isActive())
+        return takes;
+    for (std::size_t index = 0; index < request.midiTracks.size(); ++index)
+        takes.push_back({request.midiTracks[index].trackId,
+                         setup->startPosition - setup->countInLength, midiEvents[index]});
+    return takes;
 }
 
 RecordingController::State RecordingController::getState() const
@@ -248,7 +308,7 @@ double RecordingController::getSecondsLeft() const
 std::vector<RecordingController::LiveTake> RecordingController::getLiveTakes() const
 {
     std::vector<LiveTake> takes;
-    if (!isActive())
+    if (writer == nullptr)
         return takes;
 
     const bool punches = request.punchOut > request.punchIn;
@@ -279,6 +339,8 @@ void RecordingController::reset()
 {
     writer.reset();
     setup.reset();
+    midiQueue.reset();
+    midiEvents.clear();
     stopRequested = false;
     finishRequested = false;
     discarding = false;

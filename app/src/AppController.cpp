@@ -8,6 +8,7 @@ namespace daw::app
 namespace
 {
 constexpr const char* deviceStateKey = "audioDevice";
+constexpr const char* midiInputsOffKey = "midiInputsOff";
 constexpr const char* appearanceKey = "appearance";
 constexpr int updateRateHz = 60;
 } // namespace
@@ -46,6 +47,13 @@ AppController::AppController(const juce::String& name)
         deviceHost.initialise(savedDevice.get(), access == MicrophoneAccess::Status::granted);
     deviceHost.getDeviceManager().addChangeListener(this);
     deviceChanged();
+
+    // Every MIDI input is listened to, also those plugged in later, unless the user
+    // switched it off in the device settings.
+    deviceHost.onMidiDevicesChanged = [this] { midiDevicesChanged(); };
+    deviceHost.openMidiInputs(juce::StringArray::fromLines(
+        settings.getUserSettings()->getValue(midiInputsOffKey)));
+    midiDevicesChanged();
 
     window = std::make_unique<ui::desktop::MainWindow>(applicationName, session,
                                                        deviceHost.getDeviceManager(), *themes);
@@ -101,10 +109,17 @@ void AppController::updateWindowTitle()
 void AppController::saveDeviceState()
 {
     if (const auto state = deviceHost.getDeviceManager().createStateXml())
-    {
         settings.getUserSettings()->setValue(deviceStateKey, state.get());
-        settings.saveIfNeeded();
-    }
+    settings.getUserSettings()->setValue(midiInputsOffKey,
+                                         deviceHost.getMidiInputsSwitchedOff().joinIntoString("\n"));
+    settings.saveIfNeeded();
+}
+
+void AppController::midiDevicesChanged()
+{
+    session.setMidiInputDevices(deviceHost.getMidiInputNames(), [this](const juce::String& name) {
+        return deviceHost.findMidiInput(name);
+    });
 }
 
 ui::desktop::MainComponent& AppController::view()
@@ -114,10 +129,12 @@ ui::desktop::MainComponent& AppController::view()
 
 void AppController::changeListenerCallback(juce::ChangeBroadcaster*)
 {
-    // The device changed (chosen by the user, or unplugged): remember the choice, and
-    // convert the audio again if the sample rate changed.
+    // The device changed (chosen by the user, or unplugged; or a MIDI input switched on
+    // or off): remember the choice, and convert the audio again if the sample rate
+    // changed.
     saveDeviceState();
     deviceChanged();
+    midiDevicesChanged();
 }
 
 void AppController::deviceChanged()

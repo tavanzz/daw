@@ -122,6 +122,12 @@ MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
         gains.outputDelay = meeting - gains.latency;
         gains.output.prepare(2, gains.outputDelay);
         gains.output.setDelay(gains.outputDelay);
+        if (track.playsNotes)
+        {
+            gains.notes = std::make_unique<NotePlayback>();
+            gains.live = std::make_unique<midi::LiveNotes>();
+            gains.previews = std::make_unique<midi::LiveNotes>();
+        }
 
         gains.sends.resize(track.sends.size());
         for (std::size_t k = 0; k < track.sends.size(); ++k)
@@ -188,6 +194,12 @@ void MixState::continueFrom(MixState& previous, const Arrangement& previousArran
         gains.left.setTarget(track.leftGain, rampLength);
         gains.right.setTarget(track.rightGain, rampLength);
         gains.output.adopt(old.output);
+        if (gains.notes != nullptr && old.notes != nullptr)
+        {
+            gains.notes->adopt(*old.notes, track);
+            gains.live->adopt(*old.live);
+            gains.previews->adopt(*old.previews);
+        }
 
         for (std::size_t k = 0; k < track.sends.size(); ++k)
         {
@@ -296,6 +308,7 @@ void Mixer::prepare(double sampleRate, int maximumBlockSize)
                            0.0f);
     automationPointers.assign(1024, nullptr);
     effectScratch.prepare(maximumBlockSize);
+    noteEvents.prepare();
 }
 
 void Mixer::render(const Arrangement& arrangement, MixState& state, juce::int64 timelineStart,
@@ -485,8 +498,12 @@ bool Mixer::renderTrack(const Arrangement& arrangement, const ArrangementTrack& 
         gains.input.skip(numSamples);
     }
 
+    if (gains.notes != nullptr)
+        gatherNotes(track, gains, timelineStart, numSamples, context, vanishing);
+
     if (hasEffects)
-        processChain(track.inserts, arrangement, channels, numSamples, timelineStart, context, 0);
+        processChain(track.inserts, arrangement, channels, numSamples, timelineStart, context, 0,
+                     gains.notes != nullptr ? noteEvents.events() : midi::EventSpan{});
 
     if (vanishing)
     {
@@ -623,9 +640,53 @@ void Mixer::crossfadeClips(const ArrangementTrack* before, juce::int64 timelineS
     }
 }
 
+void Mixer::gatherNotes(const ArrangementTrack& track, MixState::TrackGains& gains,
+                        juce::int64 timelineStart, int numSamples, const MixContext& context,
+                        bool vanishing) noexcept
+{
+    noteEvents.clear();
+
+    // Notes play while the timeline runs at full level or fades in; a fade-out
+    // (stop, pause, a seek) ends them where it starts.
+    if (context.timelineRunning && context.fade.step >= 0 && !vanishing)
+        gains.notes->play(track, timelineStart, numSamples, noteEvents);
+    else
+        gains.notes->stop(0, noteEvents);
+
+    // Live input while monitoring says so; previews always, until the track goes.
+    const bool listens = !vanishing && (track.monitoring == InputMonitoring::on ||
+                                        (track.monitoring == InputMonitoring::automatic &&
+                                         track.armed));
+    if (!listens || context.liveRestarts)
+        gains.live->releaseAll(0, noteEvents);
+    if (vanishing)
+        gains.previews->releaseAll(0, noteEvents);
+
+    for (const auto& live : context.live)
+    {
+        const int offset = live.event.offset - context.inputOffset;
+        if (offset < 0 || offset >= numSamples)
+            continue;
+
+        auto event = live.event;
+        event.offset = offset;
+        if (live.device < 0)
+        {
+            if (live.track == track.id && !vanishing)
+                gains.previews->receive(event, noteEvents);
+        }
+        else if (listens && track.midiInput.accepts(live))
+        {
+            gains.live->receive(event, noteEvents);
+        }
+    }
+
+    noteEvents.sort();
+}
+
 void Mixer::processChain(const EffectChain& chain, const Arrangement& arrangement,
                          float* const* channels, int numSamples, juce::int64 timelineStart,
-                         const MixContext& context, int latency) noexcept
+                         const MixContext& context, int latency, midi::EventSpan events) noexcept
 {
     for (const auto& slot : chain.slots)
     {
@@ -668,10 +729,15 @@ void Mixer::processChain(const EffectChain& chain, const Arrangement& arrangemen
             slotContext.automation = std::span<const float* const>(automationPointers.data(), count);
         }
 
+        // The notes go to the instruments (the one at the head of the chain, and one
+        // being replaced while it fades out); effects ignore them.
+        slotContext.events = events;
+
         fx::SlotSettings settings;
         settings.parameters = slot.parameters;
         settings.enabled = slot.enabled;
         settings.revival = slot.revival;
+        settings.samples = slot.samplePointers;
         slot.instance->process(channels, numSamples, settings, slotContext, effectScratch);
 
         latency += slot.instance->getLatency();

@@ -16,6 +16,11 @@ add_executable(daw_tests
     controller/ArrangementBuilderTests.cpp
     controller/AutomationEditingTests.cpp
     controller/EffectSessionTests.cpp
+    controller/MidiArrangementTests.cpp
+    controller/MidiEditingTests.cpp
+    controller/MidiFileTests.cpp
+    controller/MidiRecordingSessionTests.cpp
+    controller/NoteEditingTests.cpp
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp
@@ -29,23 +34,32 @@ add_executable(daw_tests
     engine/BusTests.cpp
     engine/DelayTests.cpp
     engine/DiskStreamerTests.cpp
+    engine/DrumSamplerTests.cpp
     engine/DynamicsTests.cpp
     engine/EffectChainTests.cpp
     engine/EffectHostTests.cpp
     engine/EngineTests.cpp
     engine/EqualiserTests.cpp
+    engine/HangingNoteTests.cpp
+    engine/InstrumentHostTests.cpp
     engine/LatencyCompensationTests.cpp
     engine/LatencyProbeTests.cpp
     engine/MeterTests.cpp
     engine/MetronomeTests.cpp
+    engine/MidiEventTests.cpp
+    engine/MidiInputTests.cpp
+    engine/MidiPlaybackTests.cpp
+    engine/MidiRecordingTests.cpp
     engine/MixerTests.cpp
     engine/MonitoringTests.cpp
     engine/RecorderTests.cpp
     engine/RecordingWriterTests.cpp
+    engine/SamplerTests.cpp
     engine/ResamplerTests.cpp
     engine/ReverbTests.cpp
     engine/SourcePoolTests.cpp
     engine/SpscQueueTests.cpp
+    engine/SynthTests.cpp
     engine/TransportTests.cpp
     engine/WavRepairTests.cpp
     engine/WaveformPeaksTests.cpp
@@ -67,6 +81,7 @@ add_executable(daw_ui_tests
     support/WindowManagerAtoms.cpp
     ui/AlertsTests.cpp
     ui/AnimationClockTests.cpp
+    ui/MidiUiTests.cpp
     ui/PanelsTests.cpp
     ui/PrerenderedImagesTests.cpp
     ui/ThemeManagerTests.cpp
@@ -85,7 +100,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # Not tests: measure how many tracks fit in an audio callback, how many stream
-# from disk and record at once, and what effects cost (see the sources).
+# from disk and record at once, what effects cost and what instruments cost per
+# voice (see the sources).
 add_executable(daw_bench bench/MixBenchmark.cpp)
 target_link_libraries(daw_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_bench)
@@ -97,6 +113,10 @@ daw_enable_warnings(daw_stream_bench)
 add_executable(daw_fx_bench bench/EffectBenchmark.cpp)
 target_link_libraries(daw_fx_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_fx_bench)
+
+add_executable(daw_instrument_bench bench/InstrumentBenchmark.cpp)
+target_link_libraries(daw_instrument_bench PRIVATE daw::engine)
+daw_enable_warnings(daw_instrument_bench)
 
 # The interface's cost per theme and animation level, in a window of its own (an app,
 # so that the system draws it as it draws the real one). See the source.

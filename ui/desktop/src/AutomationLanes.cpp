@@ -128,6 +128,32 @@ void AutomationLanes::showTargetMenu(controller::Session& session, const control
             }
         }
 
+    // A MIDI track's instrument: its parameters by section (the synth has many).
+    if (owner.kind == controller::ChainOwner::Kind::track)
+        if (const int t = project.indexOfTrack(owner.id); t >= 0)
+            if (const auto instrument = project.getTrack(t).getInstrument())
+                if (const auto description = describe(session, instrument->getId()))
+                {
+                    juce::PopupMenu sub;
+                    juce::StringArray groups;
+                    for (const auto& info : description->parameters)
+                        if (info.automatable)
+                            groups.addIfNotAlreadyThere(info.group);
+                    for (const auto& group : groups)
+                    {
+                        juce::PopupMenu section;
+                        for (const auto& info : description->parameters)
+                            if (info.automatable && info.group == group)
+                                add(section, info.name,
+                                    model::AutomationTarget::effectParameter(instrument->getId(), info.id));
+                        if (groups.size() == 1)
+                            sub = section;
+                        else
+                            sub.addSubMenu(group.isEmpty() ? juce::String("Other") : group, section);
+                    }
+                    menu.addSubMenu("Instrument: " + effectTypeName(instrument->getType()), sub);
+                }
+
     const auto effects = session.getEffects(owner);
     for (int e = 0; e < effects.getNumEffects(); ++e)
     {

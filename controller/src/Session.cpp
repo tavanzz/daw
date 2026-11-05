@@ -2,6 +2,8 @@
 
 #include "daw/controller/ArrangementBuilder.h"
 #include "daw/controller/AutomationEditing.h"
+#include "daw/controller/MidiFiles.h"
+#include "daw/controller/MidiTakes.h"
 #include "daw/controller/TempoBeatGrid.h"
 #include "daw/controller/TimelineViewport.h"
 #include "daw/engine/io/WavRepair.h"
@@ -21,8 +23,12 @@ Session::Session(engine::Engine& engineToDrive, SessionOptions sessionOptions)
               engine::io::StreamingOptions{options.streaming, &engine.getRenderClock(),
                                            options.streamingMemory, true})
 {
+    effectInstances.setFactory(options.effects);
     if (engine.getSampleRate() > 0.0)
+    {
         sources.setSampleRate(engine.getSampleRate());
+        instrumentSamples.setSampleRate(engine.getSampleRate());
+    }
 
     // The read-ahead follows the engine's playhead (atomics: safe from its thread).
     sources.followPlayhead([&playing = engine, &cue = seekCue] {
@@ -56,6 +62,11 @@ void Session::update()
         latencyResult = std::move(result);
 
     sources.collectFinishedLoads();
+    if (instrumentSamples.collectFinished())
+    {
+        arrangementOutOfDate = true;
+        ++revision;
+    }
 
     // Also when something removed has faded out long enough to go.
     if (arrangementOutOfDate ||
@@ -89,7 +100,8 @@ void Session::streamingTick()
 
 bool Session::waitForLoads(int timeoutMilliseconds)
 {
-    const bool idle = sources.waitForLoads(timeoutMilliseconds);
+    const bool idle = sources.waitForLoads(timeoutMilliseconds) &&
+                      instrumentSamples.waitForLoads(timeoutMilliseconds);
     update();
     return idle;
 }
@@ -108,6 +120,7 @@ void Session::setSampleRate(double sampleRate)
         return;
 
     sources.setSampleRate(sampleRate);
+    instrumentSamples.setSampleRate(sampleRate);
     effectInstances.prepare(sampleRate, effectBlockSize);
     freshEffects = true;
     fadeOutKeeper.clear();
@@ -296,6 +309,7 @@ void Session::replaceProject(model::Project newProject)
     inGesture = false;
     unsavedChanges = false;
     sources.clear();
+    instrumentSamples.clear();
     meters.clear();
     effectInstances.clear();
     fadeOutKeeper.clear();
@@ -305,6 +319,7 @@ void Session::replaceProject(model::Project newProject)
     engine.setLooping(project.isLoopEnabled());
 
     requestAllSources();
+    instrumentSamples.requestAll(project);
     arrangementOutOfDate = true;
     ++revision;
 }
@@ -399,6 +414,74 @@ model::ObjectId Session::addTrack(const juce::String& name)
     return project.addTrack(trackName, &undoManager).getId();
 }
 
+model::ObjectId Session::addMidiTrack(const juce::String& name, const juce::String& instrumentType)
+{
+    startEdit("Add MIDI Track");
+    const auto trackName =
+        name.isNotEmpty() ? name : "MIDI " + juce::String(project.getNumTracks() + 1);
+    auto track = project.addTrack(trackName, model::TrackKind::midi, &undoManager);
+    if (isInstrumentType(instrumentType))
+        track.setInstrument(instrumentType, {}, &undoManager);
+    return track.getId();
+}
+
+void Session::setTrackMidiInput(model::ObjectId trackId, const model::MidiInput& input)
+{
+    if (auto track = findTrack(trackId); track && track->isMidi() && track->getMidiInput() != input)
+    {
+        startEdit("MIDI Input");
+        track->setMidiInput(input, &undoManager);
+    }
+}
+
+void Session::setTrackMidiChannel(model::ObjectId trackId, int channel)
+{
+    if (auto track = findTrack(trackId); track && track->isMidi() && track->getMidiChannel() != channel)
+    {
+        startEdit("MIDI Channel");
+        track->setMidiChannel(channel, &undoManager);
+    }
+}
+
+bool Session::isInstrumentType(const juce::String& type) const
+{
+    if (type.isEmpty())
+        return false;
+    const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
+                                                     false, effectInstances.getFactory());
+    return probe != nullptr && probe->getDescription().isInstrument;
+}
+
+model::ObjectId Session::setInstrument(model::ObjectId trackId, const juce::String& type)
+{
+    auto track = findTrack(trackId);
+    if (!track || !track->isMidi() || !isInstrumentType(type))
+        return 0;
+
+    const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
+                                                     false, effectInstances.getFactory());
+    const auto old = track->getInstrument();
+    const auto oldInstance = old ? effectInstances.find(old->getId()) : nullptr;
+    if (refusesLatencyChange(std::max(probe->getLatency(),
+                                      oldInstance != nullptr ? oldInstance->getLatency() : 0)))
+        return 0;
+
+    startEdit("Instrument: " + probe->getDescription().name);
+    return track->setInstrument(type, {}, &undoManager).getId();
+}
+
+void Session::removeInstrument(model::ObjectId trackId)
+{
+    if (auto track = findTrack(trackId); track && track->getInstrument())
+    {
+        const auto instance = effectInstances.find(track->getInstrument()->getId());
+        if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
+            return;
+        startEdit("Remove Instrument");
+        track->removeInstrument(&undoManager);
+    }
+}
+
 void Session::removeTrack(model::ObjectId trackId)
 {
     if (const int index = project.indexOfTrack(trackId); index >= 0)
@@ -486,8 +569,9 @@ std::vector<model::ObjectId> Session::importAudio(const juce::Array<juce::File>&
         return clipIds;
 
     startEdit(files.size() == 1 ? "Import Audio File" : "Import Audio Files");
-    const bool onExistingTrack =
-        files.size() == 1 && ontoTrack && project.indexOfTrack(*ontoTrack) >= 0;
+    const bool onExistingTrack = files.size() == 1 && ontoTrack &&
+                                 project.indexOfTrack(*ontoTrack) >= 0 &&
+                                 !project.getTrack(project.indexOfTrack(*ontoTrack)).isMidi();
 
     for (const auto& file : files)
     {
@@ -504,6 +588,60 @@ std::vector<model::ObjectId> Session::importAudio(const juce::Array<juce::File>&
     return clipIds;
 }
 
+Session::MidiImport Session::importMidi(const juce::File& file, model::Ticks position)
+{
+    MidiImport import;
+    MidiFileContent content;
+    import.result = readMidiFile(file, project.getTempoMap(), content);
+    if (import.result.failed())
+        return import;
+    if (content.parts.empty())
+    {
+        import.result = juce::Result::fail("\"" + file.getFileName() + "\" has no notes.");
+        return import;
+    }
+
+    startEdit("Import MIDI File");
+
+    // An empty project takes the file's tempo and metre; the positions follow them.
+    if (project.getNumTracks() == 0 && (content.hasTempo || content.hasTimeSignature))
+    {
+        if (content.hasTempo)
+            project.setTempo(content.tempo, &undoManager);
+        if (content.hasTimeSignature)
+            project.setTimeSignature(content.timeSignature, &undoManager);
+        [[maybe_unused]] const auto again = readMidiFile(file, project.getTempoMap(), content);
+    }
+
+    const auto tempoMap = project.getTempoMap();
+    position = std::max(model::Ticks{0}, position);
+    for (auto& part : content.parts)
+    {
+        auto track = project.addTrack(part.name, model::TrackKind::midi, &undoManager);
+        track.setMidiChannel(part.channel, &undoManager);
+        const juce::String instrument = part.channel == 10 ? "drums" : defaultInstrument;
+        if (isInstrumentType(instrument))
+            track.setInstrument(instrument, {}, &undoManager);
+
+        // To the bar line after its end.
+        const auto end = position + std::max(model::Ticks{1}, part.end);
+        const auto barEnd = tempoMap.barStart(tempoMap.barAt(end - 1) + 1);
+        track.addMidiClip(part.name, {position, 0, barEnd - position}, std::move(part.notes),
+                          std::move(part.controllers), &undoManager);
+        import.trackIds.push_back(track.getId());
+    }
+    import.leftOut = content.leftOut;
+    return import;
+}
+
+juce::Result Session::exportMidi(const juce::File& file, int type) const
+{
+    const auto bytes = writeMidiFile(project, type);
+    if (!file.replaceWithData(bytes.getData(), bytes.getSize()))
+        return juce::Result::fail("\"" + file.getFileName() + "\" could not be written.");
+    return juce::Result::ok();
+}
+
 void Session::moveClip(model::ObjectId clipId, model::ObjectId toTrackId, model::Ticks position)
 {
     const int trackIndex = project.indexOfTrack(toTrackId);
@@ -512,6 +650,9 @@ void Session::moveClip(model::ObjectId clipId, model::ObjectId toTrackId, model:
         return;
 
     const auto track = project.getTrack(location->trackIndex);
+    if (track.getKind() != project.getTrack(trackIndex).getKind())
+        return; // audio clips go on audio tracks, MIDI clips on MIDI tracks
+
     const bool onTop = location->clipIndex == track.getNumClips() - 1;
     if (location->trackIndex == trackIndex && onTop &&
         track.getClip(location->clipIndex).getPosition() == position)
@@ -544,6 +685,143 @@ void Session::deleteClips(const std::vector<model::ObjectId>& clipIds)
             startEdit(clipIds.size() == 1 ? "Delete Clip" : "Delete Clips");
         started = true;
         project.removeClip(clipId, &undoManager);
+    }
+}
+
+std::vector<model::ObjectId> Session::duplicateClips(const std::vector<model::ObjectId>& clipIds)
+{
+    std::vector<model::ObjectId> copies;
+    bool started = false;
+    for (const auto clipId : clipIds)
+    {
+        const auto location = project.findClip(clipId);
+        if (!location)
+            continue;
+        auto track = project.getTrack(location->trackIndex);
+        const auto clip = track.getClip(location->clipIndex);
+        const auto end = clip.getEnd();
+        if (!end)
+            continue; // its length is not known yet
+
+        if (!started)
+            startEdit(clipIds.size() == 1 ? "Duplicate Clip" : "Duplicate Clips");
+        started = true;
+        copies.push_back(track.addCopyOf(clip, *end, &undoManager).getId());
+    }
+    return copies;
+}
+
+model::ObjectId Session::copyClip(model::ObjectId clipId, model::ObjectId toTrackId,
+                                  model::Ticks position)
+{
+    const auto location = project.findClip(clipId);
+    const int trackIndex = project.indexOfTrack(toTrackId);
+    if (!location || trackIndex < 0)
+        return 0;
+
+    auto track = project.getTrack(trackIndex);
+    const auto clip = project.getTrack(location->trackIndex).getClip(location->clipIndex);
+    if (track.getKind() != project.getTrack(location->trackIndex).getKind())
+        return 0;
+
+    startEdit("Copy Clip");
+    return track.addCopyOf(clip, std::max(model::Ticks{0}, position), &undoManager).getId();
+}
+
+model::ObjectId Session::addMidiClip(model::ObjectId trackId, model::Ticks position,
+                                     model::Ticks length)
+{
+    auto track = findTrack(trackId);
+    if (!track || !track->isMidi())
+        return 0;
+
+    startEdit("New MIDI Clip");
+    return track
+        ->addMidiClip(track->getName(),
+                      {std::max(model::Ticks{0}, position), 0, std::max(model::Clip::minimumLength, length)},
+                      {}, {}, &undoManager)
+        .getId();
+}
+
+void Session::renameClip(model::ObjectId clipId, const juce::String& name)
+{
+    if (const auto location = project.findClip(clipId))
+    {
+        auto clip = project.getTrack(location->trackIndex).getClip(location->clipIndex);
+        if (clip.isMidi() && clip.getName() != name)
+        {
+            startEdit("Rename Clip");
+            clip.setName(name, &undoManager);
+        }
+    }
+}
+
+std::optional<model::MidiClip> Session::findMidiClip(model::ObjectId clipId) const
+{
+    if (const auto location = project.findClip(clipId))
+        if (const auto clip = project.getTrack(location->trackIndex).getClip(location->clipIndex);
+            clip.isMidi())
+            return model::MidiClip(clip.getState());
+    return std::nullopt;
+}
+
+void Session::setNotes(model::ObjectId clipId, std::vector<model::Note> notes,
+                       const juce::String& actionName)
+{
+    if (auto clip = findMidiClip(clipId))
+    {
+        model::normalise(notes);
+        if (notes == clip->getNotes())
+            return;
+        startEdit(actionName);
+        clip->setNotes(std::move(notes), &undoManager);
+    }
+}
+
+std::int32_t Session::addNote(model::ObjectId clipId, model::Note note)
+{
+    auto clip = findMidiClip(clipId);
+    if (!clip)
+        return 0;
+
+    auto notes = clip->getNotes();
+    std::int32_t largest = 0;
+    for (const auto& existing : notes)
+        largest = std::max(largest, existing.id);
+    note.id = largest + 1;
+    notes.push_back(note);
+    setNotes(clipId, std::move(notes), "Add Note");
+    return note.id;
+}
+
+void Session::removeNotes(model::ObjectId clipId, const std::vector<std::int32_t>& noteIds)
+{
+    if (const auto clip = findMidiClip(clipId))
+    {
+        auto notes = clip->getNotes();
+        notes.erase(std::remove_if(notes.begin(), notes.end(),
+                                   [&noteIds](const model::Note& note) {
+                                       return std::find(noteIds.begin(), noteIds.end(), note.id) !=
+                                              noteIds.end();
+                                   }),
+                    notes.end());
+        setNotes(clipId, std::move(notes), noteIds.size() == 1 ? "Delete Note" : "Delete Notes");
+    }
+}
+
+void Session::setControllerEvents(model::ObjectId clipId, const model::ControllerType& type,
+                                  std::vector<model::ControllerEvent> events,
+                                  const juce::String& actionName)
+{
+    if (auto clip = findMidiClip(clipId))
+    {
+        for (auto& event : events)
+            event.type = type;
+        model::normalise(events);
+        if (events == clip->getControllerEvents(type))
+            return;
+        startEdit(actionName);
+        clip->setControllerEvents(type, std::move(events), &undoManager);
     }
 }
 
@@ -583,11 +861,11 @@ void Session::setGridDivision(model::GridDivision division)
 
 bool Session::setTrackArmed(model::ObjectId trackId, bool armed)
 {
-    if (armed && inputAccess == InputAccess::denied)
-        return false;
-
     if (auto track = findTrack(trackId))
     {
+        // MIDI needs no microphone permission.
+        if (armed && inputAccess == InputAccess::denied && !track->isMidi())
+            return false;
         track->setArmed(armed);
         return true;
     }
@@ -692,25 +970,33 @@ juce::Result Session::record()
         return juce::Result::fail("A recording is already running.");
     if (latencyMeasurement.isRunning())
         return juce::Result::fail("Wait for the latency measurement to finish.");
-    if (inputAccess == InputAccess::denied)
-        return juce::Result::fail(microphoneDeniedMessage);
-    if (projectFile == juce::File())
-        return juce::Result::fail("Save the project first: recordings go into its folder.");
 
     const double rate = engineRate();
     RecordingRequest request;
-    request.folder = projectFile.getParentDirectory().getChildFile(recordingsFolderName);
     request.sampleRate = rate;
     request.bitsPerSample = project.getRecordingBitsPerSample();
     request.latency = getRecordingLatency();
+    request.midiLatency = deviceOutputLatency;
 
     for (int t = 0; t < project.getNumTracks(); ++t)
     {
         const auto track = project.getTrack(t);
         const auto input = track.getInput();
-        if (track.isArmed() && !input.isNone())
+        if (track.isArmed() && track.isMidi())
+            request.midiTracks.push_back({track.getId(), midiFilterOf(track)});
+        else if (track.isArmed() && !input.isNone())
             request.tracks.push_back(
                 {track.getId(), track.getName(), input.channel, input.getNumChannels()});
+    }
+
+    // Audio needs the microphone and a folder for its files; MIDI neither.
+    if (!request.tracks.empty() || request.midiTracks.empty())
+    {
+        if (inputAccess == InputAccess::denied)
+            return juce::Result::fail(microphoneDeniedMessage);
+        if (projectFile == juce::File())
+            return juce::Result::fail("Save the project first: recordings go into its folder.");
+        request.folder = projectFile.getParentDirectory().getChildFile(recordingsFolderName);
     }
 
     const auto start = getPlayhead();
@@ -762,6 +1048,25 @@ void Session::discardRecording()
 juce::String Session::takeRecordingProblem()
 {
     return std::exchange(recordingProblem, {});
+}
+
+void Session::setMidiInputDevices(juce::StringArray names, MidiDeviceLookup lookup)
+{
+    midiInputNames = std::move(names);
+    midiDevices = std::move(lookup);
+    arrangementOutOfDate = true;
+    ++revision;
+}
+
+void Session::startNotePreview(model::ObjectId trackId, int key, int velocity)
+{
+    if (const auto track = findTrack(trackId); track && track->isMidi())
+        engine.startPreview(trackId, key, engine::midi::fromSevenBit(std::clamp(velocity, 1, 127)));
+}
+
+void Session::stopNotePreview(model::ObjectId trackId, int key)
+{
+    engine.stopPreview(trackId, key);
 }
 
 void Session::setDeviceLatency(int inputSamples, int outputSamples)
@@ -838,9 +1143,43 @@ void Session::addRecording(const RecordingOutcome& outcome)
             }
     }
 
+    // MIDI takes become MIDI clips over what the recording kept; the notes before
+    // and after stay in them, hidden, as handles. A take with nothing in it adds none.
+    for (const auto& take : outcome.midiTakes)
+    {
+        auto track = findTrack(take.trackId);
+        const auto content = midiTakeContent(take, outcome.stopPosition, rate);
+        const auto start = std::max({outcome.keepStart, take.firstPosition, juce::int64{0}});
+        if (!track || !track->isMidi() || content.isEmpty() || outcome.keepEnd <= start)
+            continue;
+
+        if (!started)
+            startEdit("Record");
+        started = true;
+
+        const auto position = model::samplesToTicks(start, rate);
+        const auto offset = position - model::samplesToTicks(take.firstPosition, rate);
+        const auto length = model::samplesToTicks(outcome.keepEnd, rate) - position;
+        track->addMidiClip(track->getName(), {position, offset, length}, content.notes,
+                           content.controllers, &undoManager);
+    }
+
     // Takes that were discarded or kept nothing are gone from the disk.
     std::erase_if(journal, [](const JournalEntry& entry) { return !entry.file.existsAsFile(); });
     writeJournal();
+}
+
+engine::midi::InputFilter Session::midiFilterOf(const model::Track& track) const
+{
+    engine::midi::InputFilter filter;
+    const auto input = track.getMidiInput();
+    filter.channel = input.channel - 1;
+    if (input.device.isNotEmpty() && midiDevices)
+    {
+        const int device = midiDevices(input.device);
+        filter.device = device >= 0 ? device : engine::midi::InputFilter::noDevice;
+    }
+    return filter;
 }
 
 void Session::seek(model::Ticks position)
@@ -868,7 +1207,8 @@ void Session::requestAllSources()
     {
         const auto track = project.getTrack(t);
         for (int c = 0; c < track.getNumClips(); ++c)
-            sources.request(track.getClip(c).getAudioFile());
+            if (const auto clip = track.getClip(c); !clip.isMidi())
+                sources.request(clip.getAudioFile());
     }
 }
 
@@ -910,12 +1250,18 @@ void Session::rebuildArrangement()
     };
     const auto meterFor = [this](model::ObjectId trackId) { return getTrackMeter(trackId); };
     const bool fadeIn = !freshEffects;
-    const auto effectsFor = [this, fadeIn](const ChainOwner& owner, const model::EffectList& list) {
-        return effectInstances.chainFor(owner, list, fadeIn);
+    const auto effectsFor = [this, fadeIn](const ChainOwner& owner,
+                                           const std::vector<model::Effect>& chain) {
+        return effectInstances.chainFor(owner, chain, fadeIn);
     };
 
-    auto arrangement =
-        buildArrangement(project, sources.getSampleRate(), lookup, meterFor, effectsFor);
+    const auto samplesFor = [this](const juce::File& file) {
+        instrumentSamples.request(file);
+        return instrumentSamples.find(file);
+    };
+
+    auto arrangement = buildArrangement(project, sources.getSampleRate(), lookup, meterFor,
+                                        effectsFor, midiDevices, samplesFor);
     effectInstances.forgetUnused();
     freshEffects = false;
 
@@ -985,13 +1331,23 @@ std::optional<EffectLocation> Session::findEffect(model::ObjectId effectId) cons
     }
     if (const int index = project.getMasterEffects().indexOf(effectId); index >= 0)
         return EffectLocation{ChainOwner::master(), index};
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        const auto track = project.getTrack(t);
+        if (const auto instrument = track.getInstrument(); instrument && instrument->getId() == effectId)
+            return EffectLocation{ChainOwner::track(track.getId()), -1};
+    }
     return std::nullopt;
 }
 
 std::optional<model::Effect> Session::getEffect(model::ObjectId effectId) const
 {
     if (const auto location = findEffect(effectId))
+    {
+        if (location->isInstrument())
+            return findTrack(location->owner.id)->getInstrument();
         return getEffects(location->owner).getEffect(location->index);
+    }
     return std::nullopt;
 }
 
@@ -1019,8 +1375,9 @@ model::ObjectId Session::addEffect(const ChainOwner& owner, const juce::String& 
                              (owner.kind == ChainOwner::Kind::track && findTrack(owner.id)) ||
                              (owner.kind == ChainOwner::Kind::bus && findBus(owner.id));
     const auto probe = EffectInstances::makeInstance(type, sources.getSampleRate(), effectBlockSize,
-                                                     false);
-    if (!ownerExists || probe == nullptr || refusesLatencyChange(probe->getLatency()))
+                                                     false, effectInstances.getFactory());
+    if (!ownerExists || probe == nullptr || probe->getDescription().isInstrument ||
+        refusesLatencyChange(probe->getLatency()))
         return 0;
 
     // Delay and reverb on a bus: the bus carries only the effect, fully wet.
@@ -1038,6 +1395,11 @@ bool Session::removeEffect(model::ObjectId effectId)
     const auto location = findEffect(effectId);
     if (!location)
         return false;
+    if (location->isInstrument())
+    {
+        removeInstrument(location->owner.id);
+        return true;
+    }
 
     const auto instance = effectInstances.find(effectId);
     if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
@@ -1051,7 +1413,7 @@ bool Session::removeEffect(model::ObjectId effectId)
 bool Session::moveEffect(model::ObjectId effectId, int toIndex)
 {
     const auto location = findEffect(effectId);
-    if (!location || location->index == toIndex)
+    if (!location || location->isInstrument() || location->index == toIndex)
         return false;
 
     const auto instance = effectInstances.find(effectId);
@@ -1081,6 +1443,17 @@ void Session::setEffectParameter(model::ObjectId effectId, const juce::String& p
     {
         startEdit("Change " + parameterId);
         effect->setParameter(parameterId, value, &undoManager);
+    }
+}
+
+void Session::setInstrumentFile(model::ObjectId effectId, const juce::String& key,
+                                const juce::File& file)
+{
+    if (auto effect = getEffect(effectId); effect && effect->getFile(key) != file)
+    {
+        startEdit(file == juce::File() ? "Remove Sample" : "Load Sample");
+        effect->setFile(key, file, &undoManager);
+        instrumentSamples.request(file);
     }
 }
 

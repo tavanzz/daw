@@ -29,7 +29,7 @@ constexpr std::array indicators{record,  mute,   solo,      clip,     automation
 constexpr std::array indicatorSurfaces{panel, lane, laneAlt};
 
 constexpr std::array timelineMarks{playhead, selection, loop};
-constexpr std::array timelineSurfaces{lane, laneAlt, panel, panelAlt};
+constexpr std::array timelineSurfaces{lane, laneAlt, panel, panelAlt, keyRow};
 
 constexpr std::array outlines{outline, focus};
 constexpr std::array outlineSurfaces{window, panel, raised};
@@ -52,12 +52,16 @@ std::vector<ColourPair> makeColourPairs()
     add(outlines, outlineSurfaces, graphicKind);
     add(std::array{peakHold}, std::array{meterTrack}, graphicKind);
     add(std::array{curve, gainReduction}, std::array{inset, panel}, graphicKind);
+    add(std::array{loop, highlight}, std::array{inset}, graphicKind); // sample markers
+    add(std::array{selection}, std::array{raised}, graphicKind); // a selected drum pad
+    add(std::array{keyBlack}, std::array{keyWhite}, graphicKind);
+    add(std::array{text, textSecondary}, std::array{keyRow}, textKind);
 
     return pairs;
 }
 
-constexpr std::array filled{accent, accentAlt,  highlight, record,  mute, solo,
-                            clip,   automation, monitor,   warning, error};
+constexpr std::array filled{accent, accentAlt, highlight, record,  mute,  solo,     clip,
+                            automation, monitor, warning, error, keyWhite, keyBlack, loop};
 
 constexpr std::array statuses{record, mute, solo, clip, automation};
 
@@ -153,6 +157,14 @@ juce::StringArray contrastProblems(const Theme& theme)
             check(problems, where + ", waveform", colour, body,
                   minimumContrast(ContrastKind::graphic));
         }
+
+        // Notes in the piano roll, in their track's colour, on either kind of row.
+        for (const auto rowRole : {lane, keyRow})
+            check(problems,
+                  "clip colour " + juce::String(static_cast<int>(index) + 1) + " as notes on " +
+                      nameOf(rowRole),
+                  colour, opaque(theme.colour(rowRole), windowColour),
+                  minimumContrast(ContrastKind::graphic));
     }
 
     // Meters: every level the bar can show, against the unlit track.

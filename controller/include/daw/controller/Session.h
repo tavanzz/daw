@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/ArrangementBuilder.h"
 #include "daw/controller/ChainOwner.h"
 #include "daw/controller/ClipEditing.h"
 #include "daw/controller/EffectInstances.h"
@@ -7,6 +8,7 @@
 #include "daw/controller/LatencyMeasurement.h"
 #include "daw/controller/RecordingController.h"
 #include "daw/controller/RecordingJournal.h"
+#include "daw/controller/SampleCache.h"
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/SourcePool.h"
 #include "daw/model/Project.h"
@@ -33,11 +35,12 @@ inline constexpr const char* latencyWhileRecordingMessage =
     "Effects that delay the audio (such as the limiter) cannot be added, moved or removed "
     "while recording: the recording would no longer line up. Stop recording first.";
 
-/** Where an effect of the project is. */
+/** Where an effect of the project is: in an owner's chain, or a track's instrument. */
 struct EffectLocation
 {
     ChainOwner owner;
-    int index = -1;
+    int index = -1; ///< -1 for an instrument
+    [[nodiscard]] bool isInstrument() const noexcept { return index < 0; }
 };
 
 /** How a Session plays its files. */
@@ -47,6 +50,9 @@ struct SessionOptions
         between audio blocks so that streaming is deterministic. */
     engine::io::DiskStreamer::Mode streaming = engine::io::DiskStreamer::Mode::readAhead;
     std::size_t streamingMemory = std::size_t{512} << 20;
+
+    /** Effects and instruments beyond the built-in ones (tests). */
+    EffectFactory effects = {};
 };
 
 /**
@@ -147,6 +153,22 @@ public:
 
     /** Adds a track at the end; an empty name becomes "Track n". Returns its id. */
     model::ObjectId addTrack(const juce::String& name = {});
+
+    /** The instrument new MIDI tracks get. */
+    static constexpr const char* defaultInstrument = "synth";
+
+    /** Adds a MIDI track at the end with an instrument of this type (none if empty
+        or unknown); an empty name becomes "MIDI n". One undo step. Returns its id. */
+    model::ObjectId addMidiTrack(const juce::String& name = {},
+                                 const juce::String& instrumentType = defaultInstrument);
+    void setTrackMidiInput(model::ObjectId trackId, const model::MidiInput& input);
+    void setTrackMidiChannel(model::ObjectId trackId, int channel);
+
+    /** Gives a MIDI track an instrument of this type, replacing the one it has (and
+        the automation of its parameters). Returns its id; 0 if the track is not a MIDI
+        track or the type is not an instrument. */
+    model::ObjectId setInstrument(model::ObjectId trackId, const juce::String& type);
+    void removeInstrument(model::ObjectId trackId);
     void removeTrack(model::ObjectId trackId);
     void renameTrack(model::ObjectId trackId, const juce::String& name);
     void setTrackVolume(model::ObjectId trackId, double gain);
@@ -173,6 +195,15 @@ public:
     /** An effect silenced for a NaN or an infinity plays again, from a clean state.
         Not undoable. */
     void reviveEffect(model::ObjectId effectId);
+
+    /** Gives an instrument a file to play in one of its sample slots (a sampler's
+        "sample", a drum pad's "padN"); an empty file removes it. One undo step. */
+    void setInstrumentFile(model::ObjectId effectId, const juce::String& key,
+                           const juce::File& file);
+
+    /** The samples instruments play: loaded (find()), loading or failed (getStatus(),
+        getError()). */
+    [[nodiscard]] const SampleCache& getSamples() const noexcept { return instrumentSamples; }
 
     [[nodiscard]] std::optional<EffectLocation> findEffect(model::ObjectId effectId) const;
     [[nodiscard]] std::optional<model::Effect> getEffect(model::ObjectId effectId) const;
@@ -225,6 +256,23 @@ public:
     void setSendLevel(model::ObjectId trackId, model::ObjectId sendId, double gain);
     void setSendPreFader(model::ObjectId trackId, model::ObjectId sendId, bool preFader);
 
+    /** What importing a MIDI file did. */
+    struct MidiImport
+    {
+        juce::Result result = juce::Result::ok();
+        std::vector<model::ObjectId> trackIds;
+        juce::StringArray leftOut; ///< for the user: what the file had that was left out
+    };
+
+    /** Imports a standard MIDI file as one MIDI track per track and channel (channel
+        10 with the drum sampler, the others with the synth), named after them, each
+        with one clip from position to the bar after its end. A project without tracks
+        first takes the file's tempo and metre. One undo step. */
+    MidiImport importMidi(const juce::File& file, model::Ticks position);
+
+    /** Writes the MIDI tracks to a standard MIDI file of type 0 or 1. */
+    juce::Result exportMidi(const juce::File& file, int type) const;
+
     /** Adds audio files as clips starting at position: one file onto an existing
         track if ontoTrack is given, otherwise one new track per file (named after
         it). One undo step. Returns the new clips' ids. */
@@ -232,9 +280,44 @@ public:
                                              model::Ticks position,
                                              std::optional<model::ObjectId> ontoTrack = {});
 
+    /** Onto another track of the same kind only. */
     void moveClip(model::ObjectId clipId, model::ObjectId toTrackId, model::Ticks position);
     void setClipBounds(model::ObjectId clipId, const model::ClipBounds& bounds);
     void deleteClips(const std::vector<model::ObjectId>& clipIds);
+
+    /** Copies each clip right after itself on its track (at its end), on top. One
+        undo step. Returns the copies' ids, in order. */
+    std::vector<model::ObjectId> duplicateClips(const std::vector<model::ObjectId>& clipIds);
+
+    /** Copies a clip to a track of the same kind at a position, on top (Alt+drag).
+        Returns the copy's id; 0 if refused. */
+    model::ObjectId copyClip(model::ObjectId clipId, model::ObjectId toTrackId,
+                             model::Ticks position);
+
+    // MIDI clips and notes ---------------------------------------------------------------
+
+    /** An empty MIDI clip on a MIDI track, named after it. Returns its id; 0 if the
+        track is not a MIDI track. */
+    model::ObjectId addMidiClip(model::ObjectId trackId, model::Ticks position,
+                                model::Ticks length);
+    void renameClip(model::ObjectId clipId, const juce::String& name);
+
+    /** A MIDI clip of the project, if clipId is one. */
+    [[nodiscard]] std::optional<model::MidiClip> findMidiClip(model::ObjectId clipId) const;
+
+    /** Replaces a MIDI clip's notes (see model::MidiClip::setNotes()): one undo step
+        named actionName, or part of the gesture in progress. */
+    void setNotes(model::ObjectId clipId, std::vector<model::Note> notes,
+                  const juce::String& actionName);
+
+    /** Adds a note; returns its id (0 if clipId is not a MIDI clip). */
+    std::int32_t addNote(model::ObjectId clipId, model::Note note);
+    void removeNotes(model::ObjectId clipId, const std::vector<std::int32_t>& noteIds);
+
+    /** Replaces a MIDI clip's events of one controller type. */
+    void setControllerEvents(model::ObjectId clipId, const model::ControllerType& type,
+                             std::vector<model::ControllerEvent> events,
+                             const juce::String& actionName);
 
     void setTempo(double quarterNotesPerMinute);
     void setTimeSignature(model::TimeSignature timeSignature);
@@ -262,10 +345,10 @@ public:
 
     // Recording ---------------------------------------------------------------------
 
-    /** Records every armed track that has an input, from the playhead (after the
-        count-in, if it is on; with punch on, keeping only the loop region), until
-        stop(). The files go into the "Audio" folder next to the project, which must
-        have been saved. Fails with a message for the user (unsaved project, nothing
+    /** Records every armed track that has an input, and every armed MIDI track, from
+        the playhead (after the count-in, if it is on; with punch on, keeping only the
+        loop region), until stop(). The audio files go into the "Audio" folder next to
+        the project, which must then have been saved; MIDI needs no file. Fails with a message for the user (unsaved project, nothing
         armed, too little disk space...). The clips appear, in one undo step, at an
         update() once the files are complete. */
     juce::Result record();
@@ -296,6 +379,20 @@ public:
         someone asked (requestInputs(), e.g. the input settings being open). */
     [[nodiscard]] bool needsInputs() const;
     void requestInputs() noexcept { inputsRequested = true; }
+
+    /** The MIDI input devices connected now, by name, and the index the engine knows
+        each by (set by the app when they change): a MIDI track listening to one
+        device finds it here; one that is not connected hears nothing. */
+    void setMidiInputDevices(juce::StringArray names, MidiDeviceLookup lookup);
+    [[nodiscard]] const juce::StringArray& getMidiInputDeviceNames() const noexcept
+    {
+        return midiInputNames;
+    }
+
+    /** Plays a note on a MIDI track through its instrument (the piano roll's preview,
+        whatever the monitoring) until stopNotePreview(). velocity 1 to 127. */
+    void startNotePreview(model::ObjectId trackId, int key, int velocity);
+    void stopNotePreview(model::ObjectId trackId, int key);
 
     /** The device's input channels by number, for choosing a track's input (set by
         the app when the device changes; empty while no input is open). */
@@ -369,6 +466,8 @@ private:
     void rebuildArrangement();
     [[nodiscard]] std::optional<model::Bus> findBus(model::ObjectId busId) const;
     [[nodiscard]] bool refusesLatencyChange(int latency);
+    [[nodiscard]] bool isInstrumentType(const juce::String& type) const;
+    [[nodiscard]] engine::midi::InputFilter midiFilterOf(const model::Track& track) const;
     void handOver(std::unique_ptr<engine::Arrangement> arrangement);
     void streamingTick();
     [[nodiscard]] double engineRate() const noexcept;
@@ -383,6 +482,7 @@ private:
     engine::Engine& engine;
     SessionOptions options;
     engine::io::SourcePool sources;
+    SampleCache instrumentSamples{fallbackSampleRate};
     std::unique_ptr<engine::Arrangement> pendingArrangement; // waits for its audio
     std::unique_ptr<engine::Arrangement> playingArrangement; // a copy of the engine's, for the plan
     juce::uint32 pendingSince = 0;
@@ -407,6 +507,8 @@ private:
     InputAccess inputAccess = InputAccess::unknown;
     bool inputsRequested = false;
     juce::StringArray inputChannelNames;
+    juce::StringArray midiInputNames;
+    MidiDeviceLookup midiDevices;
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;
     int latencyOffset = 0;

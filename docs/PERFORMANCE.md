@@ -2,8 +2,8 @@
 
 How many tracks the engine mixes within the time of one audio callback (Phase 2),
 how many stream from disk and record at once (Phase 3), what effects cost and how
-many tracks with effects fit (Phase 4), and what the interface costs in each theme
-and animation level (Phase 5).
+many tracks with effects fit (Phase 4), what the interface costs in each theme
+and animation level (Phase 5), and what each instrument's voice costs (Phase 6).
 
 ```bash
 cmake --preset release && cmake --build --preset release
@@ -246,3 +246,69 @@ What this means:
   animation clock stops), Windows and Linux (their renderers differ), and the
   functional refresh's own cost, which a later phase could cut (fewer repaints of
   faders that do not move, meters at a lower rate when there are many).
+
+## Instruments (Phase 6)
+
+```bash
+cmake --preset release && cmake --build --preset release
+build/release/tests/daw_instrument_bench          # or a name: daw_instrument_bench Drum
+```
+
+`tests/bench/InstrumentBenchmark.cpp`:
+
+- Each built-in instrument, through the host (`fx::EffectInstance`, as the mixer
+  runs it, with denormals flushed as on the audio thread), holds 0, 1, 8 and 16 notes
+  on different keys for 10 s in blocks of 256 at 48 kHz; the first second (the
+  attacks) is not timed. A voice costs the time with 16 notes less the time with
+  none, over 16: in nanoseconds per sample, and how many voices one core plays in
+  real time. The samplers play a 12 s stereo sample; the drum sampler's pads decay
+  over 10 s here, so that every voice sounds through the measurement.
+- Tracks, each an instrument holding 16 notes, played by the engine: the most tracks
+  whose 99th-percentile block time stays within the share of the budget asked for
+  (the best of three runs per count, doubling then bisection, as `daw_bench`
+  does), shown as voices, and the median block time at that count.
+
+Apple M3 Pro, macOS 15.6.1, Release build, 2026-11-04, with the code of Phase 6
+step 15.
+
+| Instrument | Idle: ns/sample | 1 voice | 8 voices | 16 voices | Per voice: ns/sample | Voices per core |
+|------------|----------------:|--------:|---------:|----------:|---------------------:|----------------:|
+| Synth, default (two saws, low-pass 24) | 5.6 | 24.2 | 179.7 | 340.7 | 20.9 | 995 |
+| Synth, busy (two pulses, noise, LFO on pitch and cutoff) | 5.1 | 38.9 | 246.2 | 514.8 | 31.9 | 654 |
+| Sampler (stereo, looped with a crossfade) | 7.6 | 21.2 | 141.4 | 249.1 | 15.1 | 1380 |
+| Drum sampler (stereo one-shots) | 10.7 | 23.6 | 105.8 | 179.1 | 10.5 | 1979 |
+
+| Instrument | Block | Budget | Voices within 100% | Median block there | Within 50% |
+|------------|------:|-------:|-------------------:|-------------------:|-----------:|
+| Synth, default | 128 | 2.67 ms | 336 | 0.83 ms | 224 |
+| Synth, default | 256 | 5.33 ms | 448 | 2.21 ms | 160 |
+| Synth, default | 512 | 10.67 ms | 944 | 9.35 ms | 528 |
+| Synth, busy | 256 | 5.33 ms | 720 | 5.12 ms | 352 |
+| Sampler | 256 | 5.33 ms | 1472 | 5.12 ms | 736 |
+| Drum sampler | 256 | 5.33 ms | 1760 | 5.05 ms | 912 |
+
+What this means:
+
+- A synth voice (two band-limited wavetable oscillators read with cubic
+  interpolation, a 24 dB filter whose coefficients move every sample, two
+  envelopes) costs about 21 ns per sample: one core plays about 1,000 of them at
+  48 kHz, 650 with pulses, noise and the LFO on pitch and cutoff. A sampler voice
+  (8-point sinc interpolation, stereo, a crossfaded loop) costs 15 ns, a drum voice
+  (the same reading, no loop) 10.5 ns. An instrument holding no notes costs 5 to
+  11 ns per sample (its control grid and the host's ramps).
+- Where the machine was quiet, the engine adds nothing measurable to the voices:
+  with 1,472 sampler voices the median block takes 5.1 ms, what the voices cost
+  alone (1,472 x 15.1 ns x 256 = 5.7 ms, measured separately), and the 99th
+  percentile stays within the 5.33 ms. So one callback of 256 samples holds about
+  1,400 sampler, 1,700 drum, 700 busy or 900 default synth voices, half of that
+  in half the budget.
+- The default synth's rows at 128 and 256 samples were measured while other
+  applications were busy (a music player, a browser): blocks three times slower
+  than the median came often enough to set the 99th percentile, so the budget was
+  "full" with the median at a third of it. Those rows understate what fits; they
+  are left as measured, as a reminder that a callback shares the machine. The same
+  noise makes the "within 50 %" column uneven.
+- With the instruments' own limit of 32 voices each, a song of 16 synth tracks all
+  holding 16 notes (256 voices) takes about a quarter of a 256-sample callback on one
+  core, before effects. Like the mixer and the effects, instruments run on the
+  audio thread only.
