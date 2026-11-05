@@ -9,10 +9,12 @@ class GenericEffectEditor::Row final : public juce::Component
 {
 public:
     Row(controller::Session& sessionToEdit, model::ObjectId effect,
-        const engine::fx::ParameterInfo& parameterInfo)
+        const engine::fx::ParameterInfo& parameterInfo, int parameterIndex, const PluginHooks& pluginHooks)
         : session(sessionToEdit)
         , effectId(effect)
         , info(parameterInfo)
+        , index(parameterIndex)
+        , plugin(pluginHooks)
     {
         label.setText(info.name, juce::dontSendNotification);
         addAndMakeVisible(label);
@@ -36,6 +38,8 @@ public:
             slider.setRange(0.0, 1.0, 0.0);
             slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 76, 18);
             slider.textFromValueFunction = [this](double position) {
+                if (plugin.text)
+                    return plugin.text(index, static_cast<float>(position));
                 return info.toText(info.fromNormalised(static_cast<float>(position)));
             };
             slider.valueFromTextFunction = [this](const juce::String& text) {
@@ -66,8 +70,10 @@ public:
         if (!location || !effect)
             return;
 
-        float value = info.clamp(static_cast<float>(
-            effect->getParameter(info.id).value_or(static_cast<double>(info.defaultValue))));
+        const auto held = effect->getParameter(info.id);
+        float value = info.clamp(held ? static_cast<float>(*held)
+                                 : plugin.value ? plugin.value(index)
+                                                : info.defaultValue);
         const auto automated = session.getAutomatedValue(
             location->owner, model::AutomationTarget::effectParameter(effectId, info.id));
         if (automated)
@@ -96,6 +102,8 @@ private:
     controller::Session& session;
     const model::ObjectId effectId;
     const engine::fx::ParameterInfo info;
+    const int index;
+    const PluginHooks plugin;
     juce::Label label;
     juce::Slider slider;
     juce::ComboBox menu;
@@ -104,17 +112,19 @@ private:
 
 GenericEffectEditor::GenericEffectEditor(controller::Session& sessionToEdit, model::ObjectId effect,
                                          const engine::fx::EffectDescription& description,
-                                         std::vector<int> parameters, int columns)
+                                         std::vector<int> parameters, int columns, PluginHooks hooks)
     : session(sessionToEdit)
     , effectId(effect)
     , numColumns(std::max(1, columns))
+    , plugin(std::move(hooks))
 {
     for (const int index : parameters)
     {
         if (index < 0 || static_cast<std::size_t>(index) >= description.parameters.size())
             continue;
         rows.push_back(std::make_unique<Row>(session, effectId,
-                                             description.parameters[static_cast<std::size_t>(index)]));
+                                             description.parameters[static_cast<std::size_t>(index)], index,
+                                             plugin));
         addAndMakeVisible(*rows.back());
     }
     refresh();

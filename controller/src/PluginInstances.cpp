@@ -324,6 +324,12 @@ engine::plugins::PluginEffect* PluginInstances::findPlugin(model::ObjectId effec
                                                                                  : nullptr;
 }
 
+std::shared_ptr<engine::plugins::PluginEffect> PluginInstances::sharePlugin(model::ObjectId effectId) const
+{
+    const auto found = entries.find(effectId);
+    return found != entries.end() && found->second.status == PluginStatus::ready ? found->second.plugin : nullptr;
+}
+
 std::vector<std::pair<model::ObjectId, engine::plugins::PluginEffect*>> PluginInstances::getPlugins() const
 {
     std::vector<std::pair<model::ObjectId, engine::plugins::PluginEffect*>> plugins;

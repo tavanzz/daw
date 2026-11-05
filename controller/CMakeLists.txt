@@ -19,6 +19,7 @@ add_library(daw_controller STATIC
     src/PluginCatalogue.cpp
     src/PluginInstances.cpp
     src/PluginLibrary.cpp
+    src/PluginLoads.cpp
     src/PluginScanner.cpp
     src/RecordingController.cpp
     src/RecordingJournal.cpp

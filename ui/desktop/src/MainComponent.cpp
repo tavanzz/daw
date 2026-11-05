@@ -219,6 +219,15 @@ void MainComponent::timerCallback()
         if (session.getRevision() != lastRevision)
             pianoRoll.refresh();
     }
+    // What plugins cost, a few times a second: the editors show it, slow ones are
+    // named in the status bar.
+    if (now - lastPluginLoads >= 0.25)
+    {
+        lastPluginLoads = now;
+        pluginLoads.add(session.takePluginLoads(), now);
+        if (const auto slow = pluginLoads.getSlowPlugins(); !slow.isEmpty())
+            statusBar.showWarning((slow.size() == 1 ? "Slow plugin: " : "Slow plugins: ") + slow.joinIntoString(", "));
+    }
     effectEditors.refresh(elapsed);
 
     // Menu items show play/pause state, ticks and what can be undone.

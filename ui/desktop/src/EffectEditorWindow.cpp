@@ -11,6 +11,7 @@
 #include "daw/ui/desktop/EqualiserView.h"
 #include "daw/ui/desktop/GenericEffectEditor.h"
 #include "daw/ui/desktop/InstrumentViews.h"
+#include "daw/ui/desktop/PluginEditorWindow.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <numeric>
@@ -20,18 +21,6 @@ namespace daw::ui::desktop
 
 namespace
 {
-
-juce::String ownerName(const controller::Session& session, const controller::ChainOwner& owner)
-{
-    const auto& project = session.getProject();
-    if (owner.kind == controller::ChainOwner::Kind::track)
-        if (const int index = project.indexOfTrack(owner.id); index >= 0)
-            return project.getTrack(index).getName();
-    if (owner.kind == controller::ChainOwner::Kind::bus)
-        if (const int index = project.indexOfBus(owner.id); index >= 0)
-            return project.getBus(index).getName();
-    return "Master";
-}
 
 // The parameters an effect shows in its controls: those it uses.
 std::vector<int> shownParameters(const engine::fx::EffectDescription& description)
@@ -120,7 +109,7 @@ public:
         if (!location || !model)
             return;
 
-        const auto name = effectTypeName(type) + " - " + ownerName(session, location->owner);
+        const auto name = effectTypeName(type) + " - " + chainOwnerName(session, location->owner);
         title.setText(name, juce::dontSendNotification);
         if (auto* window = findParentComponentOfClass<juce::DocumentWindow>(); window != nullptr && window->getName() != name)
             window->setName(name);
@@ -241,10 +230,7 @@ private:
 };
 
 EffectEditorWindow::EffectEditorWindow(controller::Session& session, model::ObjectId effect)
-    : juce::DocumentWindow("Effect",
-                           juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
-                               juce::ResizableWindow::backgroundColourId),
-                           juce::DocumentWindow::closeButton)
+    : EditorWindow("Effect")
     , effectId(effect)
 {
     auto owned = std::make_unique<Content>(session, effect);
@@ -263,14 +249,11 @@ void EffectEditorWindow::refresh(double elapsedSeconds)
     content->refresh(elapsedSeconds);
 }
 
-void EffectEditorWindow::closeButtonPressed()
-{
-    if (onClose)
-        onClose();
-}
-
-EffectEditors::EffectEditors(controller::Session& sessionToEdit)
+EffectEditors::EffectEditors(controller::Session& sessionToEdit, WindowPositions& pluginWindowPositions,
+                             const controller::PluginLoads& pluginLoads)
     : session(sessionToEdit)
+    , positions(pluginWindowPositions)
+    , loads(pluginLoads)
 {
 }
 
@@ -287,10 +270,15 @@ void EffectEditors::open(model::ObjectId effectId)
         }
     }
 
-    if (!session.findEffect(effectId))
+    const auto effect = session.getEffect(effectId);
+    if (!effect)
         return;
 
-    auto window = std::make_unique<EffectEditorWindow>(session, effectId);
+    std::unique_ptr<EditorWindow> window;
+    if (effect->getType() == model::pluginEffectType)
+        window = std::make_unique<PluginEditorWindow>(session, effectId, positions, loads);
+    else
+        window = std::make_unique<EffectEditorWindow>(session, effectId);
     window->onClose = [this, effectId] {
         // Later: the window is still in its own callback.
         juce::MessageManager::callAsync([this, effectId] {
@@ -300,6 +288,14 @@ void EffectEditors::open(model::ObjectId effectId)
         });
     };
     windows.push_back(std::move(window));
+}
+
+EditorWindow* EffectEditors::find(model::ObjectId effectId) const noexcept
+{
+    for (const auto& window : windows)
+        if (window->getEffectId() == effectId)
+            return window.get();
+    return nullptr;
 }
 
 void EffectEditors::refresh(double elapsedSeconds)

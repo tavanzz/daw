@@ -1,6 +1,8 @@
 #pragma once
 
+#include "daw/controller/PluginLoads.h"
 #include "daw/controller/Session.h"
+#include "daw/ui/desktop/EditorWindow.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -23,19 +25,16 @@ namespace daw::ui::desktop
     - synth (any other instrument): controls in sections (SectionedEffectEditor);
     - any other effect: controls made from its parameters (GenericEffectEditor).
 */
-class EffectEditorWindow final : public juce::DocumentWindow
+class EffectEditorWindow final : public EditorWindow
 {
 public:
     EffectEditorWindow(controller::Session& session, model::ObjectId effect);
     ~EffectEditorWindow() override;
 
-    [[nodiscard]] model::ObjectId getEffectId() const noexcept { return effectId; }
+    [[nodiscard]] model::ObjectId getEffectId() const noexcept override { return effectId; }
 
     /** At the UI's refresh rate. */
-    void refresh(double elapsedSeconds);
-
-    std::function<void()> onClose;
-    void closeButtonPressed() override;
+    void refresh(double elapsedSeconds) override;
 
 private:
     class Content;
@@ -44,11 +43,13 @@ private:
     Content* content = nullptr;
 };
 
-/** The effect editor windows that are open: at most one per effect. */
+/** The effect editor windows that are open: at most one per effect; a plugin's is a
+    PluginEditorWindow. */
 class EffectEditors
 {
 public:
-    explicit EffectEditors(controller::Session& sessionToEdit);
+    EffectEditors(controller::Session& sessionToEdit, WindowPositions& pluginWindowPositions,
+                  const controller::PluginLoads& pluginLoads);
     ~EffectEditors();
 
     /** Opens the editor of an effect, or brings it to the front. */
@@ -59,9 +60,14 @@ public:
 
     void closeAll();
 
+    /** The open window of an effect; null if none. */
+    [[nodiscard]] EditorWindow* find(model::ObjectId effectId) const noexcept;
+
 private:
     controller::Session& session;
-    std::vector<std::unique_ptr<EffectEditorWindow>> windows;
+    WindowPositions& positions;
+    const controller::PluginLoads& loads;
+    std::vector<std::unique_ptr<EditorWindow>> windows;
 };
 
 } // namespace daw::ui::desktop

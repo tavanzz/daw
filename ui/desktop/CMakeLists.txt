@@ -9,6 +9,7 @@ add_library(daw_ui_desktop STATIC
     src/AudioSettingsDialog.cpp
     src/AutomationLanes.cpp
     src/CompressorView.cpp
+    src/EditorWindow.cpp
     src/EffectEditorWindow.cpp
     src/EffectSlots.cpp
     src/EqualiserView.cpp
@@ -23,6 +24,7 @@ add_library(daw_ui_desktop STATIC
     src/MixerView.cpp
     src/PanelWindow.cpp
     src/PianoRoll.cpp
+    src/PluginEditorWindow.cpp
     src/PrerenderedImages.cpp
     src/SendSlots.cpp
     src/StatusBar.cpp

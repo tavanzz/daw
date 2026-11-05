@@ -1778,6 +1778,11 @@ engine::plugins::PluginEffect* Session::findPlugin(model::ObjectId effectId) con
     return pluginInstances != nullptr ? pluginInstances->findPlugin(effectId) : nullptr;
 }
 
+std::shared_ptr<engine::plugins::PluginEffect> Session::sharePlugin(model::ObjectId effectId) const
+{
+    return pluginInstances != nullptr ? pluginInstances->sharePlugin(effectId) : nullptr;
+}
+
 void Session::pluginsChanged()
 {
     if (pluginInstances == nullptr)

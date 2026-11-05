@@ -25,6 +25,7 @@ add_executable(daw_tests
     controller/MidiRecordingSessionTests.cpp
     controller/NoteEditingTests.cpp
     controller/PluginCatalogueTests.cpp
+    controller/PluginLoadsTests.cpp
     controller/PluginScannerTests.cpp
     controller/PluginSessionTests.cpp
     controller/MetronomeTests.cpp
@@ -102,6 +103,7 @@ add_executable(daw_ui_tests
     ui/AnimationClockTests.cpp
     ui/MidiUiTests.cpp
     ui/PanelsTests.cpp
+    ui/PluginUiTests.cpp
     ui/PrerenderedImagesTests.cpp
     ui/ThemeManagerTests.cpp
     ui/ThemeSwitchTests.cpp
@@ -111,6 +113,9 @@ target_include_directories(daw_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_ui_tests PRIVATE daw::ui_desktop daw::appearance daw::controller
     daw::engine daw::model daw::juce Catch2::Catch2)
 daw_enable_warnings(daw_ui_tests)
+# The VST3 test plugins (support/TestPlugins.h, its inline parts only).
+add_dependencies(daw_ui_tests daw_test_plugins)
+target_compile_definitions(daw_ui_tests PRIVATE "DAW_TEST_PLUGINS_DIR=\"${DAW_TEST_PLUGINS_DIR}\"")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # The virtual display in CI has no window manager (see WindowManagerAtoms.h).

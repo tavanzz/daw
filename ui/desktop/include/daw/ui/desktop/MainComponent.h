@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/PluginLoads.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
 #include "daw/ui/desktop/EffectEditorWindow.h"
@@ -102,6 +103,10 @@ public:
 
     [[nodiscard]] ArrangeView& getArrangeViewForTesting() noexcept { return arrangeView; }
     [[nodiscard]] PianoRoll& getPianoRollForTesting() noexcept { return pianoRoll; }
+    [[nodiscard]] EffectEditors& getEffectEditorsForTesting() noexcept { return effectEditors; }
+
+    /** Where plugin editor windows were last; the app keeps them in the user settings. */
+    [[nodiscard]] WindowPositions& getPluginWindowPositions() noexcept { return pluginWindows; }
 
     /** Opens a MIDI clip in the piano roll (the lower panel), as a double-click does. */
     void editClip(model::ObjectId clipId);
@@ -164,7 +169,10 @@ private:
     std::unique_ptr<PanelWindow> previewsWindow;
     std::unique_ptr<PanelWindow> animationsWindow;
     StatusBar statusBar{session};
-    EffectEditors effectEditors{session};
+    controller::PluginLoads pluginLoads;
+    double lastPluginLoads = 0.0;
+    WindowPositions pluginWindows;
+    EffectEditors effectEditors{session, pluginWindows, pluginLoads};
     juce::TooltipWindow tooltipWindow{this};
 
     std::unique_ptr<juce::FileChooser> fileChooser;

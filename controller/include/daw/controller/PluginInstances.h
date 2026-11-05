@@ -126,6 +126,10 @@ public:
         otherwise. */
     [[nodiscard]] engine::plugins::PluginEffect* findPlugin(model::ObjectId effectId) const;
 
+    /** The same, shared: an editor keeps its plugin alive until it closes (a plugin
+        must outlive its editor). */
+    [[nodiscard]] std::shared_ptr<engine::plugins::PluginEffect> sharePlugin(model::ObjectId effectId) const;
+
     /** Every ready plugin, by effect id. */
     [[nodiscard]] std::vector<std::pair<model::ObjectId, engine::plugins::PluginEffect*>> getPlugins() const;
 

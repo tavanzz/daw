@@ -817,6 +817,20 @@ Modules with one-way dependencies:
   selected pad's controls and the kit's). Audio Settings lists the MIDI inputs (every
   one on until switched off). Cmd+I and drops import .mid files too; File > Export
   MIDI File... (Alt+Cmd+E) asks for type 1 or 0.
+- Plugin windows (Phase 7): `EffectEditors` opens a `PluginEditorWindow` for an
+  effect of type "plugin" (both derive from `EditorWindow`): a header (name and owner,
+  format, maker, latency, CPU from `controller::PluginLoads`, a "Slow" warning, the
+  NaN warning with Reactivate, Plugin Editor/Generic Editor, Bypass), then the plugin's
+  own editor (`createEditorAndMakeActive()`, resizable if it is, the window following
+  its size) or the `GenericEffectEditor` of its automatable parameters (values and
+  texts from the plugin through `PluginHooks`), or a placeholder saying why there is no
+  plugin (loading, missing, failed, kept back with "Load"). The window holds its plugin
+  (`Session::sharePlugin()`) so the editor goes first; it floats over the app's windows
+  and hides while another app is in front; it opens where that plugin's window was
+  (`WindowPositions` by `PluginKey`, kept by the app in the user settings).
+  `controller::PluginLoads` (fed four times a second by `MainComponent`) flags a plugin
+  slow above half the block's duration on average or for 5 s after an overrun; the
+  status bar names slow plugins; nothing is bypassed.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.

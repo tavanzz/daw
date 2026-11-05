@@ -242,6 +242,8 @@ public:
     /** The plugin a plugin effect plays through (its editor, its parameters' text);
         null while it loads, or if it is missing or failed. */
     [[nodiscard]] engine::plugins::PluginEffect* findPlugin(model::ObjectId effectId) const;
+    /** The same, shared: an editor window keeps its plugin alive until it closes. */
+    [[nodiscard]] std::shared_ptr<engine::plugins::PluginEffect> sharePlugin(model::ObjectId effectId) const;
 
     /** The catalogue changed (a scan): plugins missing until now are looked for again. */
     void pluginsChanged();
