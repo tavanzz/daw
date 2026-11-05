@@ -429,6 +429,36 @@ Modules with one-way dependencies:
   `Session` edits effects (`ChainOwner`: track, bus or master), buses and sends
   with undo; delay and reverb start fully wet on a bus; while recording, edits
   that would change the latency are refused (`takeEditProblem()`).
+- Plugins in the controller (Phase 7): `controller::PluginLoader` instantiates plugins
+  (JUCE's formats with editors in the app, `formatsWithoutEditors()` in tests; at
+  once, or through the message loop for AUv3). `PluginInstances` gives each model
+  effect of type "plugin" its plugin: found in the catalogue by its reference
+  (format and id, else format, name and maker), loaded, given the model's state and
+  then its parameters (after preparing: LV2 resets its ports then), and hosted through
+  an `engine::plugins::PluginSlot`. A slot can be detached (`detach()`: an atomic
+  handshake with the audio thread, which then leaves the plugin alone), so the same
+  plugin moves to a new `EffectInstance` when the rate, its latency (reported by the
+  plugin, taken at `update()`; the engine dips the output) or its place in the chain
+  changes; `PluginSlot::prepare()` prepares it again only for a new format. A plugin
+  loading, missing (not in the catalogue) or failed has no instance: its effect is
+  left out of the chain (an effect passes the sound, an instrument is silent) and the
+  model keeps its reference, state, parameters and lanes, saved unchanged;
+  `Session::pluginsChanged()` (after a scan) looks for them again. `EffectInstances`
+  asks `PluginInstances` for plugin effects; a removed plugin is let go, not
+  detached, so it fades out with the arrangements that hold it.
+- Plugin edits in the session (Phase 7): `addPlugin()` (effects; not while
+  recording: its latency is unknown until it loads) and `setInstrumentPlugin()`, one
+  undo step each. The generic editor and undo change a plugin's parameters through
+  the model: `pushToPlugin()` (the ValueTree listener) sets them in the plugin. What
+  the plugin changes itself (`takePluginChanges()` at `update()`) is written to the
+  model without coming back: one undo step per gesture in its editor, or per run of
+  changes half a second apart at most; parameters that are not automatable (meters)
+  are not edits; other changes of its state mark the project unsaved. Removing a
+  plugin (effect, instrument, track, bus) first stores its state in the model, not
+  undoably, so undo brings it back as it sounded; saving stores every plugin's state.
+  `ExportJob` gets fresh instances of the plugins from `makeExportPlugins()` (loaded
+  at once on the message thread, the state each holds now, prepared offline) and
+  names those it could not load (`getMissingPlugins()`).
 - MIDI in the controller (Phase 6): `buildArrangement()` puts a MIDI track's
   instrument first in its chain (`EffectLookup` now takes the chain as a list of
   `model::Effect`s, so `EffectInstances` keeps the instrument like any effect: a
@@ -1486,7 +1516,7 @@ while playing, MIDI effects, automation writing, mobile UI.
 - [x] 7. Plugin adapter in the engine (`fx::PluginEffect`): parameters, layouts,
       sample-exact MIDI, automation in sub-blocks, play head, latency, tail, NaN
       guard, time per block; plugin code left out of the real-time checks
-- [ ] 8. Plugin instances in the controller: loading and preparing off the audio
+- [x] 8. Plugin instances in the controller: loading and preparing off the audio
       thread, rate and block-size changes, latency changes, parameter changes from
       the plugin's editor, exports with instances of their own
 - [x] 9. Project format version 6: plugins with their state and parameters,

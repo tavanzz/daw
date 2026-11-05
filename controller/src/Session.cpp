@@ -24,6 +24,11 @@ Session::Session(engine::Engine& engineToDrive, SessionOptions sessionOptions)
                                            options.streamingMemory, true})
 {
     effectInstances.setFactory(options.effects);
+    if (options.plugins != nullptr && options.catalogue != nullptr)
+    {
+        pluginInstances = std::make_unique<PluginInstances>(*options.plugins, *options.catalogue);
+        effectInstances.setPlugins(pluginInstances.get());
+    }
     if (engine.getSampleRate() > 0.0)
     {
         sources.setSampleRate(engine.getSampleRate());
@@ -56,6 +61,13 @@ Session::~Session()
 void Session::update()
 {
     sendPreviewOffs();
+
+    if (pluginInstances != nullptr)
+    {
+        if (pluginInstances->update())
+            arrangementOutOfDate = true;
+        takePluginChanges();
+    }
 
     if (const auto outcome = recording.update())
         addRecording(*outcome);
@@ -236,6 +248,7 @@ void Session::discardRecoverableRecordings()
 juce::Result Session::saveProject(const juce::File& file)
 {
     const auto target = file.withFileExtension(model::projectFileExtension);
+    storePluginStates();
 
     // Saved somewhere else, the project takes its recordings along.
     if (projectFile != juce::File() &&
@@ -469,6 +482,8 @@ model::ObjectId Session::setInstrument(model::ObjectId trackId, const juce::Stri
         return 0;
 
     startEdit("Instrument: " + probe->getDescription().name);
+    if (old)
+        keepPluginState(*old);
     return track->setInstrument(type, {}, &undoManager).getId();
 }
 
@@ -480,6 +495,7 @@ void Session::removeInstrument(model::ObjectId trackId)
         if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
             return;
         startEdit("Remove Instrument");
+        keepPluginState(*track->getInstrument());
         track->removeInstrument(&undoManager);
     }
 }
@@ -489,6 +505,10 @@ void Session::removeTrack(model::ObjectId trackId)
     if (const int index = project.indexOfTrack(trackId); index >= 0)
     {
         startEdit("Delete Track");
+        const auto track = project.getTrack(index);
+        keepPluginStates(track.getEffects());
+        if (const auto instrument = track.getInstrument())
+            keepPluginState(*instrument);
         project.removeTrack(index, &undoManager);
     }
 }
@@ -1425,7 +1445,9 @@ bool Session::removeEffect(model::ObjectId effectId)
         return false;
 
     startEdit("Remove Effect");
-    getEffects(location->owner).remove(location->index, &undoManager);
+    auto effects = getEffects(location->owner);
+    keepPluginState(effects.getEffect(location->index));
+    effects.remove(location->index, &undoManager);
     return true;
 }
 
@@ -1461,6 +1483,7 @@ void Session::setEffectParameter(model::ObjectId effectId, const juce::String& p
     if (auto effect = getEffect(effectId))
     {
         startEdit("Change " + parameterId);
+        // A plugin hears of it from the model (pushToPlugin()), as it does of undo.
         effect->setParameter(parameterId, value, &undoManager);
     }
 }
@@ -1500,6 +1523,7 @@ void Session::removeBus(model::ObjectId busId)
     if (const int index = project.indexOfBus(busId); index >= 0)
     {
         startEdit("Delete Bus");
+        keepPluginStates(project.getBus(index).getEffects());
         project.removeBus(index, &undoManager);
     }
 }
@@ -1672,8 +1696,9 @@ void Session::projectChanged()
         unsavedChanges = true;
 }
 
-void Session::valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&)
+void Session::valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier& property)
 {
+    pushToPlugin(tree, property);
     projectChanged();
 }
 
@@ -1692,6 +1717,230 @@ void Session::valueTreeChildRemoved(juce::ValueTree&, juce::ValueTree&, int)
 void Session::valueTreeChildOrderChanged(juce::ValueTree&, int, int)
 {
     projectChanged();
+}
+
+// Plugins ------------------------------------------------------------------------------
+
+model::ObjectId Session::addPlugin(const ChainOwner& owner, const juce::PluginDescription& plugin, int index)
+{
+    const bool ownerExists = owner.kind == ChainOwner::Kind::master ||
+                             (owner.kind == ChainOwner::Kind::track && findTrack(owner.id)) ||
+                             (owner.kind == ChainOwner::Kind::bus && findBus(owner.id));
+    if (!ownerExists || pluginInstances == nullptr || plugin.isInstrument)
+        return 0;
+    // Its latency is known once it has loaded: none may be added while recording.
+    if (isRecording())
+    {
+        editProblem = latencyWhileRecordingMessage;
+        return 0;
+    }
+
+    startEdit("Add " + plugin.name);
+    auto effect = getEffects(owner).add(model::pluginEffectType, index, {}, &undoManager);
+    effect.setPlugin(PluginInstances::referenceTo(plugin), &undoManager);
+    return effect.getId();
+}
+
+model::ObjectId Session::setInstrumentPlugin(model::ObjectId trackId, const juce::PluginDescription& plugin)
+{
+    auto track = findTrack(trackId);
+    if (!track || !track->isMidi() || pluginInstances == nullptr || !plugin.isInstrument)
+        return 0;
+    if (isRecording())
+    {
+        editProblem = latencyWhileRecordingMessage;
+        return 0;
+    }
+
+    startEdit("Instrument: " + plugin.name);
+    if (const auto old = track->getInstrument())
+        keepPluginState(*old);
+    auto instrument = track->setInstrument(model::pluginEffectType, {}, &undoManager);
+    instrument.setPlugin(PluginInstances::referenceTo(plugin), &undoManager);
+    return instrument.getId();
+}
+
+PluginStatus Session::getPluginStatus(model::ObjectId effectId) const
+{
+    return pluginInstances != nullptr ? pluginInstances->getStatus(effectId) : PluginStatus::missing;
+}
+
+juce::String Session::getPluginProblem(model::ObjectId effectId) const
+{
+    return pluginInstances != nullptr ? pluginInstances->getProblem(effectId)
+                                      : juce::String("plugins are not available here");
+}
+
+engine::plugins::PluginEffect* Session::findPlugin(model::ObjectId effectId) const
+{
+    return pluginInstances != nullptr ? pluginInstances->findPlugin(effectId) : nullptr;
+}
+
+void Session::pluginsChanged()
+{
+    if (pluginInstances == nullptr)
+        return;
+    options.plugins->readFolders(*options.catalogue);
+    pluginInstances->retryMissing();
+    arrangementOutOfDate = true;
+    ++revision;
+}
+
+std::vector<Session::PluginLoad> Session::takePluginLoads()
+{
+    std::vector<PluginLoad> loads;
+    if (pluginInstances != nullptr)
+        for (const auto& [effectId, plugin] : pluginInstances->getPlugins())
+            loads.push_back({effectId, plugin->getPluginDescription().name, plugin->takeLoad()});
+    return loads;
+}
+
+void Session::takePluginChanges()
+{
+    const auto now = juce::Time::getMillisecondCounter();
+    for (const auto& [effectId, plugin] : pluginInstances->getPlugins())
+    {
+        if (plugin->takeStateChanged())
+        {
+            unsavedChanges = true;
+            ++revision;
+        }
+
+        plugin->takeParameterReports(pluginReports);
+        if (pluginReports.empty())
+            continue;
+        auto effect = getEffect(effectId);
+        if (!effect)
+            continue;
+
+        const auto& parameters = plugin->getDescription().parameters;
+        for (const auto& report : pluginReports)
+        {
+            const auto& info = parameters[static_cast<std::size_t>(report.index)];
+            if (!info.automatable)
+                continue; // a meter, or something read-only: not an edit
+
+            // One undo step per gesture in the plugin's editor; changes without a
+            // gesture are one step while they keep coming (half a second apart at
+            // most).
+            const bool sameEdit = pluginEdit.effectId == effectId && pluginEdit.index == report.index &&
+                                  (pluginEdit.gesture || now - pluginEdit.lastChange < 500);
+            if (!sameEdit)
+                undoManager.beginNewTransaction("Change " + info.name);
+
+            writingFromPlugin = true;
+            effect->setParameter(info.id, report.value, &undoManager);
+            writingFromPlugin = false;
+
+            pluginEdit = {effectId, report.index, now, report.inGesture};
+            if (report.gestureEnded && !report.inGesture)
+                pluginEdit = {}; // the next change starts a step of its own
+        }
+    }
+}
+
+void Session::pushToPlugin(const juce::ValueTree& tree, const juce::Identifier& property)
+{
+    // A parameter the model changed (the generic editor, undo, redo) reaches the
+    // plugin; one the plugin changed itself is already there.
+    if (writingFromPlugin || pluginInstances == nullptr)
+        return;
+    const auto effect = model::Effect::ofParameters(tree);
+    if (!effect || effect->getType() != model::pluginEffectType)
+        return;
+    auto* plugin = pluginInstances->findPlugin(effect->getId());
+    if (plugin == nullptr)
+        return;
+    const auto& description = plugin->getDescription();
+    const int index = description.indexOf(property.toString());
+    if (index < 0)
+        return;
+    const auto value = effect->getParameter(property.toString());
+    plugin->setParameter(index, value ? static_cast<float>(*value)
+                                      : description.parameters[static_cast<std::size_t>(index)].defaultValue);
+}
+
+void Session::keepPluginState(const model::Effect& effect)
+{
+    // Not undoable itself: undoing the removal brings the effect back with the state
+    // it had when it went (undoing this too would bring back an older one).
+    if (auto* plugin = findPlugin(effect.getId()))
+        model::Effect(effect).setExtraState(plugin->getExtraState());
+}
+
+void Session::keepPluginStates(const model::EffectList& effects)
+{
+    for (int i = 0; i < effects.getNumEffects(); ++i)
+        keepPluginState(effects.getEffect(i));
+}
+
+void Session::storePluginStates()
+{
+    // Not an edit: the file gets what each plugin holds now.
+    if (pluginInstances == nullptr)
+        return;
+    writingFromPlugin = true;
+    for (const auto& [effectId, plugin] : pluginInstances->getPlugins())
+        if (auto effect = getEffect(effectId))
+            effect->setExtraState(plugin->getExtraState());
+    writingFromPlugin = false;
+}
+
+Session::ExportPlugins Session::makeExportPlugins(double sampleRate) const
+{
+    ExportPlugins result;
+    const auto add = [&](const model::Effect& effect) {
+        const auto reference = effect.getPlugin();
+        if (effect.getType() != model::pluginEffectType || !reference)
+            return;
+        const auto info = pluginInstances != nullptr ? pluginInstances->findInCatalogue(*reference)
+                                                     : std::optional<PluginInfo>{};
+        juce::String error;
+        auto instance = info && info->isSupported()
+                            ? options.plugins->loadNow(info->description, sampleRate, effectBlockSize, error)
+                            : nullptr;
+        auto created = instance != nullptr ? engine::plugins::PluginEffect::create(std::move(instance))
+                                           : std::variant<std::unique_ptr<engine::plugins::PluginEffect>,
+                                                          juce::String>(juce::String("missing"));
+        if (!std::holds_alternative<std::unique_ptr<engine::plugins::PluginEffect>>(created))
+        {
+            result.missing.add(reference->name);
+            return;
+        }
+
+        std::shared_ptr<engine::plugins::PluginEffect> plugin =
+            std::move(std::get<std::unique_ptr<engine::plugins::PluginEffect>>(created));
+        engine::fx::ProcessSetup setup;
+        setup.sampleRate = sampleRate;
+        setup.maximumBlockSize = effectBlockSize;
+        setup.offline = true;
+        auto hosted = std::make_shared<engine::fx::EffectInstance>(
+            std::make_unique<engine::plugins::PluginSlot>(plugin), setup, false);
+
+        // What it holds now if it plays, else what the project holds.
+        const auto* playing = pluginInstances->findPlugin(effect.getId());
+        const auto state = playing != nullptr ? playing->getExtraState() : effect.getExtraState();
+        plugin->setExtraState(state);
+        for (const auto& [parameterId, value] : effect.getParameters())
+            if (const int index = plugin->getDescription().indexOf(parameterId); index >= 0 && playing == nullptr)
+                plugin->setParameter(index, static_cast<float>(value));
+        result.instances[effect.getId()] = std::move(hosted);
+    };
+
+    for (int t = 0; t < project.getNumTracks(); ++t)
+    {
+        const auto track = project.getTrack(t);
+        if (const auto instrument = track.getInstrument())
+            add(*instrument);
+        for (int i = 0; i < track.getEffects().getNumEffects(); ++i)
+            add(track.getEffects().getEffect(i));
+    }
+    for (int b = 0; b < project.getNumBuses(); ++b)
+        for (int i = 0; i < project.getBus(b).getEffects().getNumEffects(); ++i)
+            add(project.getBus(b).getEffects().getEffect(i));
+    for (int i = 0; i < project.getMasterEffects().getNumEffects(); ++i)
+        add(project.getMasterEffects().getEffect(i));
+    return result;
 }
 
 } // namespace daw::controller

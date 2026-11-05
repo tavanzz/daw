@@ -53,6 +53,11 @@ struct SessionOptions
 
     /** Effects and instruments beyond the built-in ones (tests). */
     EffectFactory effects = {};
+
+    /** Plugins: how to instantiate them and where to find them. Without both, plugin
+        effects are left out (and kept in the project as they are). */
+    PluginLoader* plugins = nullptr;
+    const PluginCatalogue* catalogue = nullptr;
 };
 
 /**
@@ -215,6 +220,48 @@ public:
 
     /** Why the last edit was refused, for the user; reading it clears it. */
     [[nodiscard]] juce::String takeEditProblem();
+
+    // Plugins ------------------------------------------------------------------------------
+
+    /** Adds a plugin of the catalogue (an effect, not an instrument) to an owner's
+        chain at index (-1: the end); it plays once it has loaded. One undo step.
+        Returns its id; 0 if refused (an instrument, the owner gone, recording, no
+        plugins in this session). */
+    model::ObjectId addPlugin(const ChainOwner& owner, const juce::PluginDescription& plugin, int index = -1);
+
+    /** Gives a MIDI track a plugin instrument, replacing its instrument. One undo step;
+        0 if refused. */
+    model::ObjectId setInstrumentPlugin(model::ObjectId trackId, const juce::PluginDescription& plugin);
+
+    [[nodiscard]] PluginStatus getPluginStatus(model::ObjectId effectId) const;
+    /** Why a plugin is missing or failed. */
+    [[nodiscard]] juce::String getPluginProblem(model::ObjectId effectId) const;
+
+    /** The plugin a plugin effect plays through (its editor, its parameters' text);
+        null while it loads, or if it is missing or failed. */
+    [[nodiscard]] engine::plugins::PluginEffect* findPlugin(model::ObjectId effectId) const;
+
+    /** The catalogue changed (a scan): plugins missing until now are looked for again. */
+    void pluginsChanged();
+
+    /** What each playing plugin takes of the real time since the last call. */
+    struct PluginLoad
+    {
+        model::ObjectId effectId = 0;
+        juce::String name;
+        engine::plugins::PluginEffect::Load load;
+    };
+    [[nodiscard]] std::vector<PluginLoad> takePluginLoads();
+
+    /** Fresh instances of the project's plugins for an export at this rate (message
+        thread): loaded at once, given their current state, prepared offline. Plugins
+        missing or failing to load are named in missing and left out. */
+    struct ExportPlugins
+    {
+        std::map<model::ObjectId, std::shared_ptr<engine::fx::EffectInstance>> instances;
+        juce::StringArray missing;
+    };
+    [[nodiscard]] ExportPlugins makeExportPlugins(double sampleRate) const;
 
     /** Adds an aux bus at the end; an empty name becomes "Bus n". Returns its id. */
     model::ObjectId addBus(const juce::String& name = {});
@@ -464,6 +511,11 @@ public:
 private:
     void startEdit(const juce::String& name);
     void sendPreviewOffs();
+    void takePluginChanges();
+    void storePluginStates();
+    void keepPluginState(const model::Effect& effect);
+    void keepPluginStates(const model::EffectList& effects);
+    void pushToPlugin(const juce::ValueTree& tree, const juce::Identifier& property);
     void replaceProject(model::Project newProject);
     void addRecording(const RecordingOutcome& outcome);
     void copyRecordingsTo(const juce::File& newProjectDirectory);
@@ -502,6 +554,16 @@ private:
     juce::File projectFile;
     std::map<model::ObjectId, std::shared_ptr<engine::dsp::PeakLevelMeter>> meters;
     EffectInstances effectInstances;
+    std::unique_ptr<PluginInstances> pluginInstances; // with plugins only
+    std::vector<engine::plugins::PluginEffect::ParameterReport> pluginReports;
+    struct PluginEdit
+    {
+        model::ObjectId effectId = 0;
+        int index = -1;
+        juce::uint32 lastChange = 0;
+        bool gesture = false;
+    } pluginEdit; // the plugin edit the next change may belong to
+    bool writingFromPlugin = false;
     FadeOutKeeper fadeOutKeeper;
     bool freshEffects = true; // the next arrangement's new effects start at once
     juce::String editProblem;

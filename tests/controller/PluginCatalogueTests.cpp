@@ -83,6 +83,10 @@ TEST_CASE("Scanning is incremental: new, changed and gone items; the blacklist s
             folder.getChildFile(daw::test::testVst3(kind).getFileName())));
     const auto gain = folder.getChildFile("DAW Test Gain.vst3").getFullPathName();
     const auto synth = folder.getChildFile("DAW Test Synth.vst3").getFullPathName();
+    // A plugin file that is not one (as a broken install leaves): the scanner would
+    // fail on it. A plain file, so that its date can be changed on every system.
+    const auto broken = folder.getChildFile("Broken.vst3");
+    REQUIRE(broken.replaceWithText("not a plugin"));
 
     juce::AudioPluginFormatManager formats;
     formats.addFormat(std::make_unique<Vst3InFoldersOnly>());
@@ -93,40 +97,48 @@ TEST_CASE("Scanning is incremental: new, changed and gone items; the blacklist s
     // At first, everything is new.
     auto plan = catalogue.planScan(formats);
     std::sort(plan.begin(), plan.end());
-    REQUIRE(plan == std::vector<ScanItem>{{"VST3", gain}, {"VST3", synth}});
-    for (const auto& item : plan)
-        catalogue.addScanned(item, scanHere(item));
+    REQUIRE(plan == std::vector<ScanItem>{{"VST3", broken.getFullPathName()}, {"VST3", gain}, {"VST3", synth}});
+    catalogue.addScanned({"VST3", gain}, scanHere({"VST3", gain}));
+    catalogue.addScanned({"VST3", synth}, scanHere({"VST3", synth}));
+    catalogue.block({"VST3", broken.getFullPathName()}, ScanFailure::crashed, "signal 6");
     CHECK(catalogue.getPlugins().size() == 2);
     CHECK(catalogue.takeChanged());
 
-    // Nothing changed: nothing to scan.
+    // Nothing changed: nothing to scan; the blacklisted file is left alone.
     CHECK(catalogue.planScan(formats).empty());
     CHECK_FALSE(catalogue.takeChanged());
+    CHECK(catalogue.isBlocked({"VST3", broken.getFullPathName()}));
 
-    // A bundle updated is scanned again; everything means every item.
-    REQUIRE(juce::File(gain).setLastModificationTime(juce::Time::getCurrentTime() + juce::RelativeTime::hours(1)));
+    // A bundle whose date is not the one scanned is scanned again; everything means
+    // every item but the blacklisted.
+    auto stale = scanHere({"VST3", gain});
+    for (auto& info : stale)
+        info.description.lastFileModTime = juce::Time(1000);
+    catalogue.addScanned({"VST3", gain}, stale);
     CHECK(catalogue.planScan(formats) == std::vector<ScanItem>{{"VST3", gain}});
-    CHECK(catalogue.planScan(formats, true).size() == 2);
+    plan = catalogue.planScan(formats, true);
+    std::sort(plan.begin(), plan.end());
+    CHECK(plan == std::vector<ScanItem>{{"VST3", gain}, {"VST3", synth}});
     catalogue.addScanned({"VST3", gain}, scanHere({"VST3", gain}));
 
-    // A plugin that crashed stays out, until its file changes or it is retried.
-    catalogue.block({"VST3", synth}, ScanFailure::crashed, "signal 6");
-    CHECK(catalogue.getPlugins().size() == 1);
-    CHECK(catalogue.isBlocked({"VST3", synth}));
-    CHECK(catalogue.planScan(formats).empty());
-    CHECK(catalogue.planScan(formats, true) == std::vector<ScanItem>{{"VST3", gain}});
-    REQUIRE(juce::File(synth).setLastModificationTime(juce::Time::getCurrentTime() + juce::RelativeTime::hours(2)));
-    CHECK(catalogue.planScan(formats) == std::vector<ScanItem>{{"VST3", synth}});
-    CHECK_FALSE(catalogue.isBlocked({"VST3", synth}));
+    // A blacklisted file that changed gets another chance; so does one retried.
+    REQUIRE(broken.setLastModificationTime(juce::Time::getCurrentTime() + juce::RelativeTime::hours(2)));
+    CHECK(catalogue.planScan(formats) == std::vector<ScanItem>{{"VST3", broken.getFullPathName()}});
+    CHECK_FALSE(catalogue.isBlocked({"VST3", broken.getFullPathName()}));
     catalogue.block({"VST3", synth}, ScanFailure::timedOut);
+    CHECK(catalogue.getPlugins().size() == 1);
     catalogue.unblock({"VST3", synth});
-    CHECK(catalogue.planScan(formats) == std::vector<ScanItem>{{"VST3", synth}});
+    plan = catalogue.planScan(formats);
+    std::sort(plan.begin(), plan.end());
+    CHECK(plan == std::vector<ScanItem>{{"VST3", broken.getFullPathName()}, {"VST3", synth}});
 
-    // A bundle removed is forgotten.
+    // What is removed is forgotten.
     REQUIRE(juce::File(gain).deleteRecursively());
+    REQUIRE(broken.deleteFile());
     CHECK(catalogue.planScan(formats) == std::vector<ScanItem>{{"VST3", synth}});
     CHECK(catalogue.getPlugins().empty());
     CHECK(catalogue.getNumScannedItems() == 0);
+    CHECK(catalogue.getBlocked().empty());
 }
 
 TEST_CASE("The browser's search: words, formats, kinds, manufacturers, favourites",

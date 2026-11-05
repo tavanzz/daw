@@ -5,6 +5,7 @@
 
 #include <juce_audio_processors_headless/juce_audio_processors_headless.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bitset>
@@ -67,6 +68,22 @@ public:
     [[nodiscard]] double getTailSeconds(std::span<const float> parameterValues) const override;
     [[nodiscard]] juce::MemoryBlock getExtraState() const override;
     bool setExtraState(const juce::MemoryBlock& state) override;
+
+    /** Whether prepare() was called with this format last (a moved plugin needs no
+        new preparing). */
+    [[nodiscard]] bool isPreparedFor(const fx::ProcessSetup& setup) const noexcept
+    {
+        return prepared && juce::exactlyEqual(setup.sampleRate, sampleRate) &&
+               setup.maximumBlockSize == maximumBlockSize && setup.offline == offline;
+    }
+
+    /** Message thread, while no slot processes it: takes the latency the plugin
+        reports now (it reported a change). */
+    void refreshLatency() noexcept
+    {
+        latency = std::max(0, plugin->getLatencySamples());
+        latencyChanged = false;
+    }
 
     /** Message thread. The plugin itself, for its editor. */
     [[nodiscard]] juce::AudioPluginInstance& getPlugin() noexcept { return *plugin; }
@@ -156,6 +173,7 @@ private:
     int maximumBlockSize = 512;
     int latency = 0;
     bool prepared = false;
+    bool offline = false;
 
     // Audio thread.
     juce::AudioBuffer<float> scratch;

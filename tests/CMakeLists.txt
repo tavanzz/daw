@@ -26,6 +26,7 @@ add_executable(daw_tests
     controller/NoteEditingTests.cpp
     controller/PluginCatalogueTests.cpp
     controller/PluginScannerTests.cpp
+    controller/PluginSessionTests.cpp
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp

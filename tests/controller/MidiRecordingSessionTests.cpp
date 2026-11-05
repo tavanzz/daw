@@ -60,8 +60,14 @@ struct Studio
 
     bool finishRecording()
     {
+        // The writer finishes the files on its own thread: give it real time (a slow
+        // machine, a sanitizer build), up to about four seconds.
         for (int i = 0; i < 2000 && session.isRecording(); ++i)
+        {
             run(blockSize);
+            if (session.isRecording())
+                juce::Thread::sleep(2);
+        }
         return !session.isRecording();
     }
 

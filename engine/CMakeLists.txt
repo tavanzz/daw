@@ -53,6 +53,7 @@ add_library(daw_engine STATIC
     src/midi/LiveInput.cpp
     src/plugins/PluginEffect.cpp
     src/plugins/PluginLayout.cpp
+    src/plugins/PluginSlot.cpp
     src/rt/AudioFifo.cpp
     src/rt/ForeignCode.cpp)
 add_library(daw::engine ALIAS daw_engine)

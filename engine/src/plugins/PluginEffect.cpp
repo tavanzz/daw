@@ -95,6 +95,7 @@ void PluginEffect::prepare(const fx::ProcessSetup& setup)
 
     sampleRate = setup.sampleRate;
     maximumBlockSize = std::max(1, setup.maximumBlockSize);
+    offline = setup.offline;
     plugin->setNonRealtime(setup.offline);
     plugin->setRateAndBufferSizeDetails(sampleRate, maximumBlockSize);
     plugin->prepareToPlay(sampleRate, maximumBlockSize);

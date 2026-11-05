@@ -57,10 +57,14 @@ void EffectInstances::prepare(double newSampleRate, int maximumBlockSize)
     blockSize = maximumBlockSize;
     instances.clear();
     orders.clear();
+    if (plugins != nullptr)
+        plugins->prepare(newSampleRate, maximumBlockSize);
 }
 
 void EffectInstances::clear()
 {
+    if (plugins != nullptr)
+        plugins->clear();
     instances.clear();
     orders.clear();
     revivals.clear();
@@ -109,7 +113,10 @@ std::vector<engine::ChainSlot> EffectInstances::chainFor(const ChainOwner& owner
         // is now, while the old instance fades out where it was.
         const bool movedHere = wasHere && kept.count(id) == 0;
         const bool cameFromElsewhere = !wasHere && instance != nullptr;
-        if (!sameType || movedHere || cameFromElsewhere)
+        if (effect.getType() == model::pluginEffectType)
+            instance = plugins != nullptr ? plugins->instanceFor(effect, movedHere || cameFromElsewhere, fadeIn)
+                                          : nullptr;
+        else if (!sameType || movedHere || cameFromElsewhere)
             instance = makeInstance(effect.getType(), sampleRate, blockSize, fadeIn, factory);
 
         engine::ChainSlot slot;
@@ -132,6 +139,8 @@ std::shared_ptr<engine::fx::EffectInstance> EffectInstances::find(model::ObjectI
 
 void EffectInstances::forgetUnused()
 {
+    if (plugins != nullptr)
+        plugins->forgetUnused();
     const std::set<model::ObjectId> asked(used.begin(), used.end());
     for (auto entry = instances.begin(); entry != instances.end();)
         entry = asked.count(entry->first) > 0 ? std::next(entry) : instances.erase(entry);

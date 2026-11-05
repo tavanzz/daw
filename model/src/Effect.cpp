@@ -84,6 +84,16 @@ std::vector<std::pair<juce::String, double>> Effect::getParameters() const
     return values;
 }
 
+std::optional<Effect> Effect::ofParameters(const juce::ValueTree& tree)
+{
+    if (!tree.hasType(ids::parameters))
+        return std::nullopt;
+    const auto parent = tree.getParent();
+    if (!parent.hasType(ids::effect))
+        return std::nullopt;
+    return Effect(parent);
+}
+
 std::optional<PluginReference> Effect::getPlugin() const
 {
     const auto plugin = state.getChildWithName(ids::plugin);

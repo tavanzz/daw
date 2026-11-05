@@ -81,6 +81,10 @@ public:
 
     [[nodiscard]] const juce::ValueTree& getState() const noexcept { return state; }
 
+    /** The effect whose parameter values this tree holds (a listener sees the values
+        change there); nothing if it is not such a tree. */
+    [[nodiscard]] static std::optional<Effect> ofParameters(const juce::ValueTree& tree);
+
 private:
     juce::ValueTree state;
 };
