@@ -15,6 +15,7 @@ add_library(daw_controller STATIC
     src/NoteEditing.cpp
     src/NotePreview.cpp
     src/PianoRollViewport.cpp
+    src/PluginBrowser.cpp
     src/PluginCatalogue.cpp
     src/PluginInstances.cpp
     src/PluginLibrary.cpp

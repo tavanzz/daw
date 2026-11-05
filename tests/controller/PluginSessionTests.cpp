@@ -1,4 +1,5 @@
 #include "daw/controller/ExportJob.h"
+#include "daw/controller/PluginBrowser.h"
 #include "daw/controller/PluginScanner.h"
 #include "daw/controller/Session.h"
 #include "daw/engine/plugins/RunningPlugin.h"
@@ -401,4 +402,76 @@ TEST_CASE("The plugin running now is known, for a crash report", "[engine][plugi
         CHECK(juce::String(RunningPlugin::onAudioThread()) == "Outer (VST3)");
     }
     CHECK(RunningPlugin::onAudioThread() == nullptr);
+}
+
+TEST_CASE("The browser lists built-in and plugin effects and instruments, and drops them where they go",
+          "[controller][plugins]")
+{
+    Fixture fixture;
+    auto& session = fixture.session;
+    using daw::controller::BrowserItem;
+    using daw::controller::BrowserTarget;
+    using daw::controller::PluginQuery;
+
+    PluginQuery query;
+    const auto all = daw::controller::browserItems(fixture.catalogue, query);
+    const auto named = [&](const juce::String& name) {
+        const auto found = std::find_if(all.begin(), all.end(), [&](const BrowserItem& item) { return item.name == name; });
+        REQUIRE(found != all.end());
+        return *found;
+    };
+    CHECK(named("Equaliser").format == daw::controller::builtInFormat);
+    CHECK(named("Synth").isInstrument);
+    CHECK(named("DAW Test Synth").isInstrument);
+    CHECK(named("DAW Test Gain").format == "VST3");
+
+    query.formats = {daw::controller::builtInFormat};
+    query.kind = PluginQuery::Kind::instruments;
+    for (const auto& item : daw::controller::browserItems(fixture.catalogue, query))
+        CHECK((item.isInstrument && item.format == daw::controller::builtInFormat));
+    query = {};
+    query.text = "test gain";
+    REQUIRE(daw::controller::browserItems(fixture.catalogue, query).size() == 1);
+    fixture.catalogue.setFavourite(named("Reverb").key(), true);
+    query = {};
+    query.favouritesOnly = true;
+    REQUIRE(daw::controller::browserItems(fixture.catalogue, query).size() == 1);
+    CHECK(daw::controller::browserItems(fixture.catalogue, query)[0].name == "Reverb");
+
+    // A drag carries what the item is.
+    for (const auto* name : {"Reverb", "DAW Test Gain"})
+    {
+        const auto item = daw::controller::browserItemFor(fixture.catalogue, named(name).dragDescription());
+        REQUIRE(item);
+        CHECK(item->name == name);
+    }
+    CHECK_FALSE(daw::controller::browserItemFor(fixture.catalogue, "plugin:VST3:1"));
+
+    // Dropped: effects into chains, instruments onto MIDI tracks or new ones.
+    const auto audio = session.addTrack("Audio");
+    const auto keys = session.addMidiTrack("Keys", "synth");
+    const auto gain = daw::controller::addFromBrowser(session, named("DAW Test Gain"),
+                                                      {BrowserTarget::Kind::track, ChainOwner::track(audio)});
+    CHECK(gain != 0);
+    const auto equaliser = daw::controller::addFromBrowser(
+        session, named("Equaliser"), {BrowserTarget::Kind::chain, ChainOwner::track(audio), 0});
+    CHECK(session.getProject().getTrack(0).getEffects().getEffect(0).getId() == equaliser);
+    CHECK(session.getProject().getTrack(0).getEffects().getEffect(1).getId() == gain);
+    const auto synth = daw::controller::addFromBrowser(session, named("DAW Test Synth"),
+                                                       {BrowserTarget::Kind::track, ChainOwner::track(keys)});
+    CHECK(session.getProject().getTrack(1).getInstrument()->getId() == synth);
+    CHECK(daw::controller::addFromBrowser(session, named("DAW Test Synth"),
+                                          {BrowserTarget::Kind::chain, ChainOwner::master()}) == 0);
+
+    const int tracks = session.getProject().getNumTracks();
+    const auto onNew = daw::controller::addFromBrowser(session, named("Sampler"), {});
+    REQUIRE(onNew != 0);
+    CHECK(session.getProject().getNumTracks() == tracks + 1);
+    CHECK(session.getProject().getTrack(tracks).isMidi());
+    session.undo(); // the track and its instrument in one step
+    CHECK(session.getProject().getNumTracks() == tracks);
+    const auto onAudio = daw::controller::addFromBrowser(session, named("DAW Test Synth"),
+                                                         {BrowserTarget::Kind::track, ChainOwner::track(audio)});
+    CHECK(onAudio != 0);
+    CHECK(session.getProject().getNumTracks() == tracks + 1);
 }
