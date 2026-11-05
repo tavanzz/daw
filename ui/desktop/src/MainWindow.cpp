@@ -120,6 +120,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::exportMidi);
         menu.addSeparator();
         add(MainComponent::audioSettings);
+        add(MainComponent::showPluginManager);
 #if !JUCE_MAC
         menu.addSeparator();
         add(juce::StandardApplicationCommandIDs::quit);

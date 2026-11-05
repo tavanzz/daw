@@ -77,6 +77,7 @@ public:
         panic,
         togglePluginBrowser,
         openWithoutPlugins,
+        showPluginManager,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8
@@ -178,6 +179,7 @@ private:
     std::unique_ptr<ThemeCrossfade> crossfade;
     std::unique_ptr<PanelWindow> previewsWindow;
     std::unique_ptr<PanelWindow> animationsWindow;
+    std::unique_ptr<PanelWindow> pluginManagerWindow;
     StatusBar statusBar{session};
     PluginBrowserPanel pluginBrowser;
     bool browserVisible = false;

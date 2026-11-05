@@ -8,6 +8,7 @@
 #include "daw/ui/desktop/EffectSlots.h"
 #include "daw/ui/desktop/MainComponent.h"
 #include "daw/ui/desktop/PluginEditorWindow.h"
+#include "daw/ui/desktop/PluginManagerPanel.h"
 #include "support/TestAudioFiles.h"
 #include "support/TestPlugins.h"
 
@@ -374,5 +375,41 @@ TEST_CASE("Mixer slots name plugins and show those that are missing, kept back o
         CHECK(slots.createComponentSnapshot(slots.getLocalBounds()).isValid());
         CHECK(desktop.view.createComponentSnapshot(desktop.view.getLocalBounds()).isValid());
         writeSnapshot(desktop.view, "plugins-window-" + id);
+    }
+}
+
+TEST_CASE("The Plugin Manager lists plugins, those not loaded and the folders searched", "[ui][plugins]")
+{
+    PluginStudio studio;
+    auto& catalogue = studio.library.getCatalogue();
+    catalogue.block({"VST3", "/Plugins/Broken.vst3"}, controller::ScanFailure::crashed, "signal 11");
+    REQUIRE(studio.library.update());
+
+    ui::desktop::PluginManagerPanel panel(studio.library);
+    CHECK(panel.getNumPluginRows() == 2);
+    CHECK(panel.getNumNotLoadedRows() == 1);
+
+    // A folder of the user's own comes after the defaults, and goes again.
+    panel.showPage(ui::desktop::PluginManagerPanel::Page::folders);
+    const int defaults = panel.getFolderLines().size();
+    panel.addFolder("VST3", studio.directory.file("More"));
+    CHECK(catalogue.getCustomFolders("VST3") == juce::StringArray{studio.directory.file("More").getFullPathName()});
+    CHECK(panel.getFolderLines().size() == defaults + 1);
+    CHECK(panel.getFolderLines()[defaults] == studio.directory.file("More").getFullPathName());
+    panel.removeFolder("VST3", 0);
+    CHECK(catalogue.getCustomFolders("VST3").isEmpty());
+
+    Desktop desktop(studio.session, &studio.library);
+    for (int index = 0; index < 3; ++index)
+    {
+        REQUIRE(desktop.invoke(MainComponent::firstTheme + index));
+        const auto& id = desktop.themes.getTheme().id;
+        for (const auto page : {ui::desktop::PluginManagerPanel::Page::plugins,
+                                ui::desktop::PluginManagerPanel::Page::notLoaded})
+        {
+            panel.showPage(page);
+            CHECK(panel.createComponentSnapshot(panel.getLocalBounds()).isValid());
+        }
+        writeSnapshot(panel, "plugin-manager-" + id);
     }
 }

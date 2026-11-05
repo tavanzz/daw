@@ -26,6 +26,7 @@ add_library(daw_ui_desktop STATIC
     src/PianoRoll.cpp
     src/PluginBrowserPanel.cpp
     src/PluginEditorWindow.cpp
+    src/PluginManagerPanel.cpp
     src/PrerenderedImages.cpp
     src/SendSlots.cpp
     src/StatusBar.cpp

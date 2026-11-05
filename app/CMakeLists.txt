@@ -12,6 +12,7 @@ juce_add_gui_app(daw_app
 
 target_sources(daw_app PRIVATE
     src/AppController.cpp
+    src/CrashMarker.cpp
     src/Main.cpp)
 
 target_compile_definitions(daw_app PRIVATE
@@ -30,6 +31,8 @@ set_target_properties(daw_plugin_scanner PROPERTIES OUTPUT_NAME "${DAW_PRODUCT_N
 target_link_libraries(daw_plugin_scanner PRIVATE daw::controller daw::engine daw::juce)
 daw_enable_warnings(daw_plugin_scanner)
 add_dependencies(daw_app daw_plugin_scanner)
+target_compile_definitions(daw_app PRIVATE
+    "DAW_PLUGIN_SCANNER_NAME=\"$<TARGET_FILE_NAME:daw_plugin_scanner>\"")
 add_custom_command(TARGET daw_app POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:daw_plugin_scanner>"
         "$<TARGET_FILE_DIR:daw_app>/$<TARGET_FILE_NAME:daw_plugin_scanner>"

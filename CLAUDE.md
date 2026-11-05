@@ -846,6 +846,20 @@ Modules with one-way dependencies:
   catalogue's plugins by maker (and favourites) in "+ Effect" and the instrument menu.
   File > Open Without Plugins opens a project with its plugins off; after opening, an
   alert names plugins that are missing or failed (`Session::getUnavailablePlugins()`).
+- Plugin Manager and the app (Phase 7): File > Plugin Manager... (`PluginManagerPanel`
+  in a `PanelWindow`, refreshing itself four times a second): Scan for New Plugins,
+  Rescan All, Cancel and the progress; pages Plugins (with why one is not hosted), Not
+  Loaded (the blacklist, Retry) and Folders (defaults, then the user's own per format,
+  a new one scanned at once; AU needs none). `AppController` owns the
+  `PluginLibrary` (catalogue `Plugins.json` next to `DAW.settings`, the scanner next to
+  the executable, `DAW_PLUGIN_SCANNER_NAME`), scans at launch, files the results each
+  tick (`Session::pluginsChanged()` when the catalogue changed), loads plugins with
+  JUCE's formats with editors, keeps the plugin windows' positions ("pluginWindows")
+  and the last project ("lastProject") in the user settings, and owns a `CrashMarker`
+  (`app/src/CrashMarker`): on a crash, signal handlers (JUCE's exception filter on
+  Windows) write the `RunningPlugin` names into `CrashedPlugins.txt` with system calls
+  only, then let the signal go on; the next start holds those plugins back
+  (`Session::holdBackPlugins()`) and offers to open the last project.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.

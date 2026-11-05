@@ -5,6 +5,7 @@
 #include "daw/ui/desktop/AnimationsPanel.h"
 #include "daw/ui/desktop/AudioSettingsDialog.h"
 #include "daw/ui/desktop/ExportDialog.h"
+#include "daw/ui/desktop/PluginManagerPanel.h"
 #include "daw/ui/desktop/ThemePreviewsPanel.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -619,7 +620,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
                        newBus,           toggleAutomation, showThemePreviews, showAnimations,
                        toggleAllAnimations, newMidiTrack, duplicate, togglePianoRoll,
-                       quantiseNotes,    exportMidi,      panic, togglePluginBrowser, openWithoutPlugins});
+                       quantiseNotes,    exportMidi,      panic, togglePluginBrowser, openWithoutPlugins, showPluginManager});
 
     const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
     for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
@@ -816,6 +817,11 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setInfo("Open Without Plugins...",
                        "Opens a project with its plugins switched off (load each from its slot)", "File", 0);
         break;
+    case showPluginManager:
+        result.setInfo("Plugin Manager...", "Scans for plugins, lists those found and those that failed, "
+                       "and the folders searched", "File", 0);
+        result.setActive(pluginLibrary != nullptr);
+        break;
     case toggleAllAnimations:
         result.setInfo("All Animations Off", "Switches every animation off, and again back on",
                        "View", 0);
@@ -970,6 +976,11 @@ bool MainComponent::perform(const InvocationInfo& info)
         break;
     case openWithoutPlugins:
         askToSaveChanges([this] { chooseProjectToOpen(false); });
+        break;
+    case showPluginManager:
+        if (pluginLibrary != nullptr)
+            showPanel(pluginManagerWindow, "Plugin Manager",
+                      [this] { return std::make_unique<PluginManagerPanel>(*pluginLibrary); });
         break;
     case toggleMetronome:
         session.setMetronomeEnabled(!session.getProject().isMetronomeEnabled());
