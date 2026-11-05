@@ -22,6 +22,19 @@ target_link_libraries(daw_app PRIVATE daw::ui_desktop daw::appearance daw::contr
     daw::model daw::juce)
 daw_enable_warnings(daw_app)
 
+# The plugin scanner, a program of its own next to the app's executable (inside the
+# bundle on macOS), which the app starts for every plugin file it scans.
+# WIN32: a Windows GUI program (JUCE gives it WinMain), so no console window opens.
+add_executable(daw_plugin_scanner WIN32 scanner/ScannerMain.cpp)
+set_target_properties(daw_plugin_scanner PROPERTIES OUTPUT_NAME "${DAW_PRODUCT_NAME} Plugin Scanner")
+target_link_libraries(daw_plugin_scanner PRIVATE daw::controller daw::engine daw::juce)
+daw_enable_warnings(daw_plugin_scanner)
+add_dependencies(daw_app daw_plugin_scanner)
+add_custom_command(TARGET daw_app POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:daw_plugin_scanner>"
+        "$<TARGET_FILE_DIR:daw_app>/$<TARGET_FILE_NAME:daw_plugin_scanner>"
+    VERBATIM)
+
 # The licences of what the app contains travel with it: the fonts' (the SIL Open Font
 # License asks for it) and those of the plugin SDKs JUCE compiles in (MIT and ISC ask
 # for their notices), in the bundle's Resources on macOS, in a Licences folder next to

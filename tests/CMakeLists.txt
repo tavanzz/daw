@@ -25,6 +25,7 @@ add_executable(daw_tests
     controller/MidiRecordingSessionTests.cpp
     controller/NoteEditingTests.cpp
     controller/PluginCatalogueTests.cpp
+    controller/PluginScannerTests.cpp
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp
@@ -83,6 +84,11 @@ if(APPLE)
     target_link_libraries(daw_tests PRIVATE daw_test_audio_units)
 endif()
 target_compile_definitions(daw_tests PRIVATE "DAW_TEST_PLUGINS_DIR=\"${DAW_TEST_PLUGINS_DIR}\"")
+# The scanner program (app/scanner): the tests run it, as the app does, to scan plugins
+# in a process of its own; they link none of the app's code.
+add_dependencies(daw_tests daw_plugin_scanner)
+target_compile_definitions(daw_tests PRIVATE
+    "DAW_PLUGIN_SCANNER=\"$<TARGET_FILE:daw_plugin_scanner>\"")
 
 # UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
 # Linux CI, on a virtual display).

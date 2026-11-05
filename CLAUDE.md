@@ -28,7 +28,7 @@ Modules with one-way dependencies:
 | `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
-| `tests/`      | unit tests for engine, model, controller and appearance; UI tests for ui/desktop | everything but app |
+| `tests/`      | unit tests for engine, model, controller and appearance; UI tests for ui/desktop | everything but app (they run the app's plugin scanner program, linking none of its code) |
 
 - `engine` never depends on any UI. `engine` and `model` don't depend on each other
   nor on `controller`; `controller` maps the model onto the engine. `appearance`
@@ -470,6 +470,22 @@ Modules with one-way dependencies:
   effects or instruments, manufacturer, favourites) feeds the browser. Saved as JSON
   (`saveTo()` through a temporary file; reading never fails). Nothing here loads a
   plugin.
+- Plugin scanning (Phase 7): `controller::PluginScanner` runs the scanner program
+  (`app/scanner`, "DAW Plugin Scanner" next to the app's executable, inside the bundle
+  on macOS) once per item, 4 at once, on a thread of its own. The program is a JUCE
+  application without windows (some plugins need the platform's GUI and its event
+  loop when they load; AUv3 answers later) that runs `runScannerProcess()`:
+  `scanItem()` lists the item's plugins with JUCE's headless formats (for LV2 after
+  reading the folders it is given), instantiates each once, sets up its layout
+  (`engine::plugins::setUpStereoLayout()`: main buses only, stereo in and out, else
+  mono in and stereo out, else mono; instruments without input first; MIDI effects
+  and more than two channels refused) and writes the outcome as JSON into a result
+  file of its own, last with "complete": true. A process that ends without it
+  crashed (the program ends at once, code 70, on a crash, so no crash report or
+  dialog appears), one still running after 30 s is killed (a hang); both go to the
+  blacklist. `controller::PluginLibrary` ties the catalogue (in its file) and the
+  scanner: `scan()` queues what `planScan()` finds new or changed, `retry()` one
+  blacklisted item, `update()` (UI timer) files the results and saves.
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -1433,7 +1449,7 @@ while playing, MIDI effects, automation writing, mobile UI.
       scan, hang on scan, NaN
 - [x] 5. Plugin catalogue in the controller: descriptions, files, incremental changes,
       blacklist, folders, favourites, search and filters
-- [ ] 6. Out-of-process scanner (`daw_plugin_scanner`): parallel scans, timeouts,
+- [x] 6. Out-of-process scanner (`daw_plugin_scanner`): parallel scans, timeouts,
       crashes and hangs blacklisted while the DAW carries on
 - [ ] 7. Plugin adapter in the engine (`fx::PluginEffect`): parameters, layouts,
       sample-exact MIDI, automation in sub-blocks, play head, latency, tail, NaN
