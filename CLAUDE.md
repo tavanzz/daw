@@ -977,8 +977,9 @@ ctest --preset debug            # run all tests
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
   project, the Phase 3 recording project, the Phase 4 effects and delay
-  compensation projects and the Phase 6 instruments project, MIDI files and samples
-  from `python3 tools/make_listening_test_files.py` (into
+  compensation projects, the Phase 6 instruments project, MIDI files and samples and
+  the Phase 7 plugins project (two plugins installed nowhere) from
+  `python3 tools/make_listening_test_files.py` (into
   `build/listening-tests/`; add `--long` for the hour-long streaming file).
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
   `build/release/tests/daw_stream_bench` (streaming and recording),
@@ -1577,11 +1578,11 @@ while playing, MIDI effects, automation writing, mobile UI.
       processing at a crash
 - [x] 11. End-to-end tests with the test plugins (hanging notes, export equals
       playback, state round trips); benchmark of the adapter's cost per block
-- [ ] 12. Desktop UI: plugin browser, plugins in the effect and instrument menus,
+- [x] 12. Desktop UI: plugin browser, plugins in the effect and instrument menus,
       Plugin Manager; themed
-- [ ] 13. Desktop UI: plugin editor windows (the plugin's or the generic editor),
+- [x] 13. Desktop UI: plugin editor windows (the plugin's or the generic editor),
       placeholders, slow-plugin and NaN warnings
-- [ ] 14. UI tests in every theme; listening tests for Phase 7 with the plugins
+- [x] 14. UI tests in every theme; listening tests for Phase 7 with the plugins
       installed on the Mac; version 0.7.0
 - [ ] Listening tests (`docs/LISTENING_TESTS.md`)
 
