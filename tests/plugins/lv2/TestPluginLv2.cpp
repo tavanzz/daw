@@ -38,7 +38,8 @@ struct Plugin
 
 [[maybe_unused]] LV2_Handle instantiatePlugin(double rate, const LV2_Feature* const* features);
 
-LV2_Handle instantiate(const LV2_Descriptor*, double rate, const char*, const LV2_Feature* const* features)
+LV2_Handle instantiate(const LV2_Descriptor*, [[maybe_unused]] double rate, const char*,
+                       [[maybe_unused]] const LV2_Feature* const* features)
 {
     // The faulty kinds misbehave when instantiated (LV2 hosts scan the Turtle files
     // without loading the library; the scanner instantiates every plugin).

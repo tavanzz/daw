@@ -69,13 +69,13 @@ public:
     }
 
     // FUnknown
-    tresult PLUGIN_API queryInterface(const TUID iid, void** object) override
+    tresult PLUGIN_API queryInterface(const TUID interfaceId, void** object) override
     {
-        if (sameId(iid, FUnknown::iid) || sameId(iid, IPluginBase::iid) || sameId(iid, IComponent::iid))
+        if (sameId(interfaceId, FUnknown::iid) || sameId(interfaceId, IPluginBase::iid) || sameId(interfaceId, IComponent::iid))
             *object = static_cast<IComponent*>(this);
-        else if (sameId(iid, IAudioProcessor::iid))
+        else if (sameId(interfaceId, IAudioProcessor::iid))
             *object = static_cast<IAudioProcessor*>(this);
-        else if (sameId(iid, IEditController::iid))
+        else if (sameId(interfaceId, IEditController::iid))
             *object = static_cast<IEditController*>(this);
         else
         {
@@ -308,9 +308,10 @@ private:
 class Factory final : public IPluginFactory2
 {
 public:
-    tresult PLUGIN_API queryInterface(const TUID iid, void** object) override
+    tresult PLUGIN_API queryInterface(const TUID interfaceId, void** object) override
     {
-        if (sameId(iid, FUnknown::iid) || sameId(iid, IPluginFactory::iid) || sameId(iid, IPluginFactory2::iid))
+        if (sameId(interfaceId, FUnknown::iid) || sameId(interfaceId, IPluginFactory::iid) ||
+            sameId(interfaceId, IPluginFactory2::iid))
         {
             *object = static_cast<IPluginFactory2*>(this);
             return kResultOk;
@@ -347,7 +348,7 @@ public:
                             "DAW Tests", "1.0.0", kVstVersionString);
         return kResultOk;
     }
-    tresult PLUGIN_API createInstance(FIDString cid, FIDString iid, void** object) override
+    tresult PLUGIN_API createInstance(FIDString cid, FIDString interfaceId, void** object) override
     {
         TUID ours;
         classId.toTUID(ours);
@@ -357,7 +358,7 @@ public:
             return kNoInterface;
         }
         auto* plugin = new TestPlugin();
-        const auto result = plugin->queryInterface(iid, object);
+        const auto result = plugin->queryInterface(interfaceId, object);
         plugin->release();
         return result;
     }

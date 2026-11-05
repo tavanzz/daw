@@ -42,6 +42,8 @@ function(daw_add_test_vst3 target kind name folder)
         OUTPUT_NAME "${name}"
         PREFIX "")
     daw_enable_warnings(${target})
+    # VST3 interfaces are COM-like: no virtual destructors, objects end in release().
+    target_compile_options(${target} PRIVATE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wno-non-virtual-dtor>)
 
     set(bundle "${DAW_TEST_PLUGINS_DIR}/${folder}/${name}.vst3")
     if(APPLE)

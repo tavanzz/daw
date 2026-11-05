@@ -232,10 +232,10 @@ std::optional<ScanOutcome> outcomeFromJson(const juce::var& json)
 
 bool runScannerProcess(const juce::StringArray& arguments, std::function<void(int)> finished)
 {
-    const auto format = valuesOf(arguments, "--format");
-    const auto item = valuesOf(arguments, "--item");
-    const auto result = valuesOf(arguments, "--result");
-    if (format.size() != 1 || item.size() != 1 || result.size() != 1)
+    const auto formatArgument = valuesOf(arguments, "--format");
+    const auto itemArgument = valuesOf(arguments, "--item");
+    const auto resultArgument = valuesOf(arguments, "--result");
+    if (formatArgument.size() != 1 || itemArgument.size() != 1 || resultArgument.size() != 1)
         return false;
 
     struct Scan
@@ -247,8 +247,8 @@ bool runScannerProcess(const juce::StringArray& arguments, std::function<void(in
     };
     auto scan = std::make_shared<Scan>();
     juce::addHeadlessDefaultFormatsToManager(scan->formats);
-    scan->item = {format[0], item[0]};
-    scan->result = juce::File(result[0]);
+    scan->item = {formatArgument[0], itemArgument[0]};
+    scan->result = juce::File(resultArgument[0]);
     scan->folders = valuesOf(arguments, "--folder");
 
     // From the message loop, which AUv3 plugins need to answer.
