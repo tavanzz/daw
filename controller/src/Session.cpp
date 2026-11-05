@@ -152,11 +152,13 @@ void Session::newProject()
     projectFile = juce::File();
 }
 
-juce::Result Session::openProject(const juce::File& file)
+juce::Result Session::openProject(const juce::File& file, bool withPlugins)
 {
     auto loaded = model::loadProject(file);
     if (!loaded.succeeded())
         return juce::Result::fail(loaded.error);
+    if (pluginInstances != nullptr)
+        pluginInstances->holdBackAll(!withPlugins);
 
     leaveProject();
     replaceProject(std::move(*loaded.project));
@@ -1784,6 +1786,27 @@ void Session::pluginsChanged()
     pluginInstances->retryMissing();
     arrangementOutOfDate = true;
     ++revision;
+}
+
+void Session::holdBackPlugins(const juce::StringArray& displayNames)
+{
+    if (pluginInstances != nullptr)
+        for (const auto& name : displayNames)
+            pluginInstances->holdBack(name);
+}
+
+void Session::allowPlugin(model::ObjectId effectId)
+{
+    if (pluginInstances != nullptr)
+        pluginInstances->allow(effectId);
+    arrangementOutOfDate = true;
+}
+
+void Session::allowAllPlugins()
+{
+    if (pluginInstances != nullptr)
+        pluginInstances->allowAll();
+    arrangementOutOfDate = true;
 }
 
 std::vector<Session::PluginLoad> Session::takePluginLoads()

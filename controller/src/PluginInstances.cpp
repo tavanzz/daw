@@ -135,8 +135,50 @@ std::shared_ptr<engine::fx::EffectInstance> PluginInstances::instanceFor(const m
     return entry.instance;
 }
 
+juce::String PluginInstances::displayNameOf(const model::PluginReference& reference)
+{
+    return reference.name + " (" + reference.format + ")";
+}
+
+void PluginInstances::holdBackAll(bool hold)
+{
+    holdingAll = hold;
+    allowed.clear();
+}
+
+void PluginInstances::holdBack(const juce::String& displayName)
+{
+    heldNames.addIfNotAlreadyThere(displayName);
+}
+
+void PluginInstances::allow(model::ObjectId effectId)
+{
+    allowed.insert(effectId);
+    if (const auto found = entries.find(effectId);
+        found != entries.end() && found->second.status == PluginStatus::off)
+        startLoading(effectId, found->second);
+}
+
+void PluginInstances::allowAll()
+{
+    holdingAll = false;
+    heldNames.clear();
+    for (auto& [id, entry] : entries)
+        if (entry.status == PluginStatus::off)
+            startLoading(id, entry);
+}
+
 void PluginInstances::startLoading(model::ObjectId effectId, Entry& entry)
 {
+    if (!allowed.contains(effectId) && (holdingAll || heldNames.contains(displayNameOf(entry.reference))))
+    {
+        entry.status = PluginStatus::off;
+        entry.problem = holdingAll ? "not loaded: the project was opened without plugins"
+                                   : "not loaded: the app quit unexpectedly while it ran";
+        changed = true;
+        return;
+    }
+
     const auto info = findInCatalogue(entry.reference);
     if (!info)
     {

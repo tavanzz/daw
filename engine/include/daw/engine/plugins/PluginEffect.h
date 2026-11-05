@@ -164,6 +164,7 @@ private:
 
     std::unique_ptr<juce::AudioPluginInstance> plugin;
     juce::PluginDescription pluginDescription;
+    std::array<char, 160> crashName{}; ///< "name (format)", for RunningPlugin
     PluginLayout layout;
     bool instrument = false;
     fx::EffectDescription description;

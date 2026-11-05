@@ -456,6 +456,12 @@ Modules with one-way dependencies:
   are not edits; other changes of its state mark the project unsaved. Removing a
   plugin (effect, instrument, track, bus) first stores its state in the model, not
   undoably, so undo brings it back as it sounded; saving stores every plugin's state.
+  Plugins can be kept from loading (`PluginStatus::off`, placeholders until
+  `allowPlugin()` / `allowAllPlugins()`): all of a project opened with
+  `openProject(file, false)` (File > Open Without Plugins), or those named after a
+  crash (`holdBackPlugins()`: `engine::plugins::RunningPlugin` keeps, in two atomics a
+  signal handler may read, which plugin runs on the audio thread and which elsewhere,
+  "name (format)").
   `ExportJob` gets fresh instances of the plugins from `makeExportPlugins()` (loaded
   at once on the message thread, the state each holds now, prepared offline) and
   names those it could not load (`getMissingPlugins()`).
@@ -1521,7 +1527,7 @@ while playing, MIDI effects, automation writing, mobile UI.
       the plugin's editor, exports with instances of their own
 - [x] 9. Project format version 6: plugins with their state and parameters,
       placeholders for missing plugins that keep everything; migration from version 5
-- [ ] 10. Session: inserting, removing, moving, bypassing plugins and parameter edits
+- [x] 10. Session: inserting, removing, moving, bypassing plugins and parameter edits
       with undo; missing plugins; opening without plugins; the plugin that was
       processing at a crash
 - [ ] 11. End-to-end tests with the test plugins (hanging notes, export equals

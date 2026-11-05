@@ -1,6 +1,7 @@
 #include "daw/controller/ExportJob.h"
 #include "daw/controller/PluginScanner.h"
 #include "daw/controller/Session.h"
+#include "daw/engine/plugins/RunningPlugin.h"
 
 #include "support/RealtimeCheck.h"
 #include "support/TestAudioFiles.h"
@@ -336,4 +337,68 @@ TEST_CASE("An export with deterministic plugins equals real-time playback", "[co
     CHECK(identical);
     CHECK(exported.getSample(0, 5000) == 0.5f + 64.0f / 127.0f);
     CHECK(exported.getSample(0, 14000) == 0.25f + 100.0f / 127.0f);
+}
+
+TEST_CASE("A project opens without its plugins, or without the one that crashed; each loads when allowed",
+          "[controller][plugins]")
+{
+    daw::test::TemporaryDirectory directory;
+    const auto file = directory.file("plugins.dawproject");
+    {
+        Fixture fixture;
+        auto& session = fixture.session;
+        const auto track = session.addTrack("Audio");
+        session.addPlugin({ChainOwner::Kind::track, track}, described(fixture.catalogue, "Gain"));
+        session.addPlugin({ChainOwner::Kind::track, track}, described(fixture.catalogue, "Latency"));
+        REQUIRE(session.saveProject(file).wasOk());
+    }
+
+    Fixture fixture;
+    auto& session = fixture.session;
+    const auto effectIds = [&] {
+        const auto effects = session.getProject().getTrack(0).getEffects();
+        return std::pair{effects.getEffect(0).getId(), effects.getEffect(1).getId()};
+    };
+
+    REQUIRE(session.openProject(file, false).wasOk());
+    fixture.play(2);
+    auto [gain, latency] = effectIds();
+    CHECK(session.getPluginStatus(gain) == PluginStatus::off);
+    CHECK(session.getPluginStatus(latency) == PluginStatus::off);
+    CHECK(session.getPluginProblem(gain).contains("without plugins"));
+    session.allowPlugin(latency);
+    fixture.play(2);
+    CHECK(session.getPluginStatus(gain) == PluginStatus::off);
+    CHECK(session.getPluginStatus(latency) == PluginStatus::ready);
+    session.allowAllPlugins();
+    fixture.play(2);
+    CHECK(session.getPluginStatus(gain) == PluginStatus::ready);
+
+    // The one that was running when the app crashed is kept back on its own.
+    session.holdBackPlugins({"DAW Test Gain (VST3)"});
+    REQUIRE(session.openProject(file).wasOk());
+    fixture.play(2);
+    std::tie(gain, latency) = effectIds();
+    CHECK(session.getPluginStatus(gain) == PluginStatus::off);
+    CHECK(session.getPluginProblem(gain).contains("quit unexpectedly"));
+    CHECK(session.getPluginStatus(latency) == PluginStatus::ready);
+    session.allowPlugin(gain);
+    fixture.play(2);
+    CHECK(session.getPluginStatus(gain) == PluginStatus::ready);
+}
+
+TEST_CASE("The plugin running now is known, for a crash report", "[engine][plugins]")
+{
+    using daw::engine::plugins::RunningPlugin;
+    CHECK(RunningPlugin::onAudioThread() == nullptr);
+    {
+        const RunningPlugin outer("Outer (VST3)", true);
+        {
+            const RunningPlugin inner("Inner (AudioUnit)", true);
+            CHECK(juce::String(RunningPlugin::onAudioThread()) == "Inner (AudioUnit)");
+            CHECK(RunningPlugin::elsewhere() == nullptr);
+        }
+        CHECK(juce::String(RunningPlugin::onAudioThread()) == "Outer (VST3)");
+    }
+    CHECK(RunningPlugin::onAudioThread() == nullptr);
 }

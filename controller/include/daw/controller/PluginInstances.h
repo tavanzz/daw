@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <vector>
 
 namespace daw::controller
@@ -52,7 +53,8 @@ enum class PluginStatus
     loading, ///< being instantiated
     ready,   ///< playing
     missing, ///< not in the catalogue (not installed here, or not scanned yet)
-    failed   ///< in the catalogue, but it did not load, or cannot be hosted
+    failed,  ///< in the catalogue, but it did not load, or cannot be hosted
+    off      ///< kept from loading (after a crash, or opened without plugins)
 };
 
 /**
@@ -102,6 +104,20 @@ public:
     /** Missing and failed plugins are looked for again (the catalogue changed). */
     void retryMissing();
 
+    /** Keeps every plugin from loading (a project opened without plugins), or no
+        longer; their effects are placeholders (PluginStatus::off) until allowed. */
+    void holdBackAll(bool hold);
+    /** Keeps plugins of this name ("name (format)", as RunningPlugin reports them)
+        from loading: the one running when the app crashed. */
+    void holdBack(const juce::String& displayName);
+    /** Lets one effect's plugin load after all. */
+    void allow(model::ObjectId effectId);
+    /** Lets every plugin load. */
+    void allowAll();
+
+    /** "name (format)": how RunningPlugin and holdBack() name a plugin. */
+    [[nodiscard]] static juce::String displayNameOf(const model::PluginReference& reference);
+
     [[nodiscard]] PluginStatus getStatus(model::ObjectId effectId) const;
     /** Why it is missing or failed ("not installed", "crashed when scanned"...). */
     [[nodiscard]] juce::String getProblem(model::ObjectId effectId) const;
@@ -146,6 +162,9 @@ private:
     int blockSize = 512;
     std::map<model::ObjectId, Entry> entries;
     std::vector<model::ObjectId> used;
+    bool holdingAll = false;
+    juce::StringArray heldNames;
+    std::set<model::ObjectId> allowed; // despite the above
     std::uint64_t nextRequest = 1;
     bool changed = false;
     std::shared_ptr<bool> alive = std::make_shared<bool>(true); // for late callbacks

@@ -1,6 +1,7 @@
 #include "daw/engine/plugins/PluginEffect.h"
 
 #include "daw/engine/midi/EventBuffer.h"
+#include "daw/engine/plugins/RunningPlugin.h"
 #include "daw/engine/rt/ForeignCode.h"
 
 #include <algorithm>
@@ -51,6 +52,8 @@ PluginEffect::PluginEffect(std::unique_ptr<juce::AudioPluginInstance> pluginToHo
 {
     description.type = "plugin";
     description.name = pluginDescription.name;
+    (pluginDescription.name + " (" + pluginDescription.pluginFormatName + ")")
+        .copyToUTF8(crashName.data(), crashName.size());
     description.isInstrument = instrument;
 
     parameters = plugin->getParameters();
@@ -81,6 +84,7 @@ PluginEffect::PluginEffect(std::unique_ptr<juce::AudioPluginInstance> pluginToHo
 
 PluginEffect::~PluginEffect()
 {
+    const RunningPlugin running(crashName.data(), false);
     plugin->removeListener(this);
     plugin->setPlayHead(nullptr);
     if (prepared)
@@ -89,6 +93,7 @@ PluginEffect::~PluginEffect()
 
 void PluginEffect::prepare(const fx::ProcessSetup& setup)
 {
+    const RunningPlugin running(crashName.data(), false);
     hostIsLoading = true;
     if (prepared)
         plugin->releaseResources();
@@ -130,6 +135,7 @@ void PluginEffect::prepare(const fx::ProcessSetup& setup)
 
 void PluginEffect::reset() noexcept
 {
+    const RunningPlugin running(crashName.data(), true);
     sounding.reset();
     panicPending = false;
     const rt::ForeignCode foreign;
@@ -150,6 +156,7 @@ double PluginEffect::getTailSeconds(std::span<const float>) const
 
 juce::MemoryBlock PluginEffect::getExtraState() const
 {
+    const RunningPlugin running(crashName.data(), false);
     juce::MemoryBlock state;
     plugin->getStateInformation(state);
     return state;
@@ -159,6 +166,7 @@ bool PluginEffect::setExtraState(const juce::MemoryBlock& state)
 {
     if (state.isEmpty())
         return true;
+    const RunningPlugin running(crashName.data(), false);
     hostIsLoading = true;
     plugin->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
     for (int i = 0; i < parameters.size(); ++i)
@@ -356,6 +364,7 @@ void PluginEffect::process(const fx::ProcessBlock& block) noexcept
     const int numSamples = block.numSamples;
     if (numSamples <= 0)
         return;
+    const RunningPlugin running(crashName.data(), true);
     const auto started = juce::Time::getHighResolutionTicks();
 
     // Where to cut the call: the breakpoints, and the grid while automation moves.

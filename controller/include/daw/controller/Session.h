@@ -110,7 +110,9 @@ public:
 
     void newProject();
     /** On failure the current project stays open; the error is written for the user. */
-    juce::Result openProject(const juce::File& file);
+    /** withPlugins false: the project's plugins stay placeholders until allowed
+        (allowPlugin(), allowAllPlugins()), for a plugin that crashes the app. */
+    juce::Result openProject(const juce::File& file, bool withPlugins = true);
     juce::Result saveProject(const juce::File& file);
     [[nodiscard]] juce::File getProjectFile() const { return projectFile; }
     [[nodiscard]] bool hasUnsavedChanges() const noexcept { return unsavedChanges; }
@@ -243,6 +245,13 @@ public:
 
     /** The catalogue changed (a scan): plugins missing until now are looked for again. */
     void pluginsChanged();
+
+    /** Keeps plugins of these names ("name (format)", engine::plugins::RunningPlugin)
+        from loading: those running when the app crashed. */
+    void holdBackPlugins(const juce::StringArray& displayNames);
+    /** A plugin kept from loading loads after all. */
+    void allowPlugin(model::ObjectId effectId);
+    void allowAllPlugins();
 
     /** What each playing plugin takes of the real time since the last call. */
     struct PluginLoad
