@@ -44,6 +44,13 @@ Modules with one-way dependencies:
 - JUCE is compiled once into the internal static library `daw::juce`
   (`cmake/JuceLibrary.cmake`), with JUCE's own flags. Include JUCE module headers
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
+- Plugin hosting (Phase 7): `daw::juce` compiles JUCE's VST3 host everywhere, AU on
+  macOS and LV2 on Linux (no VST2, LADSPA or ARA). `engine` and `controller` use the
+  headless module (`juce_audio_processors_headless`: formats, instances, parameters,
+  no editors); JUCE's full formats, which make editors (`juce_audio_processors`,
+  `addDefaultFormatsToManager()`), belong to the UIs and the app (checked by
+  `architecture.detects_plugin_editors_in_engine`). The SDKs' licences ship with the
+  app (`Licences/`, `docs/THIRD_PARTY.md`).
 - Anything both UIs will need (waveform peaks, meter values, transport state) lives
   in `engine` or `model`, never in a UI module.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
@@ -1394,7 +1401,7 @@ while playing, MIDI effects, automation writing, mobile UI.
       and closing; stop, pause, bypass and mute end preview notes
 - [x] 2. Panic: every instrument, built-in or plugin, ends its notes and voices;
       Transport > Panic (Shift+Cmd+.); listening checks for both Phase 6 fixes
-- [ ] 3. Plugin hosting in the build (VST3 everywhere, AU on macOS, LV2 on Linux),
+- [x] 3. Plugin hosting in the build (VST3 everywhere, AU on macOS, LV2 on Linux),
       architecture rules, the SDKs' licences in `docs/THIRD_PARTY.md`
 - [ ] 4. Test plugins built from the SDKs (VST3 on every platform, AU v2 on macOS,
       LV2 on Linux), in CI too: gain, known latency, deterministic synth, crash on

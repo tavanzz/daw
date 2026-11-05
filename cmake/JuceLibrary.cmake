@@ -24,6 +24,8 @@ target_link_libraries(daw_juce
         juce::juce_graphics
         juce::juce_gui_basics
         juce::juce_audio_utils
+        juce::juce_audio_processors
+        juce::juce_audio_processors_headless
         juce::juce_recommended_config_flags)
 
 target_compile_definitions(daw_juce
@@ -36,6 +38,13 @@ target_compile_definitions(daw_juce
         JUCE_USE_CURL=0
         JUCE_JACK=0
         JUCE_PLUGINHOST_LADSPA=0
+        # Plugin hosting (Phase 7): VST3 everywhere, AU on macOS, LV2 on Linux. No
+        # VST2 (its SDK cannot be distributed) and no ARA.
+        JUCE_PLUGINHOST_VST3=1
+        JUCE_PLUGINHOST_AU=$<IF:$<PLATFORM_ID:Darwin>,1,0>
+        JUCE_PLUGINHOST_LV2=$<IF:$<PLATFORM_ID:Linux>,1,0>
+        JUCE_PLUGINHOST_VST=0
+        JUCE_PLUGINHOST_ARA=0
     INTERFACE
         $<TARGET_PROPERTY:daw_juce,COMPILE_DEFINITIONS>)
 

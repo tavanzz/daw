@@ -52,6 +52,7 @@ add_executable(daw_tests
     engine/MidiRecordingTests.cpp
     engine/MixerTests.cpp
     engine/MonitoringTests.cpp
+    engine/PluginHostingTests.cpp
     engine/RecorderTests.cpp
     engine/RecordingWriterTests.cpp
     engine/SamplerTests.cpp
@@ -173,6 +174,13 @@ add_test(NAME architecture.detects_appearance_include_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_appearance_include_in_engine PROPERTIES
     PASS_REGULAR_EXPRESSION "engine/src/UsesAppearance\\.cpp: <daw/appearance/Theme\\.h>")
+
+add_test(NAME architecture.detects_plugin_editors_in_engine
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_plugin_editors_in_engine PROPERTIES
+    PASS_REGULAR_EXPRESSION
+    "engine/src/UsesPluginEditors\\.cpp: <juce_audio_processors/juce_audio_processors\\.h>"
+    FAIL_REGULAR_EXPRESSION "HostsPlugins")
 
 # No literal colours or fonts in the desktop UI's components (cmake/CheckUiLiterals.cmake).
 set(check_ui_literals "${PROJECT_SOURCE_DIR}/cmake/CheckUiLiterals.cmake")

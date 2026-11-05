@@ -22,11 +22,21 @@ target_link_libraries(daw_app PRIVATE daw::ui_desktop daw::appearance daw::contr
     daw::model daw::juce)
 daw_enable_warnings(daw_app)
 
-# The fonts' licences travel with the app (the SIL Open Font License asks for it):
-# in the bundle's Resources on macOS, in a Licences folder next to the executable
-# elsewhere.
-set(font_licences
-    ChakraPetch IBMPlexMono JetBrainsMono Michroma Rajdhani SpaceGrotesk)
+# The licences of what the app contains travel with it: the fonts' (the SIL Open Font
+# License asks for it) and those of the plugin SDKs JUCE compiles in (MIT and ISC ask
+# for their notices), in the bundle's Resources on macOS, in a Licences folder next to
+# the executable elsewhere. Each entry: the folder under Licences, then the file.
+set(format_types "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types")
+set(licences "")
+foreach(family IN ITEMS ChakraPetch IBMPlexMono JetBrainsMono Michroma Rajdhani SpaceGrotesk)
+    list(APPEND licences "${family}|${PROJECT_SOURCE_DIR}/appearance/fonts/${family}/OFL.txt")
+endforeach()
+list(APPEND licences "VST3_SDK|${format_types}/VST3_SDK/LICENSE.txt")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    foreach(library IN ITEMS lilv lv2 serd sord sratom)
+        list(APPEND licences "${library}|${format_types}/LV2_SDK/${library}/COPYING")
+    endforeach()
+endif()
 
 if(APPLE)
     target_sources(daw_app PRIVATE "${PROJECT_SOURCE_DIR}/docs/THIRD_PARTY.md")
@@ -34,22 +44,27 @@ if(APPLE)
         HEADER_FILE_ONLY TRUE
         MACOSX_PACKAGE_LOCATION "Resources/Licences")
 
-    foreach(family IN LISTS font_licences)
-        set(licence "${PROJECT_SOURCE_DIR}/appearance/fonts/${family}/OFL.txt")
+    foreach(entry IN LISTS licences)
+        string(REPLACE "|" ";" parts "${entry}")
+        list(GET parts 0 folder)
+        list(GET parts 1 licence)
         target_sources(daw_app PRIVATE "${licence}")
         set_source_files_properties("${licence}" PROPERTIES
             HEADER_FILE_ONLY TRUE
-            MACOSX_PACKAGE_LOCATION "Resources/Licences/${family}")
+            MACOSX_PACKAGE_LOCATION "Resources/Licences/${folder}")
     endforeach()
 else()
     set(licence_commands "")
-    foreach(family IN LISTS font_licences)
+    foreach(entry IN LISTS licences)
+        string(REPLACE "|" ";" parts "${entry}")
+        list(GET parts 0 folder)
+        list(GET parts 1 licence)
+        get_filename_component(name "${licence}" NAME)
         list(APPEND licence_commands
             COMMAND "${CMAKE_COMMAND}" -E make_directory
-                "$<TARGET_FILE_DIR:daw_app>/Licences/${family}"
+                "$<TARGET_FILE_DIR:daw_app>/Licences/${folder}"
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${PROJECT_SOURCE_DIR}/appearance/fonts/${family}/OFL.txt"
-                "$<TARGET_FILE_DIR:daw_app>/Licences/${family}/OFL.txt")
+                "${licence}" "$<TARGET_FILE_DIR:daw_app>/Licences/${folder}/${name}")
     endforeach()
 
     add_custom_command(TARGET daw_app POST_BUILD
