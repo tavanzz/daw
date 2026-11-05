@@ -57,14 +57,6 @@ const controller::PluginCatalogue& catalogueOrNone(const controller::Session& se
     return catalogue != nullptr ? *catalogue : none;
 }
 
-juce::String nameOf(const model::Effect& effect)
-{
-    if (effect.getType() == model::pluginEffectType)
-        if (const auto plugin = effect.getPlugin())
-            return plugin->name;
-    return effectTypeName(effect.getType());
-}
-
 } // namespace
 
 juce::String effectTypeName(const juce::String& type)
@@ -76,6 +68,14 @@ juce::String effectTypeName(const juce::String& type)
         if (type == instrument.type)
             return instrument.name;
     return type;
+}
+
+juce::String effectDisplayName(const model::Effect& effect)
+{
+    if (effect.getType() == model::pluginEffectType)
+        if (const auto plugin = effect.getPlugin())
+            return plugin->name;
+    return effectTypeName(effect.getType());
 }
 
 EffectSlots::EffectSlots(controller::Session& sessionToEdit, controller::ChainOwner chainOwner)
@@ -97,7 +97,7 @@ void EffectSlots::refresh(bool projectChanged)
             if (index >= 0 && project.getTrack(index).isMidi())
             {
                 if (const auto instrument = project.getTrack(index).getInstrument())
-                    now.push_back({instrument->getId(), nameOf(*instrument), instrument->isBypassed(), false, true,
+                    now.push_back({instrument->getId(), effectDisplayName(*instrument), instrument->isBypassed(), false, true,
                                    instrument->getType() == model::pluginEffectType});
                 else
                     now.push_back({0, {}, false, false, true});
@@ -108,7 +108,7 @@ void EffectSlots::refresh(bool projectChanged)
         for (int i = 0; i < effects.getNumEffects(); ++i)
         {
             const auto effect = effects.getEffect(i);
-            now.push_back({effect.getId(), nameOf(effect), effect.isBypassed(), false, false,
+            now.push_back({effect.getId(), effectDisplayName(effect), effect.isBypassed(), false, false,
                            effect.getType() == model::pluginEffectType});
         }
     }

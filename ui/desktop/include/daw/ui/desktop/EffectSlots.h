@@ -91,4 +91,7 @@ private:
     itself if unknown. */
 [[nodiscard]] juce::String effectTypeName(const juce::String& type);
 
+/** The user-facing name of an effect: a plugin's own name, else its type's. */
+[[nodiscard]] juce::String effectDisplayName(const model::Effect& effect);
+
 } // namespace daw::ui::desktop

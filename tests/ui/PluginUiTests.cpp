@@ -4,6 +4,8 @@
 // slots, and items dragged from the browser.
 
 #include "daw/controller/PluginScanner.h"
+#include "daw/engine/plugins/PluginEffect.h"
+#include "daw/ui/desktop/AutomationLanes.h"
 #include "daw/ui/desktop/EffectEditorWindow.h"
 #include "daw/ui/desktop/EffectSlots.h"
 #include "daw/ui/desktop/MainComponent.h"
@@ -412,4 +414,20 @@ TEST_CASE("The Plugin Manager lists plugins, those not loaded and the folders se
         }
         writeSnapshot(panel, "plugin-manager-" + id);
     }
+}
+
+TEST_CASE("Automation lanes name a plugin's parameters and show their values as it writes them",
+          "[ui][plugins]")
+{
+    PluginStudio studio;
+    const auto* plugin = studio.session.findPlugin(studio.gain);
+    REQUIRE(plugin != nullptr);
+    const auto& parameter = plugin->getDescription().parameters[0];
+    const auto target = model::AutomationTarget::effectParameter(studio.gain, parameter.id);
+    const auto owner = ChainOwner::track(studio.track);
+
+    CHECK(ui::desktop::AutomationLanes::targetName(studio.session, owner, target) ==
+          "DAW Test Gain: " + parameter.name);
+    CHECK(ui::desktop::AutomationLanes::valueText(studio.session, target, 0.25) ==
+          plugin->getParameterText(0, 0.25f));
 }
