@@ -71,6 +71,7 @@ ParameterMapping::ParameterMapping(const ParameterInfo& info) noexcept
     , minimum(info.minimum)
     , maximum(info.maximum)
     , choiceCount(info.choices.size())
+    , smoothed(info.smoothed)
 {
     if (scale == ParameterScale::logarithmic)
     {

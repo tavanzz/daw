@@ -51,8 +51,10 @@ add_library(daw_engine STATIC
     src/midi/EventBuffer.cpp
     src/midi/HeldNotes.cpp
     src/midi/LiveInput.cpp
+    src/plugins/PluginEffect.cpp
     src/plugins/PluginLayout.cpp
-    src/rt/AudioFifo.cpp)
+    src/rt/AudioFifo.cpp
+    src/rt/ForeignCode.cpp)
 add_library(daw::engine ALIAS daw_engine)
 
 # Microphone permission: asked through AVFoundation on Apple systems.

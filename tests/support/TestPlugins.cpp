@@ -71,4 +71,32 @@ std::unique_ptr<juce::AudioPluginInstance> loadTestAudioUnit(const juce::String&
 }
 #endif
 
+juce::StringArray testPluginFormats()
+{
+    juce::StringArray formats{"VST3"};
+#if JUCE_MAC
+    formats.add("AudioUnit");
+#endif
+#if JUCE_PLUGINHOST_LV2
+    formats.add("LV2");
+#endif
+    return formats;
+}
+
+std::unique_ptr<juce::AudioPluginInstance> loadTestPlugin(const juce::String& format, const juce::String& kind,
+                                                          double sampleRate, int blockSize)
+{
+    if (format == "VST3")
+        return loadTestVst3(kind, sampleRate, blockSize);
+#if JUCE_MAC
+    if (format == "AudioUnit")
+        return loadTestAudioUnit(kind, sampleRate, blockSize);
+#endif
+#if JUCE_PLUGINHOST_LV2
+    if (format == "LV2")
+        return loadTestLv2(kind, sampleRate, blockSize);
+#endif
+    return nullptr;
+}
+
 } // namespace daw::test

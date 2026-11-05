@@ -225,6 +225,30 @@ Modules with one-way dependencies:
   a note it gave it, refuses note-ons while 256 are held, ends every held note at
   once when the instrument is switched off (bypass, removal) and forgets them when
   it fails.
+- Plugins in the engine (Phase 7): `engine::plugins::PluginEffect` is an `fx::Effect`
+  over JUCE's `AudioPluginInstance`, so chains, sends, bypass, delay compensation,
+  automation, MIDI, the NaN guard and Panic come from `EffectInstance` and the mixer.
+  `create()` sets up the layout (`setUpStereoLayout()`); a mono input gets (L+R)/2,
+  a mono output both channels, an instrument adds its sound (silence in). MIDI
+  reaches the plugin on its samples as MIDI 1.0 bytes, from a `MidiBuffer` sized in
+  `prepare()`. Its parameters are described normalised 0..1, not smoothed
+  (`ParameterInfo::smoothed`, so `EffectInstance` makes them jump): the user's
+  changes reach the plugin from the message thread (`setParameter()`); the audio
+  thread sends only automation, cutting each call at the block's breakpoints
+  (`ProcessBlock::breakpoints`: curve points and timeline jumps, found by
+  `Mixer::findBreakpoints()`) and, while values move, every 32 samples of the
+  timeline (`automationGrid`), so a step lands on its sample and the result does not
+  depend on the blocks. `prepare()` runs one short block of silence (LV2 reports its
+  latency from a port once run) before reading the latency. What the plugin changes
+  itself (parameters with their gestures, latency, other state) is noted in atomics
+  from whatever thread it calls back on and taken on the message thread
+  (`takeParameterReports()`, `takeLatencyChanged()`, `takeStateChanged()`); changes
+  the host makes, state restores and preparing are not reported. The play head gives
+  tempo, metre, position and transport per call; `takeLoad()` the time each call takes
+  against the block's duration (average over about a second, peak, overruns). Every
+  call into the plugin on the audio thread runs inside `rt::ForeignCode`, which the
+  tests' heap counter skips and which switches RealtimeSanitizer off: our code
+  around it is still checked.
 - MIDI tracks in the engine (Phase 6): an `ArrangementTrack` with `playsNotes` has
   `ArrangementNote`s (start and end samples, key, channel, velocity, an identity that
   survives rebuilds), sorted by start, and `ControllerLane`s (steps; rest values
@@ -789,7 +813,8 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
 - Test plugins (Phase 7, `tests/plugins/`): gain, latency (777 samples), synth (its
   output shows the notes it holds, like `TestInstrument`), NaN, and two faulty ones
   that crash or hang when loaded, all doing what `core/TestPluginCore.h` says. They
-  are written against the formats' SDKs, not JUCE: VST3 on every platform
+  are written against the formats' SDKs, not JUCE (MIDI 1.0 velocities, so 7-bit
+  values reach every format exactly): VST3 on every platform
   (`pluginterfaces/` only, built into `<build>/test-plugins/VST3/`, the faulty ones
   into `Faulty/VST3/`, which only the out-of-process scanner may load), AU v2 on
   macOS (Apple's Audio Unit SDK, linked into the tests and registered for the test
@@ -1451,7 +1476,7 @@ while playing, MIDI effects, automation writing, mobile UI.
       blacklist, folders, favourites, search and filters
 - [x] 6. Out-of-process scanner (`daw_plugin_scanner`): parallel scans, timeouts,
       crashes and hangs blacklisted while the DAW carries on
-- [ ] 7. Plugin adapter in the engine (`fx::PluginEffect`): parameters, layouts,
+- [x] 7. Plugin adapter in the engine (`fx::PluginEffect`): parameters, layouts,
       sample-exact MIDI, automation in sub-blocks, play head, latency, tail, NaN
       guard, time per block; plugin code left out of the real-time checks
 - [ ] 8. Plugin instances in the controller: loading and preparing off the audio

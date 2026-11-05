@@ -84,4 +84,13 @@ std::unique_ptr<juce::AudioPluginInstance> loadTestAudioUnit(const juce::String&
                                                              int blockSize = 512);
 #endif
 
+/** The formats the test plugins come in on this build: VST3, AU on macOS, LV2 where
+    LV2 is hosted. */
+juce::StringArray testPluginFormats();
+
+/** A well-behaved test plugin ("Gain", "Latency", "Synth", "NaN") of a format, loaded
+    headless (no editor); null if not found. */
+std::unique_ptr<juce::AudioPluginInstance> loadTestPlugin(const juce::String& format, const juce::String& kind,
+                                                          double sampleRate = 48000.0, int blockSize = 512);
+
 } // namespace daw::test

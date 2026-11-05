@@ -134,12 +134,15 @@ public:
         if (state == nullptr || state->read(bytes, 8, &read) != kResultOk || read != 8)
             return kResultFalse;
         processor.setParameter(core::readState(bytes));
+        controllerValue = core::readState(bytes);
         return kResultOk;
     }
     tresult PLUGIN_API getState(IBStream* state) override
     {
+        // The controller's value: the host's last change, even if no audio has been
+        // processed since (the processor hears of it in process()).
         unsigned char bytes[8] = {};
-        core::writeState(processor.getParameter(), bytes);
+        core::writeState(controllerValue.load(), bytes);
         int32 written = 0;
         return state != nullptr && state->write(bytes, 8, &written) == kResultOk && written == 8
                    ? kResultOk
@@ -255,7 +258,16 @@ public:
     }
 
     // IEditController
-    tresult PLUGIN_API setComponentState(IBStream*) override { return kResultOk; }
+    // The controller follows the component's state (as two-part plugins do).
+    tresult PLUGIN_API setComponentState(IBStream* state) override
+    {
+        unsigned char bytes[8] = {};
+        int32 read = 0;
+        if (state == nullptr || state->read(bytes, 8, &read) != kResultOk || read != 8)
+            return kResultFalse;
+        controllerValue = core::readState(bytes);
+        return kResultOk;
+    }
     int32 PLUGIN_API getParameterCount() override { return 1; }
     tresult PLUGIN_API getParameterInfo(int32 index, ParameterInfo& info) override
     {

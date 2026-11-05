@@ -258,6 +258,10 @@ private:
     template <typename Callback>
     void forEachPosition(const MixContext& context, juce::int64 timelineStart, int latency,
                          int numSamples, Callback&& callback) const noexcept;
+    /** Where the slot's automation may step in this stretch (curve points, timeline
+        jumps) into slotBreakpoints; returns how many. */
+    int findBreakpoints(const ChainSlot& slot, const MixContext& context, juce::int64 timelineStart,
+                        int latency, int numSamples) noexcept;
     void fillCurve(const AutomationCurve& curve, const MixContext& context,
                    juce::int64 timelineStart, int latency, int numSamples,
                    float* values) const noexcept;
@@ -282,6 +286,7 @@ private:
     std::vector<float> curveScratch;
     std::vector<float> automationLanes; // effect parameters' automation, one lane each
     std::vector<const float*> automationPointers;
+    std::array<int, fx::EffectScratch::maximumBreakpoints> slotBreakpoints{}; // one slot's
     fx::EffectScratch effectScratch;
     midi::EventBuffer noteEvents; // one MIDI track's, for its instrument
 };

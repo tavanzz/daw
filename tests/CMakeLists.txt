@@ -57,6 +57,7 @@ add_executable(daw_tests
     engine/MidiRecordingTests.cpp
     engine/MixerTests.cpp
     engine/MonitoringTests.cpp
+    engine/PluginEffectTests.cpp
     engine/PluginHostingTests.cpp
     engine/RecorderTests.cpp
     engine/RecordingWriterTests.cpp

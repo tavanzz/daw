@@ -279,6 +279,13 @@ void EffectInstance::processPiece(float* const* channels, int numSamples,
         block.events = scratch.events.events();
     block.samples = settings.samples;
 
+    // This piece's breakpoints, counted from its start.
+    int breakpointCount = 0;
+    for (const int at : context.breakpoints)
+        if (at > offset && at < offset + numSamples && breakpointCount < EffectScratch::maximumBreakpoints)
+            scratch.breakpoints[static_cast<std::size_t>(breakpointCount++)] = at - offset;
+    block.breakpoints = std::span<const int>(scratch.breakpoints.data(), static_cast<std::size_t>(breakpointCount));
+
     effect->process(block);
 
     if (!allFinite(channels, numChannels, numSamples))
@@ -331,7 +338,7 @@ void EffectInstance::updateParameters(const SlotSettings& settings, const SlotCo
         {
             automated += offset;
             blend.setTarget(1.0f, rampLength);
-            const bool blending = blend.isRamping() && !mapping.isChoice();
+            const bool blending = blend.isRamping() && !mapping.jumps();
 
             float* values = nullptr;
             if (lanesUsed < EffectScratch::maximumChangingParameters &&
@@ -373,7 +380,7 @@ void EffectInstance::updateParameters(const SlotSettings& settings, const SlotCo
         blend.reset(0.0f);
 
         const float target = targetOf(settings, i);
-        if (mapping.isChoice())
+        if (mapping.jumps())
             ramp.reset(target);
         else
             ramp.setTarget(target, rampLength);
