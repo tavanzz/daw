@@ -4,6 +4,8 @@
 
 #include "support/RealtimeCheck.h"
 
+#include "daw/engine/rt/ForeignCode.h"
+
 #include <cstdlib>
 #include <new>
 
@@ -19,9 +21,16 @@ namespace
 // Constant-initialised, so updating it from inside operator new never allocates.
 constinit thread_local std::size_t heapOperationCount = 0;
 
+// A plugin's code (rt::ForeignCode) is not ours to check.
+void count() noexcept
+{
+    if (!daw::engine::rt::ForeignCode::isRunning())
+        ++heapOperationCount;
+}
+
 void* allocate(std::size_t size)
 {
-    ++heapOperationCount;
+    count();
 
     if (void* memory = std::malloc(size == 0 ? 1 : size))
         return memory;
@@ -31,7 +40,7 @@ void* allocate(std::size_t size)
 
 void* allocateAligned(std::size_t size, std::align_val_t alignment)
 {
-    ++heapOperationCount;
+    count();
 
     const auto bytes = size == 0 ? std::size_t{1} : size;
     const auto align = static_cast<std::size_t>(alignment);
@@ -53,7 +62,7 @@ void deallocate(void* memory) noexcept
     if (memory == nullptr)
         return;
 
-    ++heapOperationCount;
+    count();
     std::free(memory);
 }
 
@@ -62,7 +71,7 @@ void deallocateAligned(void* memory) noexcept
     if (memory == nullptr)
         return;
 
-    ++heapOperationCount;
+    count();
 #if defined(_WIN32)
     _aligned_free(memory);
 #else

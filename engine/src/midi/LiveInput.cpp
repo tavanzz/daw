@@ -80,13 +80,20 @@ void LiveNotes::receive(Event event, EventBuffer& events) noexcept
             {
                 event.noteId = held[i].noteId;
                 held.remove(event);
-                events.add(event);
+                if (!events.removeNoteOn(event.noteId, event.offset))
+                    events.add(event);
                 return;
             }
         }
         return;
 
     case EventType::controller:
+        if (event.number == controllers::allNotesOff || event.number == controllers::allSoundOff)
+        {
+            endNotes(event.offset, events);
+            return;
+        }
+        [[fallthrough]];
     case EventType::pitchBend:
     case EventType::channelPressure:
         if (!events.add(event))
@@ -112,6 +119,11 @@ void LiveNotes::releaseAll(int offset, EventBuffer& events) noexcept
                     restValue(controller.type, controller.number), -1});
     }
     movedCount = 0;
+}
+
+void LiveNotes::endNotes(int offset, EventBuffer& events) noexcept
+{
+    held.releaseAll(events, offset);
 }
 
 void LiveNotes::adopt(LiveNotes& previous) noexcept

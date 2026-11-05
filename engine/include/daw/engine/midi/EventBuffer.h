@@ -34,6 +34,11 @@ public:
     /** Audio thread. False if refused (full; see the class comment). */
     bool add(const Event& event) noexcept;
 
+    /** Audio thread. Takes out the note-on of noteId at offset, if this buffer has
+        one; false if not. A note that would end on the sample it starts is not
+        played at all: sorted, its note-off would come first (see comesBefore()). */
+    bool removeNoteOn(std::int32_t noteId, int offset) noexcept;
+
     /** Audio thread. Sorts the events by offset, then by orderOf() (stable: events
         of the same order keep the order they were added in). Allocates nothing. */
     void sort() noexcept;

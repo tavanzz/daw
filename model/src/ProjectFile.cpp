@@ -85,6 +85,12 @@ constexpr const char* key = "key";
 constexpr const char* velocity = "velocity";
 constexpr const char* controllers = "controllers";
 constexpr const char* events = "events";
+constexpr const char* plugin = "plugin";
+constexpr const char* uniqueId = "uniqueId";
+constexpr const char* manufacturer = "manufacturer";
+constexpr const char* version = "version";
+constexpr const char* category = "category";
+constexpr const char* identifier = "identifier";
 
 // Fields of older versions, read only by migrations.
 constexpr const char* loopEnabledVersion1 = "loopEnabled";
@@ -264,10 +270,19 @@ juce::var migrateVersion4To5(juce::var root)
     return root;
 }
 
+// Version 6 (Phase 7, plugins) adds effects of type "plugin", which say which plugin
+// they are ("plugin") and keep its state in "data". Version 5 projects have none:
+// nothing to change.
+juce::var migrateVersion5To6(juce::var root)
+{
+    return root;
+}
+
 // The migration chain of this build: entry i upgrades format version i + 1 to i + 2.
 // When the format changes, bump currentFormatVersion and append a migration.
 constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{
-    migrateVersion1To2, migrateVersion2To3, migrateVersion3To4, migrateVersion4To5};
+    migrateVersion1To2, migrateVersion2To3, migrateVersion3To4, migrateVersion4To5,
+    migrateVersion5To6};
 static_assert(migrations.size() + 1 == static_cast<std::size_t>(currentFormatVersion));
 
 juce::String pathForFile(const juce::File& file, const juce::File& projectDirectory)
@@ -339,6 +354,16 @@ juce::var effectToJson(const Effect& effect, const juce::File& projectDirectory)
             filesObject.getDynamicObject()->setProperty(key, pathForFile(file, projectDirectory));
         object.getDynamicObject()->setProperty(json::files, filesObject);
     }
+    if (const auto plugin = effect.getPlugin())
+        object.getDynamicObject()->setProperty(
+            json::plugin, makeObject({{json::format, plugin->format},
+                                      {json::uniqueId, plugin->uniqueId},
+                                      {json::name, plugin->name},
+                                      {json::manufacturer, plugin->manufacturer},
+                                      {json::version, plugin->version},
+                                      {json::category, plugin->category},
+                                      {json::identifier, plugin->identifier},
+                                      {json::instrument, plugin->isInstrument}}));
     if (const auto extra = effect.getExtraState(); !extra.isEmpty())
         object.getDynamicObject()->setProperty(
             json::data, juce::Base64::toBase64(extra.getData(), extra.getSize()));
@@ -621,7 +646,39 @@ struct EffectFields
     std::vector<std::pair<juce::String, double>> values;
     juce::MemoryBlock extra;
     std::vector<std::pair<juce::String, juce::File>> files;
+    std::optional<PluginReference> plugin;
 };
+
+// A plugin effect's "plugin" object into reference; a message if it is damaged.
+juce::String readPluginReference(const juce::var& pluginJson, PluginReference& reference)
+{
+    if (!pluginJson.isObject())
+        return "the plugin of an effect is not an object";
+    const auto& format = pluginJson[json::format];
+    const auto& uniqueId = pluginJson[json::uniqueId];
+    const auto& name = pluginJson[json::name];
+    if (!format.isString() || format.toString().isEmpty() || !(uniqueId.isInt() || uniqueId.isInt64()) ||
+        !name.isString())
+        return "the plugin of an effect has no format, id or name";
+    reference.format = format.toString();
+    reference.uniqueId = static_cast<int>(uniqueId);
+    reference.name = name.toString();
+    for (const auto& [field, target] : {std::pair{json::manufacturer, &reference.manufacturer},
+                                        std::pair{json::version, &reference.version},
+                                        std::pair{json::category, &reference.category},
+                                        std::pair{json::identifier, &reference.identifier}})
+    {
+        const auto& value = pluginJson[field];
+        if (!value.isVoid() && !value.isString())
+            return "a field of the plugin of an effect is not text";
+        *target = value.toString();
+    }
+    const auto instrument = readBool(pluginJson, json::instrument, false);
+    if (!instrument)
+        return "the plugin of an effect says neither that it is an instrument nor that it is not";
+    reference.isInstrument = *instrument;
+    return {};
+}
 
 juce::String readEffectFields(const juce::var& effectJson, const juce::File& projectDirectory,
                               EffectFields& fields)
@@ -671,6 +728,17 @@ juce::String readEffectFields(const juce::var& effectJson, const juce::File& pro
         (!data.isString() || !juce::Base64::convertFromBase64(extra, data.toString())))
         return "the data of an effect is not valid";
     fields.extra = extra.getMemoryBlock();
+
+    const auto& plugin = effectJson[json::plugin];
+    if (!plugin.isVoid())
+    {
+        PluginReference reference;
+        if (const auto error = readPluginReference(plugin, reference); error.isNotEmpty())
+            return error;
+        fields.plugin = reference;
+    }
+    if (fields.type == pluginEffectType && !fields.plugin)
+        return "a plugin effect does not say which plugin it is";
     return {};
 }
 
@@ -678,6 +746,8 @@ void applyEffectFields(Effect effect, const EffectFields& fields, const juce::va
                        std::set<ObjectId>& usedIds)
 {
     effect.setBypassed(fields.bypass);
+    if (fields.plugin)
+        effect.setPlugin(*fields.plugin);
     effect.setExtraState(fields.extra);
     for (const auto& [key, file] : fields.files)
         effect.setFile(key, file);

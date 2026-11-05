@@ -27,6 +27,7 @@ inline const juce::Identifier lane{"Lane"};
 inline const juce::Identifier point{"Point"};
 inline const juce::Identifier instrument{"Instrument"};
 inline const juce::Identifier files{"Files"};
+inline const juce::Identifier plugin{"Plugin"};
 
 // Project
 inline const juce::Identifier tempo{"tempo"};
@@ -47,6 +48,13 @@ inline const juce::Identifier recordingBitsPerSample{"recordingBitsPerSample"};
 
 // Tracks and clips
 inline const juce::Identifier id{"id"};
+inline const juce::Identifier pluginFormat{"format"};
+inline const juce::Identifier pluginUniqueId{"uniqueId"};
+inline const juce::Identifier pluginManufacturer{"manufacturer"};
+inline const juce::Identifier pluginVersion{"version"};
+inline const juce::Identifier pluginCategory{"category"};
+inline const juce::Identifier pluginIdentifier{"identifier"};
+inline const juce::Identifier pluginInstrument{"instrument"};
 inline const juce::Identifier name{"name"};
 inline const juce::Identifier volume{"volume"};
 inline const juce::Identifier pan{"pan"};

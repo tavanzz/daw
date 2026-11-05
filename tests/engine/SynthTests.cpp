@@ -431,3 +431,26 @@ TEST_CASE("The export equals real-time playback with the synth", "[engine][synth
     CHECK(heapOperations == 0);
     engine.collectGarbage();
 }
+
+TEST_CASE("Panic silences the synth at once, held, sustained and releasing notes alike",
+          "[engine][synth]")
+{
+    InstrumentRunner synth(std::make_unique<Synth>(), 48000.0, 512);
+    REQUIRE(synth.set("ampRelease", 20000.0f));
+    const auto before = synth.run({midi::controller(0, midi::controllers::sustain, 1.0f),
+                                   midi::noteOn(0, 48, 1.0f, 0, 1), midi::noteOn(0, 55, 1.0f, 0, 2),
+                                   midi::noteOff(4000, 48, 0, 1), midi::noteOn(4000, 60, 1.0f, 0, 3)},
+                                  8192);
+    REQUIRE(std::abs(before.back()) + std::abs(before[before.size() - 100]) > 0.0f);
+
+    synth.heapOperations += daw::test::heapOperationsDuring([&] { synth.instance.panic(); });
+    const auto after = synth.run({}, 4096);
+    for (const float sample : after)
+        REQUIRE(sample == 0.0f);
+
+    // The note-offs that come later go nowhere; a new note plays.
+    const auto next = synth.run({midi::noteOff(8192 + 4096, 55, 0, 2), midi::noteOn(8192 + 4096, 64, 1.0f, 0, 4)},
+                                4096);
+    CHECK(*std::max_element(next.begin(), next.end()) > 0.1f);
+    CHECK(synth.heapOperations == 0);
+}

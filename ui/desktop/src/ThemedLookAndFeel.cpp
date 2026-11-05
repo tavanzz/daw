@@ -1471,17 +1471,22 @@ void ThemedLookAndFeel::drawSlotList(juce::Graphics& g, juce::Rectangle<float> a
 }
 
 void ThemedLookAndFeel::drawEffectSlot(juce::Graphics& g, juce::Rectangle<float> area,
-                                       const juce::String& name, bool bypassed, bool failed) const
+                                       const juce::String& name, bool bypassed, SlotMark mark) const
 {
-    const auto fill = failed ? colour(ColourRole::error) : colour(ColourRole::raised);
+    const auto fill = mark == SlotMark::failed ? colour(ColourRole::error)
+                      : mark == SlotMark::slow ? colour(ColourRole::warning)
+                      : mark == SlotMark::absent ? colour(ColourRole::inset)
+                                                 : colour(ColourRole::raised);
     g.setColour(fill);
     g.fillPath(shapeOf(area, CornerSize::small));
 
-    g.setColour(failed     ? textColourOn(fill)
-                : bypassed ? colour(ColourRole::textDisabled)
-                           : colour(ColourRole::text));
+    g.setColour(mark == SlotMark::failed || mark == SlotMark::slow ? textColourOn(fill)
+                : bypassed                                         ? colour(ColourRole::textDisabled)
+                : mark == SlotMark::absent                         ? colour(ColourRole::textSecondary)
+                                                                   : colour(ColourRole::text));
     g.setFont(font(FontRole::caption));
-    g.drawText(labelText(FontRole::caption, (failed ? "! " : "") + name), area.reduced(4.0f, 0.0f),
+    const auto prefix = mark == SlotMark::failed || mark == SlotMark::slow ? "! " : "";
+    g.drawText(labelText(FontRole::caption, prefix + name), area.reduced(4.0f, 0.0f),
                juce::Justification::centredLeft, true);
 }
 

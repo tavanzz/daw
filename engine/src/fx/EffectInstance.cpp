@@ -1,6 +1,7 @@
 #include "daw/engine/fx/EffectInstance.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace daw::engine::fx
@@ -96,6 +97,14 @@ void EffectInstance::process(float* const* channels, int numSamples, const SlotS
     }
 }
 
+void EffectInstance::panic() noexcept
+{
+    if (!instrument)
+        return;
+    held.clear();
+    effect->panic();
+}
+
 void EffectInstance::gatherEvents(midi::EventSpan events, int offset, int numSamples,
                                   bool delivering, EffectScratch& scratch) noexcept
 {
@@ -109,18 +118,54 @@ void EffectInstance::gatherEvents(midi::EventSpan events, int offset, int numSam
         return;
     }
 
+    // A note-off refused (not a note given yet) and, on the same sample, that note's
+    // note-on: a source let a note end where it starts, and sorting put the note-off
+    // first. The note-on goes too, or the note would never end.
+    std::array<midi::Event, 8> refused{};
+    int refusedCount = 0;
+    int refusedOffset = -1;
+    const auto takeRefused = [&](const midi::Event& noteOn) noexcept {
+        if (noteOn.offset != refusedOffset)
+            return false;
+        for (int i = 0; i < refusedCount; ++i)
+        {
+            const auto& off = refused[static_cast<std::size_t>(i)];
+            const bool sameNote = off.noteId >= 0 && noteOn.noteId >= 0
+                                      ? off.noteId == noteOn.noteId
+                                      : off.number == noteOn.number && off.channel == noteOn.channel;
+            if (sameNote)
+            {
+                refused[static_cast<std::size_t>(i)] = refused[static_cast<std::size_t>(--refusedCount)];
+                return true;
+            }
+        }
+        return false;
+    };
+
     for (auto event : events)
     {
         event.offset = std::clamp(event.offset - offset, 0, numSamples - 1);
         switch (event.type)
         {
         case midi::EventType::noteOn:
-            if (buffer.hasRoomForNotes() && held.add(event))
+            if (!takeRefused(event) && buffer.hasRoomForNotes() && held.add(event))
                 buffer.add(event);
             break;
         case midi::EventType::noteOff:
             if (held.remove(event))
+            {
                 buffer.add(event);
+            }
+            else
+            {
+                if (event.offset != refusedOffset)
+                {
+                    refusedOffset = event.offset;
+                    refusedCount = 0;
+                }
+                if (refusedCount < static_cast<int>(refused.size()))
+                    refused[static_cast<std::size_t>(refusedCount++)] = event;
+            }
             break;
         case midi::EventType::controller:
         case midi::EventType::pitchBend:
@@ -234,6 +279,13 @@ void EffectInstance::processPiece(float* const* channels, int numSamples,
         block.events = scratch.events.events();
     block.samples = settings.samples;
 
+    // This piece's breakpoints, counted from its start.
+    int breakpointCount = 0;
+    for (const int at : context.breakpoints)
+        if (at > offset && at < offset + numSamples && breakpointCount < EffectScratch::maximumBreakpoints)
+            scratch.breakpoints[static_cast<std::size_t>(breakpointCount++)] = at - offset;
+    block.breakpoints = std::span<const int>(scratch.breakpoints.data(), static_cast<std::size_t>(breakpointCount));
+
     effect->process(block);
 
     if (!allFinite(channels, numChannels, numSamples))
@@ -286,7 +338,7 @@ void EffectInstance::updateParameters(const SlotSettings& settings, const SlotCo
         {
             automated += offset;
             blend.setTarget(1.0f, rampLength);
-            const bool blending = blend.isRamping() && !mapping.isChoice();
+            const bool blending = blend.isRamping() && !mapping.jumps();
 
             float* values = nullptr;
             if (lanesUsed < EffectScratch::maximumChangingParameters &&
@@ -328,7 +380,7 @@ void EffectInstance::updateParameters(const SlotSettings& settings, const SlotCo
         blend.reset(0.0f);
 
         const float target = targetOf(settings, i);
-        if (mapping.isChoice())
+        if (mapping.jumps())
             ramp.reset(target);
         else
             ramp.setTarget(target, rampLength);

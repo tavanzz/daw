@@ -52,7 +52,15 @@ count-in, punch and metronome; three built-in instruments (a polyphonic subtract
 synth with band-limited oscillators, a sampler and a sixteen-pad drum sampler) at the
 start of the track's chain, so effects, sends, automation and delay compensation
 apply; standard MIDI file import and export (type 0 and 1). Project format version 5.
-See [CLAUDE.md](CLAUDE.md#status) for the steps.
+
+Phase 7 (v0.7.0): external plugins. VST3 effects and instruments on every platform,
+Audio Units (v2 and v3) on macOS and LV2 on Linux, hosted like the built-in ones
+(chains, sends, bypass, delay compensation, automation, MIDI, undo, export, Panic);
+scanning in a separate process that puts plugins that crash or hang on a list of
+their own; a plugin browser with search, filters and favourites, dragged onto tracks
+and mixer slots; each plugin's own editor in a window of its own (or a generic one);
+plugin state saved in the project, kept intact when a plugin is missing. Project
+format version 6. See [CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 
@@ -148,8 +156,32 @@ MIDI and instruments:
   sampler shows its waveform and loop, the drum sampler its pads: drop WAV or AIFF
   files on them), right-click to change, bypass or remove it. Instrument parameters
   can be automated like effect parameters.
+- Shift+Cmd+. (Transport > Panic) stops every note and sound of every instrument at
+  once, should anything ever keep sounding; playback goes on.
 - Cmd+I imports MIDI files (one track per part; channel 10 gets the drum sampler);
   File > Export MIDI File... writes the MIDI tracks as a type 1 or type 0 file.
+
+Plugins:
+
+- At launch the app looks for new or changed plugins (VST3; Audio Units on macOS; LV2
+  on Linux) in the background, each in a helper program of its own, so a plugin that
+  crashes or hangs while being scanned cannot take the app down: it goes on the "Not
+  Loaded" list of File > Plugin Manager..., where Retry tries it again. The Plugin
+  Manager also rescans everything and adds folders of your own.
+- B shows the plugin browser: search, filter by format, type and maker, star your
+  favourites. Drag an effect onto a track (it goes last in the chain) or between the
+  slots of a mixer strip; drag an instrument onto a MIDI track to replace its
+  instrument, or onto empty space for a new MIDI track; or double-click an item. The
+  mixer's "+ Effect" and instrument menus list plugins by maker too.
+- A plugin opens its own editor in a window that stays over the app (and remembers
+  where it was); "Generic Editor" in its header shows plain controls instead. The
+  header shows the latency and how much of the audio time it takes; a plugin that
+  takes too long is flagged, never switched off by itself.
+- A project with a plugin that is not installed opens anyway: the slot says
+  "(missing)", the sound passes through (an instrument is silent), and its settings are
+  saved untouched until the plugin is back. File > Open Without Plugins opens a project
+  with every plugin off (load each from its slot's menu); if a plugin crashes the app,
+  the next start keeps that one off and offers to open the project again.
 
 Effects, buses and automation:
 
@@ -199,6 +231,8 @@ Effects, buses and automation:
 | Piano roll / quantise | E / Q |
 | Transpose the selected notes (Shift: an octave) | Up / Down |
 | Export MIDI file | Alt+Cmd+E |
+| Panic: stop every note and sound | Shift+Cmd+. |
+| Plugin browser | B |
 
 (Ctrl instead of Cmd on Windows and Linux.)
 

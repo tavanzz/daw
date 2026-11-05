@@ -1,5 +1,6 @@
 #include "daw/ui/desktop/PianoRoll.h"
 
+#include "daw/controller/NotePreview.h"
 #include "daw/engine/fx/Sampler.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
@@ -146,25 +147,20 @@ struct PianoRoll::State
             changed();
     }
 
-    // Previews: one key at a time from the mouse.
+    // Previews: one key at a time from the mouse, ended where it was started.
     void startPreview(int key, int velocity)
     {
-        stopPreview();
         if (const auto track = trackId(); track != 0)
-        {
-            session.startNotePreview(track, key, velocity);
-            previewKey = key;
-        }
+            preview.play(track, key, velocity);
+        else
+            preview.stop();
     }
 
-    void stopPreview()
-    {
-        if (previewKey >= 0)
-            session.stopNotePreview(trackId(), previewKey);
-        previewKey = -1;
-    }
+    void stopPreview() { preview.stop(); }
 
-    int previewKey = -1;
+    [[nodiscard]] int previewKey() const noexcept { return preview.getKey(); }
+
+    controller::NotePreview preview{session};
 };
 
 // The keys, the highest at the top; a click plays the key.
@@ -188,7 +184,7 @@ public:
             const juce::Rectangle<float> area(0.0f, y, static_cast<float>(getWidth()),
                                               static_cast<float>(viewport.getKeyHeight()));
             look.drawPianoKey(g, area, isBlackKey(key), key % 12 == 0 ? engine::fx::keyName(key) : juce::String(),
-                              key == state.previewKey);
+                              key == state.previewKey());
         }
     }
 
@@ -201,7 +197,7 @@ public:
     void mouseDrag(const juce::MouseEvent& event) override
     {
         const int key = state.viewport.yToKey(event.position.y);
-        if (key != state.previewKey)
+        if (key != state.previewKey())
         {
             state.startPreview(key, state.newVelocity);
             repaint();
@@ -450,7 +446,7 @@ public:
             // The note being dragged sounds at its new key.
             for (const auto& note : result.notes)
                 if ((note.id == drag->grabbed || (event.mods.isAltDown() && result.selection.contains(note.id))) &&
-                    note.key != state.previewKey)
+                    note.key != state.previewKey())
                 {
                     state.startPreview(note.key, note.velocity);
                     break;
@@ -1065,6 +1061,9 @@ void PianoRoll::refresh()
 {
     if (state->clipId != 0 && !state->clip())
         setClip(0);
+    // The clip moved to another track (or went): its preview ends where it started.
+    if (state->preview.isPlaying() && state->preview.getTrack() != state->trackId())
+        state->stopPreview();
     controllers->update();
     updateToolbar();
     repaint();

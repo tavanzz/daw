@@ -6,6 +6,7 @@
 #include "daw/controller/EffectInstances.h"
 #include "daw/controller/FadeOutKeeper.h"
 #include "daw/controller/LatencyMeasurement.h"
+#include "daw/controller/PluginLoads.h"
 #include "daw/controller/RecordingController.h"
 #include "daw/controller/RecordingJournal.h"
 #include "daw/controller/SampleCache.h"
@@ -53,6 +54,11 @@ struct SessionOptions
 
     /** Effects and instruments beyond the built-in ones (tests). */
     EffectFactory effects = {};
+
+    /** Plugins: how to instantiate them and where to find them. Without both, plugin
+        effects are left out (and kept in the project as they are). */
+    PluginLoader* plugins = nullptr;
+    const PluginCatalogue* catalogue = nullptr;
 };
 
 /**
@@ -105,7 +111,9 @@ public:
 
     void newProject();
     /** On failure the current project stays open; the error is written for the user. */
-    juce::Result openProject(const juce::File& file);
+    /** withPlugins false: the project's plugins stay placeholders until allowed
+        (allowPlugin(), allowAllPlugins()), for a plugin that crashes the app. */
+    juce::Result openProject(const juce::File& file, bool withPlugins = true);
     juce::Result saveProject(const juce::File& file);
     [[nodiscard]] juce::File getProjectFile() const { return projectFile; }
     [[nodiscard]] bool hasUnsavedChanges() const noexcept { return unsavedChanges; }
@@ -215,6 +223,59 @@ public:
 
     /** Why the last edit was refused, for the user; reading it clears it. */
     [[nodiscard]] juce::String takeEditProblem();
+
+    // Plugins ------------------------------------------------------------------------------
+
+    /** Adds a plugin of the catalogue (an effect, not an instrument) to an owner's
+        chain at index (-1: the end); it plays once it has loaded. One undo step.
+        Returns its id; 0 if refused (an instrument, the owner gone, recording, no
+        plugins in this session). */
+    model::ObjectId addPlugin(const ChainOwner& owner, const juce::PluginDescription& plugin, int index = -1);
+
+    /** Gives a MIDI track a plugin instrument, replacing its instrument. One undo step;
+        0 if refused. */
+    model::ObjectId setInstrumentPlugin(model::ObjectId trackId, const juce::PluginDescription& plugin);
+
+    [[nodiscard]] PluginStatus getPluginStatus(model::ObjectId effectId) const;
+    /** Why a plugin is missing or failed. */
+    [[nodiscard]] juce::String getPluginProblem(model::ObjectId effectId) const;
+
+    /** "name (format)" of the project's plugins that are missing or failed to load
+        (after the update() that looked for them). */
+    [[nodiscard]] juce::StringArray getUnavailablePlugins() const;
+
+    /** The plugin a plugin effect plays through (its editor, its parameters' text);
+        null while it loads, or if it is missing or failed. */
+    [[nodiscard]] engine::plugins::PluginEffect* findPlugin(model::ObjectId effectId) const;
+    /** The same, shared: an editor window keeps its plugin alive until it closes. */
+    [[nodiscard]] std::shared_ptr<engine::plugins::PluginEffect> sharePlugin(model::ObjectId effectId) const;
+
+    /** The catalogue changed (a scan): plugins missing until now are looked for again. */
+    void pluginsChanged();
+
+    /** Keeps plugins of these names ("name (format)", engine::plugins::RunningPlugin)
+        from loading: those running when the app crashed. */
+    void holdBackPlugins(const juce::StringArray& displayNames);
+    /** A plugin kept from loading loads after all. */
+    void allowPlugin(model::ObjectId effectId);
+    void allowAllPlugins();
+
+    /** What each playing plugin takes of the real time, and which are slow; taken
+        from the plugins at update(), four times a second. */
+    [[nodiscard]] const PluginLoads& getPluginLoads() const noexcept { return pluginLoads; }
+
+    /** The catalogue plugins are found in; null without plugins. */
+    [[nodiscard]] const PluginCatalogue* getPluginCatalogue() const noexcept;
+
+    /** Fresh instances of the project's plugins for an export at this rate (message
+        thread): loaded at once, given their current state, prepared offline. Plugins
+        missing or failing to load are named in missing and left out. */
+    struct ExportPlugins
+    {
+        std::map<model::ObjectId, std::shared_ptr<engine::fx::EffectInstance>> instances;
+        juce::StringArray missing;
+    };
+    [[nodiscard]] ExportPlugins makeExportPlugins(double sampleRate) const;
 
     /** Adds an aux bus at the end; an empty name becomes "Bus n". Returns its id. */
     model::ObjectId addBus(const juce::String& name = {});
@@ -390,9 +451,17 @@ public:
     }
 
     /** Plays a note on a MIDI track through its instrument (the piano roll's preview,
-        whatever the monitoring) until stopNotePreview(). velocity 1 to 127. */
-    void startNotePreview(model::ObjectId trackId, int key, int velocity);
+        whatever the monitoring) until stopNotePreview(), stop or pause; a track that
+        is not heard plays none. velocity 1 to 127. False if not played (not a MIDI
+        track, or too many previews at once). Views use a NotePreview. */
+    bool startNotePreview(model::ObjectId trackId, int key, int velocity);
+    /** Ends a preview note. A note-off the engine cannot take now is sent again at
+        the next update(): it is never lost. */
     void stopNotePreview(model::ObjectId trackId, int key);
+
+    /** Panic: every instrument (built-in or plugin) stops every voice at once and
+        forgets the notes it holds; the transport goes on (see Engine::panic()). */
+    void panic();
 
     /** The device's input channels by number, for choosing a track's input (set by
         the app when the device changes; empty while no input is open). */
@@ -455,6 +524,13 @@ public:
 
 private:
     void startEdit(const juce::String& name);
+    void sendPreviewOffs();
+    void takePluginChanges();
+    void takePluginLoads();
+    void storePluginStates();
+    void keepPluginState(const model::Effect& effect);
+    void keepPluginStates(const model::EffectList& effects);
+    void pushToPlugin(const juce::ValueTree& tree, const juce::Identifier& property);
     void replaceProject(model::Project newProject);
     void addRecording(const RecordingOutcome& outcome);
     void copyRecordingsTo(const juce::File& newProjectDirectory);
@@ -493,6 +569,18 @@ private:
     juce::File projectFile;
     std::map<model::ObjectId, std::shared_ptr<engine::dsp::PeakLevelMeter>> meters;
     EffectInstances effectInstances;
+    std::unique_ptr<PluginInstances> pluginInstances; // with plugins only
+    std::vector<engine::plugins::PluginEffect::ParameterReport> pluginReports;
+    struct PluginEdit
+    {
+        model::ObjectId effectId = 0;
+        int index = -1;
+        juce::uint32 lastChange = 0;
+        bool gesture = false;
+    } pluginEdit; // the plugin edit the next change may belong to
+    bool writingFromPlugin = false;
+    PluginLoads pluginLoads;
+    double lastPluginLoads = 0.0;
     FadeOutKeeper fadeOutKeeper;
     bool freshEffects = true; // the next arrangement's new effects start at once
     juce::String editProblem;
@@ -508,6 +596,7 @@ private:
     bool inputsRequested = false;
     juce::StringArray inputChannelNames;
     juce::StringArray midiInputNames;
+    std::vector<std::pair<model::ObjectId, int>> unsentPreviewOffs; // queue was full
     MidiDeviceLookup midiDevices;
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;

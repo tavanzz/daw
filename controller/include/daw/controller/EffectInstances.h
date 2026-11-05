@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daw/controller/ChainOwner.h"
+#include "daw/controller/PluginInstances.h"
 #include "daw/engine/Arrangement.h"
 #include "daw/model/Effect.h"
 
@@ -28,6 +29,9 @@ using EffectFactory = std::function<std::unique_ptr<engine::fx::Effect>(const ju
     - New instances fade in when the session runs (fadeIn), not when a project is
       opened or the rate changes.
     - Effects of unknown types get no instance (they are left out, silently).
+    - Plugins come from PluginInstances: a plugin cannot be made twice, so one that
+      moves keeps its plugin in a new instance (see engine::plugins::PluginSlot); one
+      loading, missing or failed has none.
 
     Message thread.
 */
@@ -71,10 +75,19 @@ public:
     void setFactory(EffectFactory newFactory) { factory = std::move(newFactory); }
     [[nodiscard]] const EffectFactory& getFactory() const noexcept { return factory; }
 
+    /** Plugin effects (type "plugin") play through these; without, they are left out. */
+    void setPlugins(PluginInstances* pluginInstances)
+    {
+        plugins = pluginInstances;
+        if (plugins != nullptr && sampleRate > 0.0)
+            plugins->prepare(sampleRate, blockSize);
+    }
+
 private:
     double sampleRate = 0.0;
     int blockSize = 512;
     EffectFactory factory;
+    PluginInstances* plugins = nullptr;
     std::map<model::ObjectId, std::shared_ptr<engine::fx::EffectInstance>> instances;
     std::map<ChainOwner, std::vector<model::ObjectId>> orders; // as last built
     std::map<model::ObjectId, std::uint32_t> revivals;

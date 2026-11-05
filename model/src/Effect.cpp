@@ -84,6 +84,49 @@ std::vector<std::pair<juce::String, double>> Effect::getParameters() const
     return values;
 }
 
+std::optional<Effect> Effect::ofParameters(const juce::ValueTree& tree)
+{
+    if (!tree.hasType(ids::parameters))
+        return std::nullopt;
+    const auto parent = tree.getParent();
+    if (!parent.hasType(ids::effect))
+        return std::nullopt;
+    return Effect(parent);
+}
+
+std::optional<PluginReference> Effect::getPlugin() const
+{
+    const auto plugin = state.getChildWithName(ids::plugin);
+    if (!plugin.isValid())
+        return std::nullopt;
+    PluginReference reference;
+    reference.format = plugin[ids::pluginFormat].toString();
+    reference.uniqueId = static_cast<int>(plugin[ids::pluginUniqueId]);
+    reference.name = plugin[ids::name].toString();
+    reference.manufacturer = plugin[ids::pluginManufacturer].toString();
+    reference.version = plugin[ids::pluginVersion].toString();
+    reference.category = plugin[ids::pluginCategory].toString();
+    reference.identifier = plugin[ids::pluginIdentifier].toString();
+    reference.isInstrument = static_cast<bool>(plugin[ids::pluginInstrument]);
+    return reference;
+}
+
+void Effect::setPlugin(const PluginReference& reference, juce::UndoManager* undoManager)
+{
+    juce::ValueTree plugin(ids::plugin);
+    plugin.setProperty(ids::pluginFormat, reference.format, nullptr);
+    plugin.setProperty(ids::pluginUniqueId, reference.uniqueId, nullptr);
+    plugin.setProperty(ids::name, reference.name, nullptr);
+    plugin.setProperty(ids::pluginManufacturer, reference.manufacturer, nullptr);
+    plugin.setProperty(ids::pluginVersion, reference.version, nullptr);
+    plugin.setProperty(ids::pluginCategory, reference.category, nullptr);
+    plugin.setProperty(ids::pluginIdentifier, reference.identifier, nullptr);
+    plugin.setProperty(ids::pluginInstrument, reference.isInstrument, nullptr);
+    if (const auto old = state.getChildWithName(ids::plugin); old.isValid())
+        state.removeChild(old, undoManager);
+    state.appendChild(plugin, undoManager);
+}
+
 juce::MemoryBlock Effect::getExtraState() const
 {
     // Standard Base64 (RFC 4648), not JUCE's own variant: the file format is not tied

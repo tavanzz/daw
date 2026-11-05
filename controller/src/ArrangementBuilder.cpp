@@ -409,6 +409,7 @@ std::unique_ptr<engine::Arrangement> buildArrangement(const model::Project& proj
         arrangementTrack.armed = track.isArmed();
 
         const bool audible = project.isTrackAudible(trackIndex);
+        arrangementTrack.heard = audible;
         if (audible)
         {
             const auto pan = engine::dsp::panGains(track.getPan());

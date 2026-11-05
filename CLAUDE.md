@@ -28,7 +28,7 @@ Modules with one-way dependencies:
 | `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
-| `tests/`      | unit tests for engine, model, controller and appearance; UI tests for ui/desktop | everything but app |
+| `tests/`      | unit tests for engine, model, controller and appearance; UI tests for ui/desktop | everything but app (they run the app's plugin scanner program, linking none of its code) |
 
 - `engine` never depends on any UI. `engine` and `model` don't depend on each other
   nor on `controller`; `controller` maps the model onto the engine. `appearance`
@@ -44,6 +44,13 @@ Modules with one-way dependencies:
 - JUCE is compiled once into the internal static library `daw::juce`
   (`cmake/JuceLibrary.cmake`), with JUCE's own flags. Include JUCE module headers
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
+- Plugin hosting (Phase 7): `daw::juce` compiles JUCE's VST3 host everywhere, AU on
+  macOS and LV2 on Linux (no VST2, LADSPA or ARA). `engine` and `controller` use the
+  headless module (`juce_audio_processors_headless`: formats, instances, parameters,
+  no editors); JUCE's full formats, which make editors (`juce_audio_processors`,
+  `addDefaultFormatsToManager()`), belong to the UIs and the app (checked by
+  `architecture.detects_plugin_editors_in_engine`). The SDKs' licences ship with the
+  app (`Licences/`, `docs/THIRD_PARTY.md`).
 - Anything both UIs will need (waveform peaks, meter values, transport state) lives
   in `engine` or `model`, never in a UI module.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
@@ -218,6 +225,30 @@ Modules with one-way dependencies:
   a note it gave it, refuses note-ons while 256 are held, ends every held note at
   once when the instrument is switched off (bypass, removal) and forgets them when
   it fails.
+- Plugins in the engine (Phase 7): `engine::plugins::PluginEffect` is an `fx::Effect`
+  over JUCE's `AudioPluginInstance`, so chains, sends, bypass, delay compensation,
+  automation, MIDI, the NaN guard and Panic come from `EffectInstance` and the mixer.
+  `create()` sets up the layout (`setUpStereoLayout()`); a mono input gets (L+R)/2,
+  a mono output both channels, an instrument adds its sound (silence in). MIDI
+  reaches the plugin on its samples as MIDI 1.0 bytes, from a `MidiBuffer` sized in
+  `prepare()`. Its parameters are described normalised 0..1, not smoothed
+  (`ParameterInfo::smoothed`, so `EffectInstance` makes them jump): the user's
+  changes reach the plugin from the message thread (`setParameter()`); the audio
+  thread sends only automation, cutting each call at the block's breakpoints
+  (`ProcessBlock::breakpoints`: curve points and timeline jumps, found by
+  `Mixer::findBreakpoints()`) and, while values move, every 32 samples of the
+  timeline (`automationGrid`), so a step lands on its sample and the result does not
+  depend on the blocks. `prepare()` runs one short block of silence (LV2 reports its
+  latency from a port once run) before reading the latency. What the plugin changes
+  itself (parameters with their gestures, latency, other state) is noted in atomics
+  from whatever thread it calls back on and taken on the message thread
+  (`takeParameterReports()`, `takeLatencyChanged()`, `takeStateChanged()`); changes
+  the host makes, state restores and preparing are not reported. The play head gives
+  tempo, metre, position and transport per call; `takeLoad()` the time each call takes
+  against the block's duration (average over about a second, peak, overruns). Every
+  call into the plugin on the audio thread runs inside `rt::ForeignCode`, which the
+  tests' heap counter skips and which switches RealtimeSanitizer off: our code
+  around it is still checked.
 - MIDI tracks in the engine (Phase 6): an `ArrangementTrack` with `playsNotes` has
   `ArrangementNote`s (start and end samples, key, channel, velocity, an identity that
   survives rebuilds), sorted by start, and `ControllerLane`s (steps; rest values
@@ -239,12 +270,24 @@ Modules with one-way dependencies:
   with `midi::hostSeconds()` (`AudioInputs::time`); the engine places a message at the
   block start + (its time - the block's) + one block, so live MIDI keeps its rhythm a
   block late, without jitter. `Engine::startPreview()`/`stopPreview()` queue the piano
-  roll's notes for a track. The block's `midi::LiveEvent`s reach the mixer in
+  roll's notes for a track (at the next block's start), `stopAllPreviews()` ends a
+  track's or every track's, and stop and pause end them all (an "all notes off" preview
+  event, `LiveEvent::everyTrack`). The block's `midi::LiveEvent`s reach the mixer in
   `MixContext::live`; a MIDI track hears devices through `midi::InputFilter` (device,
-  channel) while monitoring is on, or automatic and armed, and its previews always;
+  channel) while monitoring is on, or automatic and armed, and its previews while it is
+  heard (`ArrangementTrack::heard`: not muted, no other track soloed);
   `midi::LiveNotes` gives live notes ids of their own and ends them (and rests the
   controllers they moved) when the track stops listening, goes away, or blocks were
-  skipped (`MixContext::liveRestarts`). Tests play a keyboard with
+  skipped (`MixContext::liveRestarts`), and on "all notes off" or "all sound off"
+  (which go no further). A note that ends on the sample it starts is never played
+  (`EventBuffer::removeNoteOn()`, also in `HeldNotes::releaseAll()`): sorted, its
+  note-off would come first and the note would hang; `EffectInstance` also drops a
+  note-on whose note-off it refused on that sample. `Engine::panic()` (a transport
+  command, so in order with stop and play) makes every track forget the notes it holds
+  (`MixState::forgetNotes()`) and every instrument stop its voices
+  (`EffectInstance::panic()`, `Effect::panic()`: reset() by default, a plugin adapter
+  adds the format's all notes off and all sound off); the transport goes on and
+  effects' tails ring on. Tests play a keyboard with
   `SimulatedDevice::playMidi()` on a simulated clock (`AudioDeviceHost::setClock()`).
 - MIDI recording in the engine (Phase 6): `RecordingSetup::midiTargets` (track,
   `midi::InputFilter`), a `MidiRecordingQueue` (SPSC to the message thread, on the
@@ -349,6 +392,13 @@ Modules with one-way dependencies:
     `Effect::getFiles()` / `setFile()`: files an instrument plays (a sampler's), by
     key, stored relative to the project like audio. The grid has 1/64 and triplets
     (1/4T to 1/32T); the automatic grid goes down to 1/64.
+  - Plugins (format version 6): an effect (or instrument) of type "plugin"
+    (`model::pluginEffectType`) has a `PluginReference` (`Effect::getPlugin()`, a
+    `Plugin` child; JSON "plugin": format, uniqueId, name, manufacturer, version,
+    category, identifier (where it was when saved, a hint), instrument), its state in
+    "data" (the extra state, standard Base64) and its parameters by the plugin's
+    parameter ids, normalised. Its automation lanes are kept whether or not the plugin
+    is installed. Version 5 projects migrate unchanged.
 - Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
   integers at 282,240,000 per second, a number every common sample rate divides, so
   sample positions at any of them are exact and the project has no sample rate of its
@@ -379,6 +429,42 @@ Modules with one-way dependencies:
   `Session` edits effects (`ChainOwner`: track, bus or master), buses and sends
   with undo; delay and reverb start fully wet on a bus; while recording, edits
   that would change the latency are refused (`takeEditProblem()`).
+- Plugins in the controller (Phase 7): `controller::PluginLoader` instantiates plugins
+  (JUCE's formats with editors in the app, `formatsWithoutEditors()` in tests; at
+  once, or through the message loop for AUv3). `PluginInstances` gives each model
+  effect of type "plugin" its plugin: found in the catalogue by its reference
+  (format and id, else format, name and maker), loaded, given the model's state and
+  then its parameters (after preparing: LV2 resets its ports then), and hosted through
+  an `engine::plugins::PluginSlot`. A slot can be detached (`detach()`: an atomic
+  handshake with the audio thread, which then leaves the plugin alone), so the same
+  plugin moves to a new `EffectInstance` when the rate, its latency (reported by the
+  plugin, taken at `update()`; the engine dips the output) or its place in the chain
+  changes; `PluginSlot::prepare()` prepares it again only for a new format. A plugin
+  loading, missing (not in the catalogue) or failed has no instance: its effect is
+  left out of the chain (an effect passes the sound, an instrument is silent) and the
+  model keeps its reference, state, parameters and lanes, saved unchanged;
+  `Session::pluginsChanged()` (after a scan) looks for them again. `EffectInstances`
+  asks `PluginInstances` for plugin effects; a removed plugin is let go, not
+  detached, so it fades out with the arrangements that hold it.
+- Plugin edits in the session (Phase 7): `addPlugin()` (effects; not while
+  recording: its latency is unknown until it loads) and `setInstrumentPlugin()`, one
+  undo step each. The generic editor and undo change a plugin's parameters through
+  the model: `pushToPlugin()` (the ValueTree listener) sets them in the plugin. What
+  the plugin changes itself (`takePluginChanges()` at `update()`) is written to the
+  model without coming back: one undo step per gesture in its editor, or per run of
+  changes half a second apart at most; parameters that are not automatable (meters)
+  are not edits; other changes of its state mark the project unsaved. Removing a
+  plugin (effect, instrument, track, bus) first stores its state in the model, not
+  undoably, so undo brings it back as it sounded; saving stores every plugin's state.
+  Plugins can be kept from loading (`PluginStatus::off`, placeholders until
+  `allowPlugin()` / `allowAllPlugins()`): all of a project opened with
+  `openProject(file, false)` (File > Open Without Plugins), or those named after a
+  crash (`holdBackPlugins()`: `engine::plugins::RunningPlugin` keeps, in two atomics a
+  signal handler may read, which plugin runs on the audio thread and which elsewhere,
+  "name (format)").
+  `ExportJob` gets fresh instances of the plugins from `makeExportPlugins()` (loaded
+  at once on the message thread, the state each holds now, prepared offline) and
+  names those it could not load (`getMissingPlugins()`).
 - MIDI in the controller (Phase 6): `buildArrangement()` puts a MIDI track's
   instrument first in its chain (`EffectLookup` now takes the chain as a list of
   `model::Effect`s, so `EffectInstances` keeps the instrument like any effect: a
@@ -390,7 +476,11 @@ Modules with one-way dependencies:
   one sample); controllers start at their value there, step, and rest at the end; a
   track not heard plays no notes. The MIDI input is found by device name through
   `Session::setMidiInputDevices()` (unknown: `InputFilter::noDevice`).
-  `Session::startNotePreview()`/`stopNotePreview()` reach the engine. Tests add
+  `Session::startNotePreview()`/`stopNotePreview()` reach the engine (a note-off the
+  queue refuses is sent again at the next `update()`); views preview through a
+  `controller::NotePreview`, which remembers the track and key it plays and ends the
+  note on the next key, on `stop()` (mouse up, another clip, the clip on another
+  track) and when destroyed (the view closes). Tests add
   instruments of their own through `SessionOptions::effects` (an `EffectFactory`).
 - Automation in the controller (Phase 4): `Session` adds, moves (a drag is one
   gesture), removes and clears points of a target's lane (undoable) and switches
@@ -434,6 +524,35 @@ Modules with one-way dependencies:
   drum sampler; one clip per part to the next bar line) and `exportMidi()`. Tests:
   export, read, write again gives the same bytes (types 0 and 1, tempos 120 and
   123.4); a 480 PPQ file from elsewhere survives a round trip at 960.
+- Plugin catalogue (Phase 7): `controller::PluginCatalogue` holds what the scanner
+  found (`PluginInfo`: JUCE's `PluginDescription`, and why the app cannot host it, if
+  so), per scanned item (`ScanItem`: a VST3 bundle, an AU component's identifier, an
+  LV2 URI), the blacklist (`ScanFailure`: crashed, timed out, no plugins, failed to
+  load), the custom folders per format (searched after the formats' defaults) and
+  the favourites (`PluginKey`: format and JUCE's unique id, the same on every
+  machine). `planScan()` makes scanning incremental: new items, items their format
+  says changed (`pluginNeedsRescanning()`) and, with "everything", all items but the
+  blacklisted ones; items gone are forgotten; a blacklisted file that changed gets
+  another chance. `search()` (words in name, manufacturer, category or format; formats,
+  effects or instruments, manufacturer, favourites) feeds the browser. Saved as JSON
+  (`saveTo()` through a temporary file; reading never fails). Nothing here loads a
+  plugin.
+- Plugin scanning (Phase 7): `controller::PluginScanner` runs the scanner program
+  (`app/scanner`, "DAW Plugin Scanner" next to the app's executable, inside the bundle
+  on macOS) once per item, 4 at once, on a thread of its own. The program is a JUCE
+  application without windows (some plugins need the platform's GUI and its event
+  loop when they load; AUv3 answers later) that runs `runScannerProcess()`:
+  `scanItem()` lists the item's plugins with JUCE's headless formats (for LV2 after
+  reading the folders it is given), instantiates each once, sets up its layout
+  (`engine::plugins::setUpStereoLayout()`: main buses only, stereo in and out, else
+  mono in and stereo out, else mono; instruments without input first; MIDI effects
+  and more than two channels refused) and writes the outcome as JSON into a result
+  file of its own, last with "complete": true. A process that ends without it
+  crashed (the program ends at once, code 70, on a crash, so no crash report or
+  dialog appears), one still running after 30 s is killed (a hang); both go to the
+  blacklist. `controller::PluginLibrary` ties the catalogue (in its file) and the
+  scanner: `scan()` queues what `planScan()` finds new or changed, `retry()` one
+  blacklisted item, `update()` (UI timer) files the results and saves.
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -698,6 +817,49 @@ Modules with one-way dependencies:
   selected pad's controls and the kit's). Audio Settings lists the MIDI inputs (every
   one on until switched off). Cmd+I and drops import .mid files too; File > Export
   MIDI File... (Alt+Cmd+E) asks for type 1 or 0.
+- Plugin windows (Phase 7): `EffectEditors` opens a `PluginEditorWindow` for an
+  effect of type "plugin" (both derive from `EditorWindow`): a header (name and owner,
+  format, maker, latency, CPU from `controller::PluginLoads`, a "Slow" warning, the
+  NaN warning with Reactivate, Plugin Editor/Generic Editor, Bypass), then the plugin's
+  own editor (`createEditorAndMakeActive()`, resizable if it is, the window following
+  its size) or the `GenericEffectEditor` of its automatable parameters (values and
+  texts from the plugin through `PluginHooks`), or a placeholder saying why there is no
+  plugin (loading, missing, failed, kept back with "Load"). The window holds its plugin
+  (`Session::sharePlugin()`) so the editor goes first; it floats over the app's windows
+  and hides while another app is in front; it opens where that plugin's window was
+  (`WindowPositions` by `PluginKey`, kept by the app in the user settings).
+  `controller::PluginLoads` (fed four times a second by `MainComponent`) flags a plugin
+  slow above half the block's duration on average or for 5 s after an overrun; the
+  status bar names slow plugins; nothing is bypassed.
+- Plugin browser and slots (Phase 7): `PluginBrowserPanel` (B, View > Plugin
+  Browser) left of the tracks lists `controller::browserItems()` of the
+  `PluginLibrary`'s catalogue (built-in ones too) with search, format, type and maker
+  filters and favourites (the row's star; saved with the catalogue at the library's
+  next update); rows drag out as `BrowserItem::dragDescription()` (`MainComponent` is
+  the `DragAndDropContainer`) onto the arrange view's track area (a row: its track, or
+  in the automation view a bus or the master; below the rows: a new track) or a mixer
+  slot (`EffectSlots`, where dropped); a double-click goes to the track of the piano
+  roll's clip or the first selected clip, else a new track; every drop goes through
+  `controller::addFromBrowser()` and opens the editor. `EffectSlots` names plugins,
+  draws placeholders (`SlotMark::absent`: "(loading)", "(missing)", "(failed)",
+  "(off)", with "Load Plugin") and slow plugins (`SlotMark::slow`), and lists the
+  catalogue's plugins by maker (and favourites) in "+ Effect" and the instrument menu.
+  File > Open Without Plugins opens a project with its plugins off; after opening, an
+  alert names plugins that are missing or failed (`Session::getUnavailablePlugins()`).
+- Plugin Manager and the app (Phase 7): File > Plugin Manager... (`PluginManagerPanel`
+  in a `PanelWindow`, refreshing itself four times a second): Scan for New Plugins,
+  Rescan All, Cancel and the progress; pages Plugins (with why one is not hosted), Not
+  Loaded (the blacklist, Retry) and Folders (defaults, then the user's own per format,
+  a new one scanned at once; AU needs none). `AppController` owns the
+  `PluginLibrary` (catalogue `Plugins.json` next to `DAW.settings`, the scanner next to
+  the executable, `DAW_PLUGIN_SCANNER_NAME`), scans at launch, files the results each
+  tick (`Session::pluginsChanged()` when the catalogue changed), loads plugins with
+  JUCE's formats with editors, keeps the plugin windows' positions ("pluginWindows")
+  and the last project ("lastProject") in the user settings, and owns a `CrashMarker`
+  (`app/src/CrashMarker`): on a crash, signal handlers (JUCE's exception filter on
+  Windows) write the `RunningPlugin` names into `CrashedPlugins.txt` with system calls
+  only, then let the signal go on; the next start holds those plugins back
+  (`Session::holdBackPlugins()`) and offers to open the last project.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -734,6 +896,17 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
   requires 0. It counts operator new/delete everywhere; in the `linux-rtsan` CI job
   RealtimeSanitizer also aborts on malloc, locks, blocking system calls and I/O.
   Keep Catch2 assertions outside the checked lambda (Catch2 allocates).
+- Test plugins (Phase 7, `tests/plugins/`): gain, latency (777 samples), synth (its
+  output shows the notes it holds, like `TestInstrument`), NaN, and two faulty ones
+  that crash or hang when loaded, all doing what `core/TestPluginCore.h` says. They
+  are written against the formats' SDKs, not JUCE (MIDI 1.0 velocities, so 7-bit
+  values reach every format exactly): VST3 on every platform
+  (`pluginterfaces/` only, built into `<build>/test-plugins/VST3/`, the faulty ones
+  into `Faulty/VST3/`, which only the out-of-process scanner may load), AU v2 on
+  macOS (Apple's Audio Unit SDK, linked into the tests and registered for the test
+  process only by `registerTestAudioUnits()`; nothing is installed) and LV2 where
+  LV2 is hosted (`DAW_HOST_LV2`: on on Linux; switch it on elsewhere to test the LV2
+  paths). `tests/support/TestPlugins.h` finds and loads them.
 - `daw::test::SimulatedDevice` (`tests/support/SimulatedDevice.h`) plays the sound
   card: it drives `AudioDeviceHost`'s callback with known input, variable block
   sizes, switched-off channels, a loopback cable with a known latency and a stream
@@ -788,6 +961,8 @@ ctest --preset debug            # run all tests
 - Release build: same commands with the `release` preset.
 - macOS universal binary (arm64 + x86_64): preset `macos-universal` (Release). Run the
   Intel slice of the tests with `arch -x86_64 build/macos-universal/tests/daw_tests`.
+- LV2 hosting off Linux, to test its code paths: configure with `-DDAW_HOST_LV2=ON`
+  (e.g. `cmake --preset debug -B build/lv2-check -DDAW_HOST_LV2=ON`).
 - RealtimeSanitizer build (Linux, Clang 20+ only; Apple Clang lacks it): preset
   `linux-rtsan`, run in CI. Pass `-DCMAKE_CXX_COMPILER=clang++-NN` for a versioned Clang.
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
@@ -802,20 +977,23 @@ ctest --preset debug            # run all tests
 - Build directories live in `build/<preset>/`; downloaded archives in `.cache/deps/`.
 - Listening tests: `docs/LISTENING_TESTS.md`; reference files, the Phase 2 demo
   project, the Phase 3 recording project, the Phase 4 effects and delay
-  compensation projects and the Phase 6 instruments project, MIDI files and samples
-  from `python3 tools/make_listening_test_files.py` (into
+  compensation projects, the Phase 6 instruments project, MIDI files and samples and
+  the Phase 7 plugins project (two plugins installed nowhere) from
+  `python3 tools/make_listening_test_files.py` (into
   `build/listening-tests/`; add `--long` for the hour-long streaming file).
 - Benchmarks (Release only, not in CTest): `build/release/tests/daw_bench` (mixing),
   `build/release/tests/daw_stream_bench` (streaming and recording),
   `build/release/tests/daw_fx_bench` (effects), `build/release/tests/daw_instrument_bench`
-  (instruments: cost per voice, voices per budget) and the interface's cost per theme and
+  (instruments: cost per voice, voices per budget), `build/release/tests/daw_plugin_bench`
+  (what hosting a plugin costs per block) and the interface's cost per theme and
   animation level, `"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI
   Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
   four minutes); results in `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen. The app's
-  `--show=previews,animations,mixer,editors` option opens the theme previews, the
-  animation settings, the mixer and the first track's effect editors, so they can be
+  `--show=previews,animations,mixer,editors,browser,plugins` option opens the theme
+  previews, the animation settings, the mixer, the first track's effect editors, the
+  plugin browser and the Plugin Manager, so they can be
   captured without clicking. The theme and the animations come from the user settings ("appearance" in
   `DAW.settings`, JSON): back the file up before changing them for screenshots and
   put it back afterwards.
@@ -845,8 +1023,9 @@ apt.llvm.org.
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
 - Phase work happens on a branch (`phase-N`) with a draft pull request into `main`;
   CI must be green on Windows, macOS and Linux.
-- Don't implement later phases (multiple takes and comping, plugins, MPE, MIDI clock,
-  mobile) beyond keeping the architecture ready for them.
+- Don't implement later phases (multiple takes and comping, CLAP, plugin sandboxing,
+  sidechain, presets, MPE, MIDI clock, mobile) beyond keeping the architecture ready
+  for them.
 
 ## Status
 
@@ -1352,3 +1531,135 @@ Phase 6 decisions (agreed before starting):
   double-click on an empty part of a MIDI track makes a one-bar clip.
 - Benchmark: cost per voice of each instrument at 48 kHz and how many voices fit in
   the whole and half the budget with 128, 256 and 512-sample blocks.
+
+Phase 7 (in progress, branch `phase-7`): external plugins. Effect and instrument
+plugins in VST3 (Windows, macOS, Linux), AU v2 and v3 (macOS) and LV2 (Linux), through
+adapters onto the Phase 4 and 6 effect and instrument interface, so chains, sends,
+bypass, delay compensation, automation, MIDI, undo, export and Panic work as for the
+built-in ones; scanning in a separate process with a blacklist for plugins that crash
+or hang, incremental, with custom folders and a manual rescan; a plugin browser
+(search, filters by format, type and manufacturer, favourites, drag onto tracks and
+slots); plugin editors in their own windows, or the generic editor; plugin state
+saved in the project, with a placeholder that keeps a missing plugin's state and
+saves it unchanged; declared latency, tails, sample-rate and block-size changes,
+mono and stereo layouts; project format version 6 with a migration from version 5.
+First, two Phase 6 fixes: a preview note left sounding after fast drags in the piano
+roll, and a Panic command. Out of scope: CLAP, sidechain, plugin presets,
+multi-output plugins, ARA, the DAW as a plugin, running plugins in another process
+while playing, MIDI effects, automation writing, mobile UI.
+
+- [x] 0. Plan (this list) and draft pull request
+- [x] 1. The stuck preview note: a test of fast drags (several key changes per block,
+      the button released mid-way) that fails first; notes that end on the sample
+      they start are not played; the preview keeps its notes
+      (`controller::NotePreview`) and ends them on mouse up, a clip or track change
+      and closing; stop, pause, bypass and mute end preview notes
+- [x] 2. Panic: every instrument, built-in or plugin, ends its notes and voices;
+      Transport > Panic (Shift+Cmd+.); listening checks for both Phase 6 fixes
+- [x] 3. Plugin hosting in the build (VST3 everywhere, AU on macOS, LV2 on Linux),
+      architecture rules, the SDKs' licences in `docs/THIRD_PARTY.md`
+- [x] 4. Test plugins built from the SDKs (VST3 on every platform, AU v2 on macOS,
+      LV2 on Linux), in CI too: gain, known latency, deterministic synth, crash on
+      scan, hang on scan, NaN
+- [x] 5. Plugin catalogue in the controller: descriptions, files, incremental changes,
+      blacklist, folders, favourites, search and filters
+- [x] 6. Out-of-process scanner (`daw_plugin_scanner`): parallel scans, timeouts,
+      crashes and hangs blacklisted while the DAW carries on
+- [x] 7. Plugin adapter in the engine (`fx::PluginEffect`): parameters, layouts,
+      sample-exact MIDI, automation in sub-blocks, play head, latency, tail, NaN
+      guard, time per block; plugin code left out of the real-time checks
+- [x] 8. Plugin instances in the controller: loading and preparing off the audio
+      thread, rate and block-size changes, latency changes, parameter changes from
+      the plugin's editor, exports with instances of their own
+- [x] 9. Project format version 6: plugins with their state and parameters,
+      placeholders for missing plugins that keep everything; migration from version 5
+- [x] 10. Session: inserting, removing, moving, bypassing plugins and parameter edits
+      with undo; missing plugins; opening without plugins; the plugin that was
+      processing at a crash
+- [x] 11. End-to-end tests with the test plugins (hanging notes, export equals
+      playback, state round trips); benchmark of the adapter's cost per block
+- [x] 12. Desktop UI: plugin browser, plugins in the effect and instrument menus,
+      Plugin Manager; themed
+- [x] 13. Desktop UI: plugin editor windows (the plugin's or the generic editor),
+      placeholders, slow-plugin and NaN warnings
+- [x] 14. UI tests in every theme; listening tests for Phase 7 with the plugins
+      installed on the Mac; version 0.7.0
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`)
+
+Phase 7 decisions (agreed before starting):
+
+- Stuck preview note: the engine queued every preview command at the start of the
+  next block, and the mixer sorts a block's events with note-offs before note-ons
+  on the same sample; a note started and ended in one block (several key changes
+  between two blocks during a fast drag, or a release right after) became off then
+  on, the instrument host dropped the off (not a note it had given) and kept the
+  note. Stop did not end it, since previews were only released when their track
+  went away. Live notes that end on the sample they start are now not played at
+  all, and the instrument host drops a note-on whose note-off it already refused
+  on that sample.
+- Panic (Transport > Panic, Shift+Cmd+.): held notes get their note-offs, plugins also
+  get all notes off (CC123) and all sound off (CC120) on the 16 channels, built-in
+  instruments reset their voices, the note tables (timeline, live, previews) are
+  cleared; the transport goes on, and effect tails are left alone.
+- Formats: VST3 (Windows, macOS, Linux), AU v2 and v3 (macOS), LV2 (Linux only).
+  CLAP is postponed: JUCE 9.0.4 has neither CLAP hosting nor CLAP plugins, and the
+  catalogue and the adapter do not depend on the format, so an adapter of our own
+  (CLAP headers and clap-helpers) or JUCE's can come later. No VST2, LADSPA or ARA.
+- Scanning: one child process per plugin file, up to 4 at once, 30 s timeout. A
+  crash, a hang, a file without plugins or one that cannot load goes to the blacklist
+  with its reason (Retry in the Plugin Manager; a modified file gets another chance).
+  Incremental at launch, in the background (new or modified files by path, size and
+  modification time; AU components by identifier and version); a manual rescan of
+  one plugin or all. Default folders per format plus custom ones (VST3, LV2; AU
+  comes from the system's registry). The catalogue lives in the user settings
+  folder.
+- Adapter: `fx::PluginEffect` over JUCE's `AudioPluginInstance` (the headless
+  module, which `engine` may use). MIDI events reach the plugin on their exact
+  samples. JUCE's hosting hands parameter values over at the start of a call only,
+  so the adapter splits blocks at the exact sample of every automation point and,
+  along ramps, every 32 samples on a grid counted from the plugin's reset, so the
+  result does not depend on the device's block size. Changes from the user reach a
+  plugin without the host's 20 ms ramp (plugins smooth their own).
+- Threads: instantiation, state, editors, prepare and release on the message
+  thread, process on the audio thread; nothing a plugin does while loading,
+  scanning or opening its editor blocks the audio thread. Parameter callbacks may
+  come from any thread: they reach the message thread through lock-free queues.
+- Crashes while playing: plugins run in the DAW's process (no added latency, like
+  most DAWs); AUv3 plugins already run in their own process (macOS). The app notes
+  which plugin was processing when it crashed and offers to open the project with
+  it switched off; File > Open Without Plugins. A process per plugin is left for
+  later, behind the same `fx::Effect` interface.
+- Slow plugins: the time of each call is measured; a plugin whose average exceeds
+  50 % of the block's duration over a second, or that overruns a block, is flagged
+  (slot, status bar, editor header); no automatic bypass. NaN or infinity: reset,
+  silenced, reported, Reactivate, as for the built-in effects.
+- Editor windows: on top of the DAW's windows, hidden while another app is active;
+  position remembered per plugin in the user settings; a Plugin/Generic switch in
+  the header, with Bypass, latency and CPU.
+- Undo: every parameter gesture in a plugin's editor (or the generic one) is one
+  step; preset loads and other changes inside the plugin that are not parameters
+  are saved but not undoable. No automation writing (not planned yet).
+- Layouts: tracks are stereo. Stereo to stereo, else mono to stereo, else mono to
+  mono (mono input (L+R)/2, mono output on both channels); plugins needing more
+  than two main channels are refused; sidechain and extra outputs off; MIDI effects
+  and plugins' MIDI output are not supported.
+- Exports use fresh instances with the state copied, prepared at the export rate in
+  non-real-time mode; playback is untouched.
+- Missing plugins: the placeholder keeps the reference, state, parameters and
+  automation and saves them unchanged; an effect placeholder passes audio through,
+  an instrument placeholder is silent.
+- Project: a plugin is an effect of type "plugin" with its format, identifier, name,
+  manufacturer and version, its state (Base64) and the parameter values the host
+  set; format version 6.
+- Browser: a panel left of the tracks (B, View > Plugin Browser) listing the
+  built-in effects and instruments too; search, filters by format, type and
+  manufacturer, favourites; drag onto a track (effects go last in its chain,
+  instruments replace its instrument), a mixer slot (inserted there) or empty space
+  (an instrument makes a MIDI track). File > Plugin Manager... (folders, rescan,
+  blacklist).
+- Test plugins are written against the formats' SDKs, not with JUCE (VST3 SDK, MIT,
+  pinned; Apple's AudioUnitSDK, Apache 2.0; LV2 in C), so they build fast and
+  behave like third-party plugins. AU test plugins are registered in the test
+  process only, never installed; AU scanning is tested with Apple's built-in AUs;
+  AUv3 is checked by hand.
+

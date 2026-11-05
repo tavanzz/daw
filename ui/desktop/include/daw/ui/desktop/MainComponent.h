@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
 #include "daw/ui/desktop/EffectEditorWindow.h"
@@ -8,6 +9,7 @@
 #include "daw/ui/desktop/MixerView.h"
 #include "daw/ui/desktop/PanelWindow.h"
 #include "daw/ui/desktop/PianoRoll.h"
+#include "daw/ui/desktop/PluginBrowserPanel.h"
 #include "daw/ui/desktop/StatusBar.h"
 #include "daw/ui/desktop/ThemeManager.h"
 #include "daw/ui/desktop/TransportBar.h"
@@ -30,6 +32,7 @@ namespace daw::ui::desktop
 */
 class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
+                            public juce::DragAndDropContainer,
                             public juce::FileDragAndDropTarget,
                             private juce::Timer,
                             private ThemeManager::Listener
@@ -71,14 +74,19 @@ public:
         togglePianoRoll,
         quantiseNotes,
         exportMidi,
+        panic,
+        togglePluginBrowser,
+        openWithoutPlugins,
+        showPluginManager,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8
     };
 
+    /** pluginLibrary: the app's plugins (null: only the built-in effects). */
     MainComponent(controller::Session& sessionToShow, juce::AudioDeviceManager& audioDeviceManager,
                   juce::ApplicationCommandManager& applicationCommandManager,
-                  ThemeManager& themeManager);
+                  ThemeManager& themeManager, controller::PluginLibrary* libraryToUse = nullptr);
     ~MainComponent() override;
 
     /** Opens a project or imports an audio file (e.g. given on the command line). */
@@ -86,7 +94,8 @@ public:
 
     /** Opens windows for a review of the interface (the app's --show option):
         "previews" (the themes), "animations" (their settings), "mixer", "editors" (those
-        of the first track with effects). */
+        of the first track with effects), "browser" (the plugin browser), "plugins" (the
+        Plugin Manager). */
     void showForReview(const juce::StringArray& what);
 
     void showError(const juce::String& title, const juce::String& message);
@@ -101,6 +110,12 @@ public:
 
     [[nodiscard]] ArrangeView& getArrangeViewForTesting() noexcept { return arrangeView; }
     [[nodiscard]] PianoRoll& getPianoRollForTesting() noexcept { return pianoRoll; }
+    [[nodiscard]] EffectEditors& getEffectEditorsForTesting() noexcept { return effectEditors; }
+    [[nodiscard]] PluginBrowserPanel& getPluginBrowserForTesting() noexcept { return pluginBrowser; }
+    [[nodiscard]] MixerView& getMixerForTesting() noexcept { return mixerView; }
+
+    /** Where plugin editor windows were last; the app keeps them in the user settings. */
+    [[nodiscard]] WindowPositions& getPluginWindowPositions() noexcept { return pluginWindows; }
 
     /** Opens a MIDI clip in the piano roll (the lower panel), as a double-click does. */
     void editClip(model::ObjectId clipId);
@@ -129,10 +144,12 @@ private:
                    const std::function<std::unique_ptr<juce::Component>()>& makeContent);
     void mixerFrame(double seconds);
     void togglePlayPause();
-    void openProjectFile(const juce::File& file);
+    void openProjectFile(const juce::File& file, bool withPlugins = true);
+    void showPluginBrowser(bool shouldShow);
+    void reportUnavailablePlugins();
     void offerRecovery();
     void chooseAudioToImport();
-    void chooseProjectToOpen();
+    void chooseProjectToOpen(bool withPlugins = true);
     void chooseProjectToSave(std::function<void()> afterSaving = {},
                              const juce::String& title = "Save the project");
     void saveThen(std::function<void()> afterSaving);
@@ -145,6 +162,7 @@ private:
     juce::AudioDeviceManager& deviceManager;
     juce::ApplicationCommandManager& commandManager;
     ThemeManager& themes;
+    controller::PluginLibrary* pluginLibrary;
 
     TransportBar transportBar;
     HazardBand hazardBand;
@@ -162,8 +180,14 @@ private:
     std::unique_ptr<ThemeCrossfade> crossfade;
     std::unique_ptr<PanelWindow> previewsWindow;
     std::unique_ptr<PanelWindow> animationsWindow;
+    std::unique_ptr<PanelWindow> pluginManagerWindow;
     StatusBar statusBar{session};
-    EffectEditors effectEditors{session};
+    PluginBrowserPanel pluginBrowser;
+    bool browserVisible = false;
+    int unavailableCheck = 0; // updates to wait before naming plugins a project lacks
+    WindowPositions pluginWindows;
+    EffectEditors effectEditors{session, pluginWindows};
+    double lastSlowWarning = 0.0;
     juce::TooltipWindow tooltipWindow{this};
 
     std::unique_ptr<juce::FileChooser> fileChooser;

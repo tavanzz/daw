@@ -1,5 +1,8 @@
 #pragma once
 
+#include "CrashMarker.h"
+#include "daw/controller/PluginInstances.h"
+#include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/AudioDeviceHost.h"
@@ -20,6 +23,12 @@ namespace daw::app
     drives the session's update() from a timer, keeps the window title current, and
     remembers the audio device and its latency offset (per device pair and rate) and
     the appearance (theme and animations).
+
+    Plugins: the catalogue lives next to the user settings (Plugins.json) and is
+    scanned for new or changed plugins at launch, in the background, by the scanner
+    program next to the executable; the plugin windows' positions are kept in the user
+    settings. If the app crashed inside a plugin, the next start keeps that plugin from
+    loading and offers to open the last project with it switched off.
 
     Inputs: the device opens its inputs only with the microphone permission. The
     permission is asked for the first time a track needs an input (armed, or
@@ -48,6 +57,11 @@ public:
     void requestQuit();
 
 private:
+    [[nodiscard]] static juce::PropertiesFile::Options settingsOptions(const juce::String& name);
+    [[nodiscard]] static controller::PluginLibrary::Options libraryOptions(const juce::String& name);
+    [[nodiscard]] static std::unique_ptr<juce::AudioPluginFormatManager> pluginFormats();
+    [[nodiscard]] controller::SessionOptions sessionOptions();
+    void offerProjectWithoutCrashedPlugins(const juce::StringArray& names);
     void updateWindowTitle();
     void saveDeviceState();
     void deviceChanged();
@@ -61,16 +75,21 @@ private:
 
     const juce::String applicationName;
     juce::ApplicationProperties settings;
+    CrashMarker crashMarker;
 
     // Destroyed in reverse order: the window refers to the session, the session to
-    // the engine, and the device must stop before the engine goes.
+    // the engine and the plugins, and the device must stop before the engine goes;
+    // the plugins' formats outlive every plugin.
+    controller::PluginLibrary plugins;
+    controller::PluginLoader pluginLoader{pluginFormats()};
     engine::Engine engine;
     engine::io::AudioDeviceHost deviceHost{engine};
-    controller::Session session{engine};
+    controller::Session session{engine, sessionOptions()};
     std::unique_ptr<ui::desktop::ThemeManager> themes; // the window draws with its looks
     std::unique_ptr<ui::desktop::MainWindow> window;
 
     juce::String shownTitle;
+    juce::File shownProject; // the last one kept in the settings
 
     // Inputs: asking the user, or the device has none (until the device changes).
     bool askingForInputs = false;

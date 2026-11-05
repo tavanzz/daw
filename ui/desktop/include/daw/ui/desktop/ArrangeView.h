@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/PluginBrowser.h"
 #include "daw/ui/desktop/ArrangeState.h"
 #include "daw/ui/desktop/TimelineRuler.h"
 #include "daw/ui/desktop/TrackHeaderList.h"
@@ -37,6 +38,8 @@ public:
     /** The automation view (A): each row's automation lane over its clips. */
     [[nodiscard]] bool isShowingAutomation() const noexcept { return state.showAutomation; }
     [[nodiscard]] ArrangeState& getStateForTesting() noexcept { return state; }
+    /** The component items from the plugin browser are dropped on. Tests. */
+    [[nodiscard]] juce::DragAndDropTarget& getDropTargetForTesting() noexcept;
     void setShowingAutomation(bool show);
     void deleteSelection();
 
@@ -48,6 +51,14 @@ public:
 
     /** A MIDI clip to open in the piano roll (double-clicked). */
     std::function<void(model::ObjectId clipId)> onOpenClip;
+
+    /** An effect or instrument dropped from the plugin browser was added (to open its
+        editor). */
+    std::function<void(model::ObjectId effectId)> onEffectAdded;
+
+    /** Where the plugin browser's double-click puts an item: the track of the first
+        selected clip, else a new track. */
+    [[nodiscard]] controller::BrowserTarget getSelectedTrackTarget() const;
 
     /** A problem to show the user (a MIDI file that could not be read). */
     std::function<void(const juce::String& title, const juce::String& message)> onProblem;

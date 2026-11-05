@@ -391,13 +391,23 @@ void Engine::takeLiveInput(const AudioInputs& inputs, int numSamples) noexcept
             std::max(happened + numSamples, blockStart), live};
     }
 
+    // Stop and pause end every preview note, before the previews asked for since.
+    if (releasePreviews && pendingMidiCount < maximumPendingMidi)
+    {
+        pendingMidi[static_cast<std::size_t>(pendingMidiCount++)] = {
+            blockStart,
+            {midi::controller(0, midi::controllers::allNotesOff, 0.0f), -1, midi::LiveEvent::everyTrack}};
+        releasePreviews = false;
+    }
+
     while (pendingMidiCount < maximumPendingMidi)
     {
         const auto preview = previews.pop();
         if (!preview)
             break;
-        const auto event = preview->velocity > 0.0f ? midi::noteOn(0, preview->key, preview->velocity)
-                                                    : midi::noteOff(0, preview->key);
+        const auto event = preview->endsAll ? midi::controller(0, midi::controllers::allNotesOff, 0.0f)
+                           : preview->velocity > 0.0f ? midi::noteOn(0, preview->key, preview->velocity)
+                                                      : midi::noteOff(0, preview->key);
         pendingMidi[static_cast<std::size_t>(pendingMidiCount++)] = {blockStart,
                                                                      {event, -1, preview->track}};
     }
@@ -428,19 +438,29 @@ void Engine::takeLiveInput(const AudioInputs& inputs, int numSamples) noexcept
     pendingMidiCount = kept;
 }
 
-void Engine::startPreview(juce::int64 trackId, int key, float velocity)
+bool Engine::startPreview(juce::int64 trackId, int key, float velocity)
 {
-    [[maybe_unused]] const bool queued =
-        previews.push({trackId, static_cast<std::uint8_t>(std::clamp(key, 0, 127)),
-                       std::clamp(velocity, 1.0f / 127.0f, 1.0f)});
-    jassert(queued);
+    detail::PreviewCommand command;
+    command.track = trackId;
+    command.key = static_cast<std::uint8_t>(std::clamp(key, 0, 127));
+    command.velocity = std::clamp(velocity, 1.0f / 127.0f, 1.0f);
+    return previews.push(command);
 }
 
-void Engine::stopPreview(juce::int64 trackId, int key)
+bool Engine::stopPreview(juce::int64 trackId, int key)
 {
-    [[maybe_unused]] const bool queued =
-        previews.push({trackId, static_cast<std::uint8_t>(std::clamp(key, 0, 127)), 0.0f});
-    jassert(queued);
+    detail::PreviewCommand command;
+    command.track = trackId;
+    command.key = static_cast<std::uint8_t>(std::clamp(key, 0, 127));
+    return previews.push(command);
+}
+
+bool Engine::stopAllPreviews(juce::int64 trackId)
+{
+    detail::PreviewCommand command;
+    command.track = trackId;
+    command.endsAll = true;
+    return previews.push(command);
 }
 
 void Engine::renderTimeline(juce::int64 timelineStart, juce::AudioBuffer<float>& output,
@@ -543,6 +563,32 @@ void Engine::pause()
 void Engine::stop()
 {
     send({Command::Type::stop, 0});
+}
+
+void Engine::panic()
+{
+    send({Command::Type::panic, 0});
+}
+
+void Engine::applyPanic() noexcept
+{
+    const auto panicIn = [](Snapshot* snapshot) noexcept {
+        if (snapshot == nullptr || snapshot->arrangement == nullptr)
+            return;
+        snapshot->mix.forgetNotes();
+        const auto chain = [](const EffectChain& effects) noexcept {
+            for (const auto& slot : effects.slots)
+                if (slot.instance != nullptr)
+                    slot.instance->panic();
+        };
+        for (const auto& track : snapshot->arrangement->tracks)
+            chain(track.inserts);
+        for (const auto& bus : snapshot->arrangement->buses)
+            chain(bus.inserts);
+        chain(snapshot->arrangement->masterInserts);
+    };
+    panicIn(current);
+    panicIn(fadingOut);
 }
 
 void Engine::seek(juce::int64 position)
@@ -682,6 +728,7 @@ void Engine::apply(const Command& command) noexcept
         case Command::Type::stop:
         case Command::Type::resetTransport:
         {
+            releasePreviews = true;
             endRecording();
             const bool wasCountingIn = countInRemaining > 0;
             countInRemaining = 0;
@@ -692,6 +739,7 @@ void Engine::apply(const Command& command) noexcept
             return;
         }
         case Command::Type::setLooping:
+        case Command::Type::panic:
             break;
         }
     }
@@ -711,6 +759,7 @@ void Engine::apply(const Command& command) noexcept
     if (command.type == Command::Type::pause || command.type == Command::Type::stop ||
         command.type == Command::Type::resetTransport)
     {
+        releasePreviews = true;
         waitingForData = false;
         if (const auto* pending = std::exchange(pendingRecording, nullptr))
             recorder.cancel(*pending);
@@ -758,6 +807,9 @@ void Engine::apply(const Command& command) noexcept
         break;
     case Command::Type::resetTransport:
         transport.reset();
+        break;
+    case Command::Type::panic:
+        applyPanic();
         break;
     case Command::Type::countIn:
         transport.seek(command.value);

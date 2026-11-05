@@ -312,3 +312,54 @@ What this means:
   holding 16 notes (256 voices) takes about a quarter of a 256-sample callback on one
   core, before effects. Like the mixer and the effects, instruments run on the
   audio thread only.
+
+## Plugins (Phase 7)
+
+```bash
+cmake --preset release && cmake --build --preset release
+build/release/tests/daw_plugin_bench
+```
+
+`tests/bench/PluginBenchmark.cpp` measures what hosting a plugin costs on top of the
+plugin itself, with the VST3 test plugins (`tests/plugins`), which cost next to
+nothing: a gain, and a synth whose output shows the notes it holds. For each block
+size, 10 s of stereo noise at 48 kHz with denormals flushed, the best of five runs:
+
+- JUCE alone: `AudioPluginInstance::processBlock()`, what any JUCE host pays (VST3's
+  buffers, events and parameter queues).
+- Adapter: `PluginEffect::process()` (MIDI conversion, play head, timing, the
+  real-time checks' scope).
+- Host: `EffectInstance::process()` over a `PluginSlot`, as the mixer calls it (dry
+  copy for the fades, NaN guard, parameter bookkeeping).
+- Host, automated: the gain moving along a ramp, so every block is cut into calls of
+  32 samples with a parameter change before each.
+- Synth, 8 events: the instrument through the host with four notes struck and
+  released in every block.
+
+Apple M3 Pro, macOS 15.6.1, Release build, 2026-11-05, with the code of Phase 7
+step 11. Microseconds per block:
+
+| Block | Budget | JUCE alone | Adapter | Host | Host, automated | Synth, 8 events |
+|------:|-------:|-----------:|--------:|-----:|----------------:|----------------:|
+| 64 | 1333 us | 0.19 | 0.25 | 0.37 | 0.58 | 1.27 |
+| 128 | 2667 us | 0.11 | 0.16 | 0.35 | 0.91 | 1.22 |
+| 256 | 5333 us | 0.14 | 0.17 | 0.50 | 1.69 | 1.33 |
+| 512 | 10667 us | 0.21 | 0.26 | 0.94 | 3.40 | 2.90 |
+
+What this means:
+
+- The adapter adds 0.03 to 0.06 microseconds to a block, the host around it (the same
+  as for a built-in effect) under 1 microsecond: hosting one plugin costs about a
+  hundredth of a percent of a 256-sample callback. A hundred plugins cost the host
+  about 50 microseconds per block, 1 % of the budget; what the plugins themselves
+  cost is theirs (a real equaliser or synth takes tens to hundreds of times more).
+- Automation that moves costs about 0.1 microseconds per 32-sample call (3.4
+  microseconds per 512-sample block): the price of steps landing on their sample and
+  of results that do not depend on the blocks. A plugin with a heavy fixed cost per
+  call (some run their own buffering whatever the call's length) pays that cost
+  every 32 samples while its automation moves, and only then.
+- MIDI costs about 0.1 microseconds per event (conversion to MIDI 1.0 and JUCE's
+  conversion to VST3 events).
+- The time each call takes is also measured in the app, per plugin
+  (`PluginEffect::takeLoad()`), against the block's duration: a plugin whose average
+  exceeds half the budget, or that overruns a block, is flagged.

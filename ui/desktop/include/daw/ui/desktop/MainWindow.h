@@ -25,7 +25,8 @@ class MainWindow final : public juce::DocumentWindow, public juce::MenuBarModel
 {
 public:
     MainWindow(const juce::String& windowTitle, controller::Session& session,
-               juce::AudioDeviceManager& deviceManager, ThemeManager& themeManager);
+               juce::AudioDeviceManager& deviceManager, ThemeManager& themeManager,
+               controller::PluginLibrary* pluginLibrary = nullptr);
     ~MainWindow() override;
 
     [[nodiscard]] MainComponent& getMainComponent() noexcept { return *mainComponent; }

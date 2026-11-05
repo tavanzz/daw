@@ -16,7 +16,9 @@ if(NOT DAW_SOURCE_DIR)
 endif()
 
 # Include prefixes that bring in windowing, graphics or editor UI code.
-# (juce_audio_processors_headless, which plugin hosting will use, stays allowed.)
+# (juce_audio_processors_headless, plugin hosting without editors, stays allowed:
+# the engine's plugin adapter and the controller's scanning use it; plugin editors
+# and JUCE's full plugin formats belong to the UIs and the app.)
 set(gui_includes
     "juce_graphics/"
     "juce_gui_basics/"

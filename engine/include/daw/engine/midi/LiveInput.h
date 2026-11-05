@@ -37,12 +37,20 @@ bool parse(const TimedMessage& message, Event& event) noexcept;
 
 /** An event from outside the timeline, placed in the current audio block: from a
     device (track 0) or the piano roll's preview of one track. Its offset counts
-    from the start of the device's block. */
+    from the start of the device's block. A preview's "all notes off" (controller
+    123) ends the preview notes of its track, or of every track. */
 struct LiveEvent
 {
+    static constexpr juce::int64 everyTrack = -1;
+
     Event event;
     std::int16_t device = -1; ///< the device's index; -1 for a preview
-    juce::int64 track = 0;    ///< for a preview, the track it plays on
+    juce::int64 track = 0;    ///< for a preview, the track it plays on, or everyTrack
+
+    [[nodiscard]] bool isPreviewFor(juce::int64 trackId) const noexcept
+    {
+        return device < 0 && (track == trackId || track == everyTrack);
+    }
 };
 
 using LiveEventSpan = std::span<const LiveEvent>;
@@ -72,7 +80,10 @@ struct InputFilter
     controllers it moved to rest.
 
     Devices send MIDI 1.0 without note ids: each note gets one of its own here (apart
-    from the timeline's), and a note-off ends the oldest held note on its key.
+    from the timeline's), and a note-off ends the oldest held note on its key. A note
+    that ends on the sample it started (two key changes between audio blocks) is not
+    played at all. "All notes off" and "all sound off" (controllers 123 and 120) end
+    every held note; they go no further.
 
     Fixed size, real-time safe; one thread only.
 */
@@ -84,6 +95,17 @@ public:
 
     /** Ends every held note at offset and rests the controllers moved. */
     void releaseAll(int offset, EventBuffer& events) noexcept;
+
+    /** Ends every held note at offset; controllers stay where they are. */
+    void endNotes(int offset, EventBuffer& events) noexcept;
+
+    /** Panic: forgets every held note and moved controller (the instrument was reset);
+        their note-offs, when they come, go nowhere. */
+    void forget() noexcept
+    {
+        held.clear();
+        movedCount = 0;
+    }
 
     void adopt(LiveNotes& previous) noexcept;
 

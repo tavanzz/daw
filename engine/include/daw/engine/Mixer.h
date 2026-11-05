@@ -88,6 +88,10 @@ struct MixState
     int mixLatency = 0; ///< M: where tracks and buses meet at the master
     int latency = 0;    ///< how far the output lags the timeline read
 
+    /** Rendering thread. Panic: every track forgets the notes it holds (timeline,
+        live, previews); their instruments were reset. */
+    void forgetNotes() noexcept;
+
     /** Message thread. Gains already at the arrangement's targets (no ramps, and
         automation that is there already applies from the first sample); buses sum up
         to busBlockSize samples at once. */
@@ -254,6 +258,10 @@ private:
     template <typename Callback>
     void forEachPosition(const MixContext& context, juce::int64 timelineStart, int latency,
                          int numSamples, Callback&& callback) const noexcept;
+    /** Where the slot's automation may step in this stretch (curve points, timeline
+        jumps) into slotBreakpoints; returns how many. */
+    int findBreakpoints(const ChainSlot& slot, const MixContext& context, juce::int64 timelineStart,
+                        int latency, int numSamples) noexcept;
     void fillCurve(const AutomationCurve& curve, const MixContext& context,
                    juce::int64 timelineStart, int latency, int numSamples,
                    float* values) const noexcept;
@@ -278,6 +286,7 @@ private:
     std::vector<float> curveScratch;
     std::vector<float> automationLanes; // effect parameters' automation, one lane each
     std::vector<const float*> automationPointers;
+    std::array<int, fx::EffectScratch::maximumBreakpoints> slotBreakpoints{}; // one slot's
     fx::EffectScratch effectScratch;
     midi::EventBuffer noteEvents; // one MIDI track's, for its instrument
 };
