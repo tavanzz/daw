@@ -1203,7 +1203,7 @@ Phase 5 decisions (agreed before starting):
   open, playing; 20 s per combination.
 - Screenshots are not committed (`build/screenshots/phase5/`).
 
-Phase 6 (in progress, branch `phase-6`): MIDI and instruments. MIDI tracks with MIDI
+Phase 6 (done, released as v0.6.0): MIDI and instruments. MIDI tracks with MIDI
 clips on the timeline (create, move, trim, duplicate, delete); a piano roll (draw,
 move, resize and delete notes, velocity, multiple selection, grid and snap,
 quantisation with value and strength, transposition, a preview of the note being
@@ -1261,8 +1261,10 @@ devices, loop/take/merge recording, swing, presets.
       pad views), MIDI settings, MIDI import and export in the menus
 - [x] 20. UI tests of the new components in every theme; listening tests and files
       for Phase 6 (`docs/LISTENING_TESTS.md`); version 0.6.0
-- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 84 to 103): to do on macOS,
-      with a MIDI keyboard for checks 96 to 99
+- [x] Listening tests (`docs/LISTENING_TESTS.md`, checks 84 to 103): passed on macOS,
+      2026-11-05, apart from two faults: a preview note left sounding after fast drags
+      in the piano roll (check 87, fixed in Phase 7) and the synth clipping at full
+      resonance (check 92, fixed in bbdbd64)
 
 Phase 6 decisions (agreed before starting):
 
