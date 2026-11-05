@@ -12,6 +12,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <vector>
 
 using daw::controller::ChainOwner;
@@ -48,11 +49,14 @@ PluginCatalogue testCatalogue()
 
 juce::PluginDescription described(const PluginCatalogue& catalogue, const juce::String& kind)
 {
-    for (const auto& info : catalogue.getPlugins())
-        if (info.description.name == "DAW Test " + kind)
-            return info.description;
-    FAIL("no test plugin " << kind.toStdString());
-    return {};
+    // No code after a FAIL: MSVC calls it unreachable (C4702).
+    const auto& plugins = catalogue.getPlugins();
+    const auto found = std::find_if(plugins.begin(), plugins.end(), [&kind](const auto& info) {
+        return info.description.name == "DAW Test " + kind;
+    });
+    INFO("test plugin " << kind.toStdString());
+    REQUIRE(found != plugins.end());
+    return found->description;
 }
 
 struct Fixture
