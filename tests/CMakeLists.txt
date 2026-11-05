@@ -1,5 +1,7 @@
 include(Catch)
 
+add_subdirectory(plugins)
+
 add_executable(daw_tests
     support/Phase3Mixer.cpp
     support/RealtimeCheck.cpp
@@ -7,6 +9,7 @@ add_executable(daw_tests
     support/SimulatedDevice.cpp
     support/TestMain.cpp
     support/TestAudioFiles.cpp
+    support/TestPlugins.cpp
     appearance/AnimationSettingsTests.cpp
     appearance/BundledFontsTests.cpp
     appearance/ColourTests.cpp
@@ -73,6 +76,12 @@ target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::engine daw::model
     Catch2::Catch2)
 daw_enable_warnings(daw_tests)
+# The test plugins are built with the tests, which find them here.
+add_dependencies(daw_tests daw_test_plugins)
+if(APPLE)
+    target_link_libraries(daw_tests PRIVATE daw_test_audio_units)
+endif()
+target_compile_definitions(daw_tests PRIVATE "DAW_TEST_PLUGINS_DIR=\"${DAW_TEST_PLUGINS_DIR}\"")
 
 # UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
 # Linux CI, on a virtual display).

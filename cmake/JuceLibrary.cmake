@@ -10,6 +10,15 @@
 # never use GUI modules" is enforced by the architecture tests
 # (cmake/CheckArchitecture.cmake), not by the linker.
 
+# LV2 is hosted on Linux, where its plugins live; elsewhere it can be switched on to
+# test the LV2 code paths on a development machine.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(lv2_by_default ON)
+else()
+    set(lv2_by_default OFF)
+endif()
+option(DAW_HOST_LV2 "Host LV2 plugins" ${lv2_by_default})
+
 add_library(daw_juce STATIC)
 add_library(daw::juce ALIAS daw_juce)
 
@@ -42,7 +51,7 @@ target_compile_definitions(daw_juce
         # VST2 (its SDK cannot be distributed) and no ARA.
         JUCE_PLUGINHOST_VST3=1
         JUCE_PLUGINHOST_AU=$<IF:$<PLATFORM_ID:Darwin>,1,0>
-        JUCE_PLUGINHOST_LV2=$<IF:$<PLATFORM_ID:Linux>,1,0>
+        JUCE_PLUGINHOST_LV2=$<BOOL:${DAW_HOST_LV2}>
         JUCE_PLUGINHOST_VST=0
         JUCE_PLUGINHOST_ARA=0
     INTERFACE

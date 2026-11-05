@@ -757,6 +757,16 @@ queue and freed on another thread. Mark audio-thread functions `noexcept` and sa
   requires 0. It counts operator new/delete everywhere; in the `linux-rtsan` CI job
   RealtimeSanitizer also aborts on malloc, locks, blocking system calls and I/O.
   Keep Catch2 assertions outside the checked lambda (Catch2 allocates).
+- Test plugins (Phase 7, `tests/plugins/`): gain, latency (777 samples), synth (its
+  output shows the notes it holds, like `TestInstrument`), NaN, and two faulty ones
+  that crash or hang when loaded, all doing what `core/TestPluginCore.h` says. They
+  are written against the formats' SDKs, not JUCE: VST3 on every platform
+  (`pluginterfaces/` only, built into `<build>/test-plugins/VST3/`, the faulty ones
+  into `Faulty/VST3/`, which only the out-of-process scanner may load), AU v2 on
+  macOS (Apple's Audio Unit SDK, linked into the tests and registered for the test
+  process only by `registerTestAudioUnits()`; nothing is installed) and LV2 where
+  LV2 is hosted (`DAW_HOST_LV2`: on on Linux; switch it on elsewhere to test the LV2
+  paths). `tests/support/TestPlugins.h` finds and loads them.
 - `daw::test::SimulatedDevice` (`tests/support/SimulatedDevice.h`) plays the sound
   card: it drives `AudioDeviceHost`'s callback with known input, variable block
   sizes, switched-off channels, a loopback cable with a known latency and a stream
@@ -811,6 +821,8 @@ ctest --preset debug            # run all tests
 - Release build: same commands with the `release` preset.
 - macOS universal binary (arm64 + x86_64): preset `macos-universal` (Release). Run the
   Intel slice of the tests with `arch -x86_64 build/macos-universal/tests/daw_tests`.
+- LV2 hosting off Linux, to test its code paths: configure with `-DDAW_HOST_LV2=ON`
+  (e.g. `cmake --preset debug -B build/lv2-check -DDAW_HOST_LV2=ON`).
 - RealtimeSanitizer build (Linux, Clang 20+ only; Apple Clang lacks it): preset
   `linux-rtsan`, run in CI. Pass `-DCMAKE_CXX_COMPILER=clang++-NN` for a versioned Clang.
 - Run the app: `open build/debug/app/daw_app_artefacts/Debug/DAW.app`
@@ -1403,7 +1415,7 @@ while playing, MIDI effects, automation writing, mobile UI.
       Transport > Panic (Shift+Cmd+.); listening checks for both Phase 6 fixes
 - [x] 3. Plugin hosting in the build (VST3 everywhere, AU on macOS, LV2 on Linux),
       architecture rules, the SDKs' licences in `docs/THIRD_PARTY.md`
-- [ ] 4. Test plugins built from the SDKs (VST3 on every platform, AU v2 on macOS,
+- [x] 4. Test plugins built from the SDKs (VST3 on every platform, AU v2 on macOS,
       LV2 on Linux), in CI too: gain, known latency, deterministic synth, crash on
       scan, hang on scan, NaN
 - [ ] 5. Plugin catalogue in the controller: descriptions, files, incremental changes,
