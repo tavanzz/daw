@@ -262,7 +262,11 @@ Modules with one-way dependencies:
   reads; an oscillator crossfades the two tables whose harmonics all stay under 0.45
   of the rate; a pulse is the difference of two saws), noise (xorshift, seeded per
   note: deterministic), a trapezoidal SVF (LP12, LP24 = a second Butterworth stage,
-  BP, HP; Q 0.5 to 20, g interpolated per sample), `dsp::Envelope` ADSR (attack a
+  BP, HP; Q 0.5 to 20, g interpolated per sample) whose resonance is kept in check
+  in the low- and high-passes: the input is turned down by a quarter of the 12 dB
+  low-pass's peak in dB (none up to Q 1/sqrt 2, 6.5 dB at Q 20), and the resonant
+  stage's band-pass state is exactly linear up to 0.7, then bends softly towards 1.4
+  (the band-pass, unity at its centre, stays linear), `dsp::Envelope` ADSR (attack a
   line at the 0-to-1 slope, decay and release 60 dB in their times, end at -100 dB),
   a global LFO (free or a note value at the tempo), glide, poly/mono/legato.
   Everything moves per sample or on a 16-sample grid counted from reset(), so the
@@ -273,7 +277,9 @@ Modules with one-way dependencies:
   Tests: tuning of every key to 0.1 cent at 44.1, 48 and 96 kHz, the strongest
   non-harmonic component below -80 dB (measured about -94) up to C8 at 44.1 and
   48 kHz (`strongestNonHarmonicDecibels()`, which sees a naive saw's aliasing),
-  envelope times, stealing without allocation, export equal to playback.
+  envelope times, stealing without allocation, export equal to playback, a single
+  voice at full resonance under 0 dBFS on every key in every filter type (a louder
+  sound under +3 dB), and the resonance still standing out at the cutoff.
 - Samplers (Phase 6): `engine::Sample` is a sound whole in memory at the device rate
   with band-limited levels (level m at a 2^m-th of the rate, by `dsp::resample()`).
   `EffectDescription::sampleSlots` names the files an instrument plays; `ChainSlot::

@@ -80,6 +80,36 @@ double frequencyOf(double semitones) noexcept
     return 440.0 * std::exp2((semitones - 69.0) / 12.0);
 }
 
+// The resonance is held in check as in an analog filter. The band-pass state of the
+// resonant stage is exactly linear up to the knee, then bends smoothly (slope 1 at
+// the knee, falling as 1/(1+u)^2) towards the limit it never reaches: a resonant
+// peak of up to 26 dB (Q 20) cannot grow without bound, while everything below the
+// knee is untouched. Levels are those of the oscillators (a full saw is 1).
+constexpr double resonanceKnee = 0.7;
+constexpr double resonanceLimit = 1.4;
+
+double saturatedBand(double band) noexcept
+{
+    const double magnitude = std::abs(band);
+    if (magnitude <= resonanceKnee)
+        return band;
+    const double u = (magnitude - resonanceKnee) / (resonanceLimit - resonanceKnee);
+    return std::copysign(resonanceKnee + (resonanceLimit - resonanceKnee) * u / (1.0 + u), band);
+}
+
+// The filter's input is turned down as the resonance makes the low-pass response
+// peak: by a fraction of that peak in dB (none up to Q = 1/sqrt 2, where it starts to
+// peak; 6.5 dB at Q 20), so the passband and the resonance stay at a level together.
+constexpr double compensatedFraction = 0.25;
+
+double inputGainFor(double q) noexcept
+{
+    if (q <= 1.0 / std::numbers::sqrt2)
+        return 1.0;
+    const double peak = q / std::sqrt(1.0 - 1.0 / (4.0 * q * q)); // the 12 dB low-pass's
+    return std::pow(peak, -compensatedFraction);
+}
+
 } // namespace
 
 Synth::Synth()
@@ -381,7 +411,9 @@ void Synth::voiceControl(Voice& voice, int length) noexcept
     if (!voice.filterStarted)
         voice.g = gTarget;
     voice.gStep = (gTarget - voice.g) / length;
-    voice.k = 2.0 / std::pow(40.0, c[resonance] / 100.0); // Q from 0.5 to 20
+    const double q = 0.5 * std::pow(40.0, c[resonance] / 100.0); // 0.5 to 20
+    voice.k = 1.0 / q;
+    voice.inputGain = inputGainFor(q);
     voice.filterStarted = true;
 }
 
@@ -442,14 +474,19 @@ void Synth::renderVoice(Voice& voice, float* out, int length) noexcept
                waves->read(Waves::Wave::saw, shifted, selection);
     };
 
-    const auto filterStage = [](Filter& state, double input, double g, double k, double& band,
-                                double& high) {
+    const auto filterStage = [](Filter& state, double input, double g, double k, bool resonant,
+                                double& band, double& high) {
         const double a1 = 1.0 / (1.0 + g * (g + k));
         const double a2 = g * a1;
         const double a3 = g * a2;
         const double v3 = input - state.ic2;
-        const double v1 = a1 * state.ic1 + a2 * v3;
-        const double v2 = state.ic2 + a2 * state.ic1 + a3 * v3;
+        const double linear = a1 * state.ic1 + a2 * v3;
+        const double v1 = resonant ? saturatedBand(linear) : linear;
+        // v2 = ic2 + g v1; written so that it is the linear filter's to the bit below
+        // the knee.
+        double v2 = state.ic2 + a2 * state.ic1 + a3 * v3;
+        if (v1 != linear)
+            v2 += g * (v1 - linear);
         state.ic1 = 2.0 * v1 - state.ic1;
         state.ic2 = 2.0 * v2 - state.ic2;
         band = v1;
@@ -469,7 +506,12 @@ void Synth::renderVoice(Voice& voice, float* out, int length) noexcept
 
         double band = 0.0;
         double high = 0.0;
-        double y = filterStage(voice.stage1, x, voice.g, voice.k, band, high);
+        // The band-pass, unity at its centre, never peaks: neither compensated nor
+        // saturated.
+        const bool resonant = type != FilterType::bandPass;
+        if (resonant)
+            x *= voice.inputGain;
+        double y = filterStage(voice.stage1, x, voice.g, voice.k, resonant, band, high);
         switch (type)
         {
         case FilterType::lowPass12:
@@ -478,7 +520,7 @@ void Synth::renderVoice(Voice& voice, float* out, int length) noexcept
         {
             double band2 = 0.0;
             double high2 = 0.0;
-            y = filterStage(voice.stage2, y, voice.g, secondStageK, band2, high2);
+            y = filterStage(voice.stage2, y, voice.g, secondStageK, false, band2, high2);
             break;
         }
         case FilterType::bandPass:

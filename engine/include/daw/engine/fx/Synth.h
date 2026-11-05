@@ -168,6 +168,7 @@ private:
         double g = 0.1;
         double gStep = 0.0;
         double k = 1.4;
+        double inputGain = 1.0; // compensates the resonance (see inputGainFor())
         bool filterStarted = false;
 
         std::uint32_t noise = 1;

@@ -11,7 +11,9 @@
 
 #include <bit>
 #include <cmath>
+#include <functional>
 #include <memory>
+#include <numbers>
 #include <vector>
 
 namespace midi = daw::engine::midi;
@@ -188,6 +190,102 @@ TEST_CASE("The synth's output does not depend on the host's blocks", "[engine][s
                                          std::bit_cast<std::uint32_t>(reference[i]);
         CAPTURE(blockSize);
         CHECK(identical);
+    }
+}
+
+namespace
+{
+
+// The amplitude of the component at frequency over [from, to), Hann windowed.
+double amplitudeAt(const std::vector<float>& samples, std::size_t from, std::size_t to, double frequency,
+                   double rate)
+{
+    double re = 0.0;
+    double im = 0.0;
+    double weights = 0.0;
+    const double count = static_cast<double>(to - from);
+    for (std::size_t i = from; i < to; ++i)
+    {
+        const double n = static_cast<double>(i - from);
+        const double w = 0.5 - 0.5 * std::cos(2.0 * std::numbers::pi * n / count);
+        const double phase = 2.0 * std::numbers::pi * frequency * static_cast<double>(i) / rate;
+        re += w * samples[i] * std::cos(phase);
+        im -= w * samples[i] * std::sin(phase);
+        weights += w;
+    }
+    return 2.0 * std::hypot(re, im) / weights;
+}
+
+// The loudest a single voice gets, at full velocity, over the keys from first to last.
+float loudestKey(const std::function<void(InstrumentRunner&)>& patch, int first, int last)
+{
+    float loudest = 0.0f;
+    for (int key = first; key <= last; ++key)
+    {
+        InstrumentRunner synth(std::make_unique<Synth>(), 48000.0, 512);
+        patch(synth);
+        // The filter envelope sweeps the cutoff through the harmonics in the first
+        // tenths of a second.
+        const auto out = synth.run({midi::noteOn(0, key, 1.0f, 0, 1)}, 12000, 512);
+        for (const auto value : out)
+            loudest = std::max(loudest, std::abs(value));
+    }
+    return loudest;
+}
+
+} // namespace
+
+TEST_CASE("Full resonance keeps the level in check on every key", "[engine][synth]")
+{
+    // The default sound (two saws at 70 %, the cutoff following keys, velocity and
+    // the filter envelope's +24 semitones, level -6 dB) and a louder one (both
+    // oscillators full and some noise), with the resonance at 100 %: Q 20 boosts
+    // what sits at the cutoff by 26 dB. Without resonance the loudest key of the
+    // default sound peaks at 0.65 to 0.98 depending on the filter; a single voice at
+    // full resonance must stay under 0 dBFS, the louder sound under +3 dB.
+    const auto filterType = GENERATE(0.0f, 1.0f, 2.0f, 3.0f); // LP12, LP24, BP, HP
+    const auto cutoff = GENERATE(300.0f, 2000.0f);
+    CAPTURE(filterType, cutoff);
+
+    const auto resonant = [&](InstrumentRunner& synth) {
+        synth.set("filterType", filterType);
+        synth.set("cutoff", cutoff);
+        synth.set("resonance", 100.0f);
+    };
+    CHECK(loudestKey(resonant, 0, 127) <= 1.0f);
+
+    const auto loud = [&](InstrumentRunner& synth) {
+        resonant(synth);
+        synth.set("osc1Level", 100.0f);
+        synth.set("osc2Level", 100.0f);
+        synth.set("noiseLevel", 30.0f);
+    };
+    CHECK(loudestKey(loud, 0, 127) <= 1.4142f);
+}
+
+TEST_CASE("Full resonance still rings at the cutoff", "[engine][synth]")
+{
+    // C1 (65.4 Hz) on one saw, the cutoff fixed on a harmonic: at full resonance that
+    // harmonic stands out above the fundamental by far more than without, whether
+    // it is quiet enough to stay linear (the 16th) or loud enough to saturate (the
+    // 2nd).
+    const double fundamental = frequencyOfKey(24.0);
+    for (const int harmonic : {16, 2})
+    {
+        const auto emphasis = [&](float resonance) {
+            auto synth = plainSynth(48000.0, 2.0f); // a saw
+            synth->set("cutoff", static_cast<float>(fundamental * harmonic));
+            synth->set("resonance", resonance);
+            const auto out = synth->run({midi::noteOn(0, 24, 1.0f, 0, 1)}, 72000, 512);
+            return 20.0 * std::log10(amplitudeAt(out, 24000, 72000, fundamental * harmonic, 48000.0) /
+                                     amplitudeAt(out, 24000, 72000, fundamental, 48000.0));
+        };
+        CAPTURE(harmonic);
+        const double gained = emphasis(100.0f) - emphasis(0.0f);
+        CAPTURE(gained);
+        // A linear filter gives 32.0 and 27.6 dB here (Q 20 against Q 0.5); the
+        // saturation leaves the quiet 16th 29.6 and holds the loud 2nd at 15.9.
+        CHECK(gained >= (harmonic == 16 ? 28.0 : 14.0));
     }
 }
 
