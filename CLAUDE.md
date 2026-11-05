@@ -239,12 +239,19 @@ Modules with one-way dependencies:
   with `midi::hostSeconds()` (`AudioInputs::time`); the engine places a message at the
   block start + (its time - the block's) + one block, so live MIDI keeps its rhythm a
   block late, without jitter. `Engine::startPreview()`/`stopPreview()` queue the piano
-  roll's notes for a track. The block's `midi::LiveEvent`s reach the mixer in
+  roll's notes for a track (at the next block's start), `stopAllPreviews()` ends a
+  track's or every track's, and stop and pause end them all (an "all notes off" preview
+  event, `LiveEvent::everyTrack`). The block's `midi::LiveEvent`s reach the mixer in
   `MixContext::live`; a MIDI track hears devices through `midi::InputFilter` (device,
-  channel) while monitoring is on, or automatic and armed, and its previews always;
+  channel) while monitoring is on, or automatic and armed, and its previews while it is
+  heard (`ArrangementTrack::heard`: not muted, no other track soloed);
   `midi::LiveNotes` gives live notes ids of their own and ends them (and rests the
   controllers they moved) when the track stops listening, goes away, or blocks were
-  skipped (`MixContext::liveRestarts`). Tests play a keyboard with
+  skipped (`MixContext::liveRestarts`), and on "all notes off" or "all sound off"
+  (which go no further). A note that ends on the sample it starts is never played
+  (`EventBuffer::removeNoteOn()`, also in `HeldNotes::releaseAll()`): sorted, its
+  note-off would come first and the note would hang; `EffectInstance` also drops a
+  note-on whose note-off it refused on that sample. Tests play a keyboard with
   `SimulatedDevice::playMidi()` on a simulated clock (`AudioDeviceHost::setClock()`).
 - MIDI recording in the engine (Phase 6): `RecordingSetup::midiTargets` (track,
   `midi::InputFilter`), a `MidiRecordingQueue` (SPSC to the message thread, on the
@@ -390,7 +397,11 @@ Modules with one-way dependencies:
   one sample); controllers start at their value there, step, and rest at the end; a
   track not heard plays no notes. The MIDI input is found by device name through
   `Session::setMidiInputDevices()` (unknown: `InputFilter::noDevice`).
-  `Session::startNotePreview()`/`stopNotePreview()` reach the engine. Tests add
+  `Session::startNotePreview()`/`stopNotePreview()` reach the engine (a note-off the
+  queue refuses is sent again at the next `update()`); views preview through a
+  `controller::NotePreview`, which remembers the track and key it plays and ends the
+  note on the next key, on `stop()` (mouse up, another clip, the clip on another
+  track) and when destroyed (the view closes). Tests add
   instruments of their own through `SessionOptions::effects` (an `EffectFactory`).
 - Automation in the controller (Phase 4): `Session` adds, moves (a drag is one
   gesture), removes and clears points of a target's lane (undoable) and switches
@@ -1371,7 +1382,7 @@ multi-output plugins, ARA, the DAW as a plugin, running plugins in another proce
 while playing, MIDI effects, automation writing, mobile UI.
 
 - [x] 0. Plan (this list) and draft pull request
-- [ ] 1. The stuck preview note: a test of fast drags (several key changes per block,
+- [x] 1. The stuck preview note: a test of fast drags (several key changes per block,
       the button released mid-way) that fails first; notes that end on the sample
       they start are not played; the preview keeps its notes
       (`controller::NotePreview`) and ends them on mouse up, a clip or track change

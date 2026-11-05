@@ -165,6 +165,7 @@ struct ArrangementBus
 struct ArrangementTrack
 {
     juce::int64 id = 0;    ///< the model's track id: keeps gain ramps going across arrangements
+    bool heard = true;     ///< false when muted, or another track is soloed: plays no previews
     float leftGain = 1.0f; ///< volume × pan law, 0 when the track is not heard
     float rightGain = 1.0f;
     GainAutomation automation;

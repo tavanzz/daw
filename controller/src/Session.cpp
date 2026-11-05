@@ -55,6 +55,8 @@ Session::~Session()
 
 void Session::update()
 {
+    sendPreviewOffs();
+
     if (const auto outcome = recording.update())
         addRecording(*outcome);
 
@@ -1058,15 +1060,27 @@ void Session::setMidiInputDevices(juce::StringArray names, MidiDeviceLookup look
     ++revision;
 }
 
-void Session::startNotePreview(model::ObjectId trackId, int key, int velocity)
+bool Session::startNotePreview(model::ObjectId trackId, int key, int velocity)
 {
-    if (const auto track = findTrack(trackId); track && track->isMidi())
-        engine.startPreview(trackId, key, engine::midi::fromSevenBit(std::clamp(velocity, 1, 127)));
+    const auto track = findTrack(trackId);
+    return track && track->isMidi() &&
+           engine.startPreview(trackId, key, engine::midi::fromSevenBit(std::clamp(velocity, 1, 127)));
 }
 
 void Session::stopNotePreview(model::ObjectId trackId, int key)
 {
-    engine.stopPreview(trackId, key);
+    if (!unsentPreviewOffs.empty() || !engine.stopPreview(trackId, key))
+        unsentPreviewOffs.emplace_back(trackId, key);
+}
+
+void Session::sendPreviewOffs()
+{
+    std::size_t sent = 0;
+    while (sent < unsentPreviewOffs.size() &&
+           engine.stopPreview(unsentPreviewOffs[sent].first, unsentPreviewOffs[sent].second))
+        ++sent;
+    unsentPreviewOffs.erase(unsentPreviewOffs.begin(),
+                            unsentPreviewOffs.begin() + static_cast<std::ptrdiff_t>(sent));
 }
 
 void Session::setDeviceLatency(int inputSamples, int outputSamples)

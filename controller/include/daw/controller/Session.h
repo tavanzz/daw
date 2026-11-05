@@ -390,8 +390,12 @@ public:
     }
 
     /** Plays a note on a MIDI track through its instrument (the piano roll's preview,
-        whatever the monitoring) until stopNotePreview(). velocity 1 to 127. */
-    void startNotePreview(model::ObjectId trackId, int key, int velocity);
+        whatever the monitoring) until stopNotePreview(), stop or pause; a track that
+        is not heard plays none. velocity 1 to 127. False if not played (not a MIDI
+        track, or too many previews at once). Views use a NotePreview. */
+    bool startNotePreview(model::ObjectId trackId, int key, int velocity);
+    /** Ends a preview note. A note-off the engine cannot take now is sent again at
+        the next update(): it is never lost. */
     void stopNotePreview(model::ObjectId trackId, int key);
 
     /** The device's input channels by number, for choosing a track's input (set by
@@ -455,6 +459,7 @@ public:
 
 private:
     void startEdit(const juce::String& name);
+    void sendPreviewOffs();
     void replaceProject(model::Project newProject);
     void addRecording(const RecordingOutcome& outcome);
     void copyRecordingsTo(const juce::File& newProjectDirectory);
@@ -508,6 +513,7 @@ private:
     bool inputsRequested = false;
     juce::StringArray inputChannelNames;
     juce::StringArray midiInputNames;
+    std::vector<std::pair<model::ObjectId, int>> unsentPreviewOffs; // queue was full
     MidiDeviceLookup midiDevices;
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;

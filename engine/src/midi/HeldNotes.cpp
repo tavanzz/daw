@@ -41,8 +41,11 @@ void HeldNotes::releaseAll(EventBuffer& events, int offset) noexcept
 {
     for (int i = 0; i < count; ++i)
     {
+        // A note started on this very sample is not played at all: sorted, its
+        // note-off would come first.
         const auto& note = notes[static_cast<std::size_t>(i)];
-        events.add(noteOff(offset, note.key, note.channel, note.noteId));
+        if (!events.removeNoteOn(note.noteId, offset))
+            events.add(noteOff(offset, note.key, note.channel, note.noteId));
     }
     count = 0;
 }

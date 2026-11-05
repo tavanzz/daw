@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -246,6 +247,176 @@ TEST_CASE("Previews play on their track at the next block, whatever the monitori
     engine.setArrangement(makeMidiArrangement(other, {}, 100000, sampleRate, 2));
     REQUIRE(device.run(blockSize * 2) == 0);
     CHECK(instrument.probe->getHeldCount() == 0);
+    engine.collectGarbage();
+}
+
+namespace
+{
+// Whether every note-on the instrument got was ended by a note-off of the same key and
+// channel (and note id), none left over, and no note-off for a note it did not have.
+bool everyNoteEnded(const daw::test::TestInstrument& probe)
+{
+    std::vector<midi::Event> sounding;
+    for (const auto& received : probe.received)
+    {
+        const auto& event = received.event;
+        if (event.type == midi::EventType::noteOn)
+        {
+            sounding.push_back(event);
+        }
+        else if (event.type == midi::EventType::noteOff)
+        {
+            const auto match = std::find_if(sounding.begin(), sounding.end(), [&](const auto& note) {
+                return note.number == event.number && note.channel == event.channel &&
+                       (event.noteId < 0 || note.noteId == event.noteId);
+            });
+            if (match == sounding.end())
+                return false;
+            sounding.erase(match);
+        }
+    }
+    return sounding.empty() && probe.wellFormed && probe.getHeldCount() == 0;
+}
+} // namespace
+
+TEST_CASE("Fast preview drags end every note they start", "[engine][midi]")
+{
+    // As the piano roll previews a dragged note: the old key off, the new key on, as
+    // often as the mouse moves, several times between two blocks, the button released
+    // anywhere (even in the block its last key started).
+    const int changesPerBlock = GENERATE(1, 2, 3);
+    auto instrument = makeTestInstrument();
+    Engine engine;
+    SimulatedDevice device(engine, sampleRate, 0, {blockSize});
+    device.start();
+    engine.setArrangement(listeningTrack(instrument, InputMonitoring::off, false));
+    REQUIRE(device.run(blockSize) == 0);
+
+    juce::Random random(changesPerBlock);
+    int key = -1;
+    for (int block = 0; block < 64; ++block)
+    {
+        for (int change = 0; change < changesPerBlock; ++change)
+        {
+            if (key >= 0)
+                engine.stopPreview(1, key);
+            key = 48 + random.nextInt(24);
+            engine.startPreview(1, key, 0.5f);
+        }
+        if (block % 8 == 7) // the button goes up
+        {
+            engine.stopPreview(1, key);
+            key = -1;
+        }
+        REQUIRE(device.run(blockSize) == 0);
+    }
+    if (key >= 0)
+        engine.stopPreview(1, key);
+    REQUIRE(device.run(blockSize * 2) == 0);
+
+    CHECK(instrument.probe->getHeldCount() == 0);
+    CHECK(everyNoteEnded(*instrument.probe));
+    engine.collectGarbage();
+}
+
+TEST_CASE("Stop, pause, bypass and a track not heard end preview notes", "[engine][midi]")
+{
+    auto instrument = makeTestInstrument();
+    Engine engine;
+    SimulatedDevice device(engine, sampleRate, 0, {blockSize});
+    device.start();
+    engine.setArrangement(listeningTrack(instrument, InputMonitoring::off, false));
+    REQUIRE(device.run(blockSize) == 0);
+
+    SECTION("stop and pause, also while stopped; previews play again after")
+    {
+        engine.startPreview(1, 60, 0.5f);
+        REQUIRE(device.run(blockSize) == 0);
+        REQUIRE(instrument.probe->getHeldCount() == 1);
+        engine.stop();
+        REQUIRE(device.run(blockSize) == 0);
+        CHECK(instrument.probe->getHeldCount() == 0);
+
+        engine.startPreview(1, 62, 0.5f);
+        REQUIRE(device.run(blockSize) == 0);
+        CHECK(instrument.probe->getHeldCount() == 1);
+        engine.play();
+        engine.pause();
+        REQUIRE(device.run(blockSize) == 0);
+        CHECK(instrument.probe->getHeldCount() == 0);
+        engine.stopPreview(1, 62); // the mouse goes up later: nothing to end
+        REQUIRE(device.run(blockSize) == 0);
+    }
+    SECTION("a preview ended at once, every track or one")
+    {
+        engine.startPreview(1, 60, 0.5f);
+        engine.startPreview(1, 64, 0.5f);
+        REQUIRE(device.run(blockSize) == 0);
+        REQUIRE(instrument.probe->getHeldCount() == 2);
+        engine.stopAllPreviews(2);
+        REQUIRE(device.run(blockSize) == 0);
+        CHECK(instrument.probe->getHeldCount() == 2);
+        engine.stopAllPreviews(1);
+        REQUIRE(device.run(blockSize) == 0);
+        CHECK(instrument.probe->getHeldCount() == 0);
+        engine.startPreview(1, 60, 0.5f);
+        engine.stopAllPreviews(midi::LiveEvent::everyTrack);
+        REQUIRE(device.run(blockSize) == 0);
+        CHECK(instrument.probe->getHeldCount() == 0);
+    }
+    SECTION("a track not heard (muted, or another soloed)")
+    {
+        engine.startPreview(1, 60, 0.5f);
+        REQUIRE(device.run(blockSize) == 0);
+        REQUIRE(instrument.probe->getHeldCount() == 1);
+        auto muted = listeningTrack(instrument, InputMonitoring::off, false);
+        muted->tracks[0].heard = false;
+        engine.setArrangement(std::move(muted));
+        REQUIRE(device.run(blockSize) == 0);
+        CHECK(instrument.probe->getHeldCount() == 0);
+        engine.startPreview(1, 62, 0.5f);
+        REQUIRE(device.run(blockSize) == 0);
+        CHECK(instrument.probe->getHeldCount() == 0);
+        engine.stopPreview(1, 62);
+    }
+    SECTION("the instrument bypassed")
+    {
+        engine.startPreview(1, 60, 0.5f);
+        REQUIRE(device.run(blockSize) == 0);
+        REQUIRE(instrument.probe->getHeldCount() == 1);
+        auto bypassed = listeningTrack(instrument, InputMonitoring::off, false);
+        bypassed->tracks[0].inserts.slots[0].enabled = false;
+        engine.setArrangement(std::move(bypassed));
+        REQUIRE(device.run(blockSize * 8) == 0);
+        CHECK(instrument.probe->getHeldCount() == 0);
+        engine.stopPreview(1, 60);
+    }
+    REQUIRE(device.run(blockSize * 2) == 0);
+    CHECK(everyNoteEnded(*instrument.probe));
+    engine.collectGarbage();
+}
+
+TEST_CASE("All notes off from a device ends the notes it holds, and goes no further",
+          "[engine][midi]")
+{
+    auto instrument = makeTestInstrument();
+    Engine engine;
+    SimulatedDevice device(engine, sampleRate, 0, {blockSize});
+    device.start();
+    engine.setArrangement(listeningTrack(instrument, InputMonitoring::on, false));
+
+    device.playMidi(100, juce::MidiMessage::noteOn(1, 60, 1.0f));
+    device.playMidi(100, juce::MidiMessage::noteOn(1, 64, 1.0f));
+    device.playMidi(1000, juce::MidiMessage::allNotesOff(1));
+    device.playMidi(1500, juce::MidiMessage::noteOn(1, 67, 1.0f));
+    device.playMidi(1600, juce::MidiMessage::allSoundOff(1));
+    device.playMidi(1700, juce::MidiMessage::noteOff(1, 60)); // already ended
+    REQUIRE(device.run(3000) == 0);
+
+    CHECK(instrument.probe->getHeldCount() == 0);
+    CHECK(everyNoteEnded(*instrument.probe));
+    for (const auto& received : instrument.probe->received)
+        CHECK(received.event.type != midi::EventType::controller);
     engine.collectGarbage();
 }
 

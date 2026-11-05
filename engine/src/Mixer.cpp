@@ -653,13 +653,15 @@ void Mixer::gatherNotes(const ArrangementTrack& track, MixState::TrackGains& gai
     else
         gains.notes->stop(0, noteEvents);
 
-    // Live input while monitoring says so; previews always, until the track goes.
+    // Live input while monitoring says so.
     const bool listens = !vanishing && (track.monitoring == InputMonitoring::on ||
                                         (track.monitoring == InputMonitoring::automatic &&
                                          track.armed));
     if (!listens || context.liveRestarts)
         gains.live->releaseAll(0, noteEvents);
-    if (vanishing)
+    // Previews play until their track goes or is not heard (muted, another soloed).
+    const bool previews = !vanishing && track.heard;
+    if (!previews)
         gains.previews->releaseAll(0, noteEvents);
 
     for (const auto& live : context.live)
@@ -672,7 +674,7 @@ void Mixer::gatherNotes(const ArrangementTrack& track, MixState::TrackGains& gai
         event.offset = offset;
         if (live.device < 0)
         {
-            if (live.track == track.id && !vanishing)
+            if (previews && live.isPreviewFor(track.id))
                 gains.previews->receive(event, noteEvents);
         }
         else if (listens && track.midiInput.accepts(live))

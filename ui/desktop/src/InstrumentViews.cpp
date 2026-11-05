@@ -1,5 +1,6 @@
 #include "daw/ui/desktop/InstrumentViews.h"
 
+#include "daw/controller/NotePreview.h"
 #include "daw/engine/fx/DrumSampler.h"
 #include "daw/engine/fx/Sampler.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
@@ -418,19 +419,14 @@ public:
         key = juce::roundToInt(valueOf(owner.session, owner.effectId, owner.description,
                                        "pad" + juce::String(pad + 1) + "Key"));
         if (const auto track = trackOf(owner.session, owner.effectId); track != 0)
-        {
-            owner.session.startNotePreview(track, key, 100);
-            previewTrack = track;
-        }
+            preview.play(track, key, 100);
         lit = true;
         repaint();
     }
 
     void mouseUp(const juce::MouseEvent&) override
     {
-        if (previewTrack != 0)
-            owner.session.stopNotePreview(previewTrack, key);
-        previewTrack = 0;
+        preview.stop();
         lit = false;
         repaint();
     }
@@ -443,7 +439,7 @@ private:
     bool selected = false;
     bool lit = false;
     int key = 0;
-    model::ObjectId previewTrack = 0;
+    controller::NotePreview preview{owner.session};
 };
 
 namespace
