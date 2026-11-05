@@ -11,6 +11,30 @@
 namespace daw::model
 {
 
+/** The effect type of a plugin (VST3, AU, LV2); the plugin itself is a
+    PluginReference. */
+inline const juce::String pluginEffectType{"plugin"};
+
+/**
+    Which plugin an effect of type "plugin" is: what finds it again on any machine
+    (its format and the unique id JUCE gives it, derived from what the plugin itself
+    declares) and what tells the user which it was, also when it is missing. The
+    plugin's state is the effect's extra state.
+*/
+struct PluginReference
+{
+    juce::String format; ///< "VST3", "AudioUnit", "LV2"
+    int uniqueId = 0;
+    juce::String name;
+    juce::String manufacturer;
+    juce::String version;
+    juce::String category;
+    juce::String identifier; ///< where it was when saved (a bundle, an AU's codes, a URI): a hint
+    bool isInstrument = false;
+
+    bool operator==(const PluginReference&) const = default;
+};
+
 /**
     One effect of a chain: its type (as the engine knows it, e.g. "equaliser"),
     whether it is bypassed, its parameter values by parameter id (in their units:
@@ -38,6 +62,10 @@ public:
 
     /** Every parameter set, in the order they were first set. */
     [[nodiscard]] std::vector<std::pair<juce::String, double>> getParameters() const;
+
+    /** The plugin, for an effect of type "plugin"; nothing otherwise. */
+    [[nodiscard]] std::optional<PluginReference> getPlugin() const;
+    void setPlugin(const PluginReference& plugin, juce::UndoManager* undoManager = nullptr);
 
     [[nodiscard]] juce::MemoryBlock getExtraState() const;
     void setExtraState(const juce::MemoryBlock& state, juce::UndoManager* undoManager = nullptr);

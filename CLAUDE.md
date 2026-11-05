@@ -392,6 +392,13 @@ Modules with one-way dependencies:
     `Effect::getFiles()` / `setFile()`: files an instrument plays (a sampler's), by
     key, stored relative to the project like audio. The grid has 1/64 and triplets
     (1/4T to 1/32T); the automatic grid goes down to 1/64.
+  - Plugins (format version 6): an effect (or instrument) of type "plugin"
+    (`model::pluginEffectType`) has a `PluginReference` (`Effect::getPlugin()`, a
+    `Plugin` child; JSON "plugin": format, uniqueId, name, manufacturer, version,
+    category, identifier (where it was when saved, a hint), instrument), its state in
+    "data" (the extra state, standard Base64) and its parameters by the plugin's
+    parameter ids, normalised. Its automation lanes are kept whether or not the plugin
+    is installed. Version 5 projects migrate unchanged.
 - Timeline time (Phase 2): positions and lengths in the model are `model::Ticks`,
   integers at 282,240,000 per second, a number every common sample rate divides, so
   sample positions at any of them are exact and the project has no sample rate of its
@@ -1482,7 +1489,7 @@ while playing, MIDI effects, automation writing, mobile UI.
 - [ ] 8. Plugin instances in the controller: loading and preparing off the audio
       thread, rate and block-size changes, latency changes, parameter changes from
       the plugin's editor, exports with instances of their own
-- [ ] 9. Project format version 6: plugins with their state and parameters,
+- [x] 9. Project format version 6: plugins with their state and parameters,
       placeholders for missing plugins that keep everything; migration from version 5
 - [ ] 10. Session: inserting, removing, moving, bypassing plugins and parameter edits
       with undo; missing plugins; opening without plugins; the plugin that was

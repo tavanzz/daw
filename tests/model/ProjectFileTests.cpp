@@ -98,6 +98,15 @@ Project makeSampleProject(const juce::File& audioFile)
                      {{ControllerType::pitchBend(), ticksPerSecond / 4, 10000},
                       {ControllerType::controlChange(1), 0, 64},
                       {ControllerType::channelPressure(), 0, 30}});
+
+    // Version 6: a plugin effect with its state, a parameter set and automated.
+    auto plugin = keys.getEffects().add(daw::model::pluginEffectType, -1, {{"7", 0.25}});
+    plugin.setPlugin({"VST3", -1234567, "Pro-Q 3", "FabFilter", "3.21", "Fx|EQ",
+                      "/Library/Audio/Plug-Ins/VST3/FabFilter Pro-Q 3.vst3", false});
+    plugin.setExtraState(juce::MemoryBlock("plugin state", 12));
+    keys.getAutomation()
+        .getOrAddLane(AutomationTarget::effectParameter(plugin.getId(), "7"))
+        .addPoint({ticksPerSecond, 1.0, 0.0});
     return project;
 }
 
@@ -114,7 +123,7 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
     // and add a migration, then update this text.
     const auto expected = R"({
   "format": "daw-project",
-  "formatVersion": 5,
+  "formatVersion": 6,
   "project": {
     "tempo": 128.0,
     "timeSignature": {
@@ -308,7 +317,27 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
         },
         "monitoring": "auto",
         "armed": false,
-        "effects": [],
+        "effects": [
+          {
+            "id": 11,
+            "type": "plugin",
+            "bypass": false,
+            "parameters": {
+              "7": 0.25
+            },
+            "plugin": {
+              "format": "VST3",
+              "uniqueId": -1234567,
+              "name": "Pro-Q 3",
+              "manufacturer": "FabFilter",
+              "version": "3.21",
+              "category": "Fx|EQ",
+              "identifier": "/Library/Audio/Plug-Ins/VST3/FabFilter Pro-Q 3.vst3",
+              "instrument": false
+            },
+            "data": "cGx1Z2luIHN0YXRl"
+          }
+        ],
         "sends": [],
         "automation": {
           "mode": "read",
@@ -319,6 +348,16 @@ TEST_CASE("The file format is exactly the documented JSON", "[model][file]")
                 {
                   "position": 0,
                   "value": 0.5,
+                  "curve": 0.0
+                }
+              ]
+            },
+            {
+              "target": "effect:11:7",
+              "points": [
+                {
+                  "position": 282240000,
+                  "value": 1.0,
                   "curve": 0.0
                 }
               ]
@@ -1299,4 +1338,343 @@ TEST_CASE("Version 5 fields of the wrong type make the file damaged", "[model][f
     const daw::model::MidiClip clip(loaded.project->getTrack(0).getClip(0).getState());
     REQUIRE(clip.getControllerEvents().size() == 1);
     CHECK(clip.getControllerEvents()[0].value == 16383);
+}
+
+TEST_CASE("A version 5 project opens after the migration to version 6", "[model][file]")
+{
+    // Written by Phase 6 (v0.6.0): the golden text of format version 5.
+    const auto versionFive = R"({
+  "format": "daw-project",
+  "formatVersion": 5,
+  "project": {
+    "tempo": 128.0,
+    "timeSignature": {
+      "numerator": 6,
+      "denominator": 8
+    },
+    "loop": {
+      "enabled": true,
+      "start": 282240000,
+      "end": 846720000
+    },
+    "snap": {
+      "enabled": true,
+      "grid": "1/16"
+    },
+    "master": {
+      "volume": 0.5,
+      "effects": [
+        {
+          "id": 7,
+          "type": "limiter",
+          "bypass": false,
+          "parameters": {
+            "ceiling": -1.0
+          }
+        }
+      ],
+      "automation": {
+        "mode": "read",
+        "lanes": [
+          {
+            "target": "volume",
+            "points": [
+              {
+                "position": 1128960000,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "metronome": {
+      "enabled": true,
+      "volume": 0.25
+    },
+    "countIn": {
+      "enabled": true,
+      "bars": 2
+    },
+    "punch": {
+      "enabled": true
+    },
+    "recording": {
+      "bitsPerSample": 32
+    },
+    "buses": [
+      {
+        "id": 3,
+        "name": "Reverb",
+        "volume": 0.5,
+        "pan": 0.25,
+        "mute": false,
+        "effects": [
+          {
+            "id": 4,
+            "type": "reverb",
+            "bypass": false,
+            "parameters": {
+              "decay": 2.5,
+              "mix": 100.0
+            }
+          }
+        ],
+        "automation": {
+          "mode": "read",
+          "lanes": [
+            {
+              "target": "volume",
+              "points": [
+                {
+                  "position": 0,
+                  "value": 0.5,
+                  "curve": 0.0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "tracks": [
+      {
+        "id": 1,
+        "kind": "audio",
+        "name": "Track 1",
+        "volume": 0.25,
+        "pan": -0.5,
+        "mute": true,
+        "solo": false,
+        "input": {
+          "channel": 3,
+          "stereo": true
+        },
+        "monitoring": "on",
+        "armed": true,
+        "effects": [
+          {
+            "id": 5,
+            "type": "equaliser",
+            "bypass": true,
+            "parameters": {
+              "bell1Gain": -3.5
+            },
+            "data": "c3RhdGU="
+          }
+        ],
+        "sends": [
+          {
+            "id": 6,
+            "bus": 3,
+            "level": 0.75,
+            "preFader": true
+          }
+        ],
+        "automation": {
+          "mode": "off",
+          "lanes": [
+            {
+              "target": "effect:5:bell1Gain",
+              "points": [
+                {
+                  "position": 282240000,
+                  "value": 0.25,
+                  "curve": 0.5
+                },
+                {
+                  "position": 564480000,
+                  "value": 1.0,
+                  "curve": 0.0
+                }
+              ]
+            },
+            {
+              "target": "send:6",
+              "points": [
+                {
+                  "position": 0,
+                  "value": 0.75,
+                  "curve": -0.25
+                }
+              ]
+            }
+          ]
+        },
+        "clips": [
+          {
+            "id": 2,
+            "kind": "audio",
+            "audioFile": "audio/drums.wav",
+            "position": 141120000,
+            "offset": 0,
+            "length": 1411200000
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "kind": "midi",
+        "name": "Keys",
+        "volume": 1.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "midiInput": {
+          "device": "Keystation 49",
+          "channel": 2
+        },
+        "midiChannel": 3,
+        "instrument": {
+          "id": 9,
+          "type": "sampler",
+          "bypass": false,
+          "parameters": {
+            "root": 60.0
+          },
+          "files": {
+            "sample": "audio/piano.wav"
+          }
+        },
+        "monitoring": "auto",
+        "armed": false,
+        "effects": [],
+        "sends": [],
+        "automation": {
+          "mode": "read",
+          "lanes": [
+            {
+              "target": "effect:9:root",
+              "points": [
+                {
+                  "position": 0,
+                  "value": 0.5,
+                  "curve": 0.0
+                }
+              ]
+            }
+          ]
+        },
+        "clips": [
+          {
+            "id": 10,
+            "kind": "midi",
+            "name": "Chords",
+            "position": 282240000,
+            "offset": 70560000,
+            "length": 564480000,
+            "notes": [
+              {
+                "id": 2,
+                "start": 0,
+                "length": 141120000,
+                "key": 60,
+                "velocity": 100
+              },
+              {
+                "id": 1,
+                "start": 141120000,
+                "length": 141120000,
+                "key": 64,
+                "velocity": 90
+              }
+            ],
+            "controllers": [
+              {
+                "type": "cc:1",
+                "events": [
+                  {
+                    "position": 0,
+                    "value": 64
+                  }
+                ]
+              },
+              {
+                "type": "pitchBend",
+                "events": [
+                  {
+                    "position": 70560000,
+                    "value": 10000
+                  }
+                ]
+              },
+              {
+                "type": "aftertouch",
+                "events": [
+                  {
+                    "position": 0,
+                    "value": 30
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+)";
+
+    TemporaryDirectory directory;
+    const auto file = directory.file("song.dawproject");
+    REQUIRE(file.replaceWithText(versionFive, false, false, "\n"));
+    const auto loaded = loadProject(file);
+    CAPTURE(loaded.error);
+    REQUIRE(loaded.succeeded());
+    CHECK(loaded.fileFormatVersion == 5);
+
+    // Saved again, it is the version 6 golden text without the plugin.
+    auto project = *loaded.project;
+    REQUIRE(saveProject(project, file).wasOk());
+    const auto reloaded = loadProject(file);
+    REQUIRE(reloaded.succeeded());
+    CHECK(reloaded.fileFormatVersion == daw::model::currentFormatVersion);
+
+    Project expected = makeSampleProject(directory.file("audio/drums.wav"));
+    auto keys = expected.getTrack(1);
+    keys.getEffects().remove(0); // the plugin, and its lane with it
+    CHECK(daw::model::toJson(project, directory.file("")) ==
+          daw::model::toJson(expected, directory.file("")));
+}
+
+TEST_CASE("Plugin effects load back exactly; damaged plugin fields make the file damaged",
+          "[model][file]")
+{
+    Project project;
+    auto track = project.addTrack("Synth", daw::model::TrackKind::midi);
+    auto instrument = track.setInstrument(daw::model::pluginEffectType, {{"1", 0.5}});
+    const daw::model::PluginReference serum{"VST3", 42, "Serum 2", "Xfer Records", "2.0.10",
+                                            "Instrument|Synth", "C:\\Plugins\\Serum2.vst3", true};
+    instrument.setPlugin(serum);
+    juce::MemoryBlock state;
+    for (int i = 0; i < 4096; ++i)
+        state.append(&i, 1); // every byte value, many times over
+    instrument.setExtraState(state);
+
+    const auto loaded = daw::model::fromJson(daw::model::toJson(project, juce::File()), juce::File());
+    CAPTURE(loaded.error);
+    REQUIRE(loaded.succeeded());
+    const auto read = loaded.project->getTrack(0).getInstrument();
+    REQUIRE(read.has_value());
+    CHECK(read->getType() == daw::model::pluginEffectType);
+    CHECK(read->getPlugin() == serum);
+    CHECK(read->getExtraState() == state);
+    CHECK(read->getParameter("1") == 0.5);
+
+    const auto errorForEffect = [](const juce::String& effect) {
+        return errorFor(R"({"format": "daw-project", "formatVersion": 6, "project": {"tracks": [{"effects": [)" +
+                        effect + "]}]}}")
+            .toStdString();
+    };
+    CHECK_THAT(errorForEffect(R"({"type": "plugin"})"), ContainsSubstring("which plugin"));
+    CHECK_THAT(errorForEffect(R"({"type": "plugin", "plugin": 3})"), ContainsSubstring("not an object"));
+    CHECK_THAT(errorForEffect(R"({"type": "plugin", "plugin": {"format": "VST3", "name": "X"}})"),
+               ContainsSubstring("format, id or name"));
+    CHECK_THAT(errorForEffect(R"({"type": "plugin", "plugin": {"format": "VST3", "uniqueId": 1, "name": "X", "version": 2}})"),
+               ContainsSubstring("not text"));
+    CHECK_THAT(errorForEffect(R"({"type": "plugin", "plugin": {"format": "VST3", "uniqueId": 1, "name": "X", "instrument": "yes"}})"),
+               ContainsSubstring("instrument"));
+    CHECK(errorForEffect(R"({"type": "plugin", "plugin": {"format": "LV2", "uniqueId": 1, "name": "X"}})").empty());
 }
