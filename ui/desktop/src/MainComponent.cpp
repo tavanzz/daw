@@ -101,6 +101,10 @@ void MainComponent::showForReview(const juce::StringArray& what)
         perform(InvocationInfo(showAnimations));
     if (what.contains("mixer"))
         showMixer(true);
+    if (what.contains("browser"))
+        showPluginBrowser(true);
+    if (what.contains("plugins"))
+        perform(InvocationInfo(showPluginManager));
 
     if (what.contains("editors"))
     {

@@ -37,8 +37,8 @@ public:
     }
 
 private:
-    // A project or audio file to open; --show=previews,animations,mixer,editors opens
-    // those too, for reviewing the interface (see docs/LISTENING_TESTS.md).
+    // A project or audio file to open; --show=previews,animations,mixer,editors,browser,
+    // plugins opens those too, for reviewing the interface (see docs/LISTENING_TESTS.md).
     void openFromCommandLine(const juce::String& commandLine)
     {
         juce::StringArray show;

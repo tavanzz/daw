@@ -990,8 +990,9 @@ ctest --preset debug            # run all tests
   four minutes); results in `docs/PERFORMANCE.md`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen. The app's
-  `--show=previews,animations,mixer,editors` option opens the theme previews, the
-  animation settings, the mixer and the first track's effect editors, so they can be
+  `--show=previews,animations,mixer,editors,browser,plugins` option opens the theme
+  previews, the animation settings, the mixer, the first track's effect editors, the
+  plugin browser and the Plugin Manager, so they can be
   captured without clicking. The theme and the animations come from the user settings ("appearance" in
   `DAW.settings`, JSON): back the file up before changing them for screenshots and
   put it back afterwards.
