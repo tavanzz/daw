@@ -142,6 +142,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::stop);
         add(MainComponent::record);
         add(MainComponent::discardRecording);
+        add(MainComponent::panic);
         menu.addSeparator();
         add(MainComponent::toggleLoop);
         add(MainComponent::toggleSnap);

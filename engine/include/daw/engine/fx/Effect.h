@@ -152,6 +152,12 @@ public:
     /** Audio thread. Processes block.numSamples samples of each channel in place. */
     virtual void process(const ProcessBlock& block) noexcept = 0;
 
+    /** Audio thread, instruments only: Panic. All notes off and all sound off: every
+        voice stops at once and the next process() starts with no note held (the
+        host forgets them too). A plugin adapter also sends the format's "all notes
+        off" and "all sound off". By default reset(). */
+    virtual void panic() noexcept { reset(); }
+
     /** Samples the output lags behind the input, at the prepared sample rate. */
     [[nodiscard]] virtual int getLatency() const noexcept { return 0; }
 

@@ -251,7 +251,12 @@ Modules with one-way dependencies:
   (which go no further). A note that ends on the sample it starts is never played
   (`EventBuffer::removeNoteOn()`, also in `HeldNotes::releaseAll()`): sorted, its
   note-off would come first and the note would hang; `EffectInstance` also drops a
-  note-on whose note-off it refused on that sample. Tests play a keyboard with
+  note-on whose note-off it refused on that sample. `Engine::panic()` (a transport
+  command, so in order with stop and play) makes every track forget the notes it holds
+  (`MixState::forgetNotes()`) and every instrument stop its voices
+  (`EffectInstance::panic()`, `Effect::panic()`: reset() by default, a plugin adapter
+  adds the format's all notes off and all sound off); the transport goes on and
+  effects' tails ring on. Tests play a keyboard with
   `SimulatedDevice::playMidi()` on a simulated clock (`AudioDeviceHost::setClock()`).
 - MIDI recording in the engine (Phase 6): `RecordingSetup::midiTargets` (track,
   `midi::InputFilter`), a `MidiRecordingQueue` (SPSC to the message thread, on the
@@ -1387,7 +1392,7 @@ while playing, MIDI effects, automation writing, mobile UI.
       they start are not played; the preview keeps its notes
       (`controller::NotePreview`) and ends them on mouse up, a clip or track change
       and closing; stop, pause, bypass and mute end preview notes
-- [ ] 2. Panic: every instrument, built-in or plugin, ends its notes and voices;
+- [x] 2. Panic: every instrument, built-in or plugin, ends its notes and voices;
       Transport > Panic (Shift+Cmd+.); listening checks for both Phase 6 fixes
 - [ ] 3. Plugin hosting in the build (VST3 everywhere, AU on macOS, LV2 on Linux),
       architecture rules, the SDKs' licences in `docs/THIRD_PARTY.md`

@@ -47,6 +47,7 @@ Until you answer, the clips stay "Loading".
 | Piano roll on/off (or double-click a MIDI clip) / quantise | E / Q |
 | Transpose the selected notes (Shift: an octave) | Up / Down |
 | Export MIDI file | Alt+Cmd+E |
+| Panic: every note and sound of every instrument off | Shift+Cmd+. |
 
 ## Phase 1 checks (single file, still valid)
 
@@ -263,6 +264,16 @@ the drum pads still play every instrument.
 | 101 | Export the instruments project (Cmd+E, 24-bit, Include tail) and listen to it in QuickTime Player. | Exactly what playback sounds like: instruments, automation, vibrato, the bass glides, the reverb tail, about 3 s longer than the song. |
 | 102 | Cmd+1, Cmd+2, Cmd+3 with the piano roll open and the instrument editors open; play. | Keys, note rows (black-key rows darker), notes with velocity, lanes and pads in each theme's colours and fonts, all readable; the playhead runs through the piano roll; the mixer's instrument slots too. |
 | 103 | Play the project with Activity Monitor open. | No dropouts or warnings in the status bar. DAW's CPU stays moderate (the four instruments and the reverb need a fraction of a core). |
+
+## Phase 7 checks (external plugins)
+
+First the two Phase 6 fixes, with `phase6/phase6-instruments.dawproject`.
+
+| # | Do | You should hear / see |
+|---|----|------------------------|
+| 104 | Double-click the Chords clip. Grab a note and drag it up and down as fast as you can, many times, letting go anywhere (also in the middle of a fast movement); do it again with Shift held, on the piano roll's keys (drag over them quickly), and on the drum pads. Then hold a note (mouse down) and press Return; hold one and press M on its track; hold one and bypass the Chords synth (right-click in the mixer); hold one and press E to close the piano roll. | You hear the key under the dragged note change with the mouse, and silence as soon as you let go: never a note left sounding, also after the fastest drags. Return, mute, bypass and closing the piano roll each end the note under the mouse at once; letting go afterwards changes nothing. While the track is muted, dragging plays nothing. |
+| 105 | Set the Chords synth's Amp Release to its longest (20 s) and, in the Chords clip, add a Sustain lane with a high value over bars 1 to 4. Play; while the chords ring, press Shift+Cmd+. (or Transport > Panic). Then hold a key on your MIDI keyboard (an armed MIDI track) and press Shift+Cmd+.; hold a note in the piano roll and press it. | Panic silences every instrument at once (a short cut, no long click), while playback goes on: notes that start after it play normally; the reverb's tail rings on. The key you hold on the keyboard goes silent and releasing it changes nothing; the next key plays. |
+| 106 | In the Chords synth's editor set Resonance to 100 %, Filter Type Low-pass 12, and sweep Cutoff slowly from its lowest to its highest while the chords play; then the same in Low-pass 24 and High-pass. Click the piano roll's keys from the lowest to the highest octave with Resonance at 100 % and Key Tracking at its maximum. | The filter whistles and sings at the cutoff and picks out each harmonic as it passes, but the level stays about where it was: the master meter never reaches 0 dB, nothing crackles or clips, on every key. |
 
 Anything else (a click, a crackle, wrong pitch, swapped channels, a meter that
 disagrees with the file, a clip in the wrong place) is a bug: note the check number

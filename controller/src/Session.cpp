@@ -1073,6 +1073,11 @@ void Session::stopNotePreview(model::ObjectId trackId, int key)
         unsentPreviewOffs.emplace_back(trackId, key);
 }
 
+void Session::panic()
+{
+    engine.panic();
+}
+
 void Session::sendPreviewOffs()
 {
     std::size_t sent = 0;

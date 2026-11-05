@@ -74,6 +74,13 @@ void NotePlayback::play(const ArrangementTrack& track, juce::int64 start, int le
     expected = end;
 }
 
+void NotePlayback::forget() noexcept
+{
+    count = 0;
+    sentCount = 0;
+    chasePending = true;
+}
+
 void NotePlayback::stop(int offset, midi::EventBuffer& events) noexcept
 {
     endAll(offset, events);

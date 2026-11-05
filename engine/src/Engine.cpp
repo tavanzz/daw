@@ -559,6 +559,32 @@ void Engine::stop()
     send({Command::Type::stop, 0});
 }
 
+void Engine::panic()
+{
+    send({Command::Type::panic, 0});
+}
+
+void Engine::applyPanic() noexcept
+{
+    const auto panicIn = [](Snapshot* snapshot) noexcept {
+        if (snapshot == nullptr || snapshot->arrangement == nullptr)
+            return;
+        snapshot->mix.forgetNotes();
+        const auto chain = [](const EffectChain& effects) noexcept {
+            for (const auto& slot : effects.slots)
+                if (slot.instance != nullptr)
+                    slot.instance->panic();
+        };
+        for (const auto& track : snapshot->arrangement->tracks)
+            chain(track.inserts);
+        for (const auto& bus : snapshot->arrangement->buses)
+            chain(bus.inserts);
+        chain(snapshot->arrangement->masterInserts);
+    };
+    panicIn(current);
+    panicIn(fadingOut);
+}
+
 void Engine::seek(juce::int64 position)
 {
     send({Command::Type::seek, position});
@@ -707,6 +733,7 @@ void Engine::apply(const Command& command) noexcept
             return;
         }
         case Command::Type::setLooping:
+        case Command::Type::panic:
             break;
         }
     }
@@ -774,6 +801,9 @@ void Engine::apply(const Command& command) noexcept
         break;
     case Command::Type::resetTransport:
         transport.reset();
+        break;
+    case Command::Type::panic:
+        applyPanic();
         break;
     case Command::Type::countIn:
         transport.seek(command.value);

@@ -420,6 +420,43 @@ TEST_CASE("All notes off from a device ends the notes it holds, and goes no furt
     engine.collectGarbage();
 }
 
+TEST_CASE("Panic stops every voice and forgets every note; playback goes on", "[engine][midi]")
+{
+    auto instrument = makeTestInstrument();
+    Engine engine;
+    SimulatedDevice device(engine, sampleRate, 0, {blockSize});
+    device.setRecordsOutput(true);
+    device.start();
+    auto arrangement = listeningTrack(instrument, InputMonitoring::on, false);
+    arrangement->tracks[0].notes = {makeNote(0, 4000, 48, 0.25f, 1), makeNote(3000, 3500, 50, 0.25f, 2)};
+    engine.setArrangement(std::move(arrangement));
+    engine.play();
+    device.playMidi(100, juce::MidiMessage::noteOn(1, 60, 1.0f));
+    engine.startPreview(1, 64, 0.5f);
+    REQUIRE(device.run(2048) == 0);
+    REQUIRE(instrument.probe->getHeldCount() == 3);
+    const int resets = instrument.probe->resets;
+
+    engine.panic();
+    REQUIRE(device.run(blockSize) == 0);
+    CHECK(instrument.probe->resets == resets + 1);
+    CHECK(instrument.probe->getHeldCount() == 0);
+
+    // The held key, the preview and the timeline note end later: nothing more to end.
+    device.playMidi(2500, juce::MidiMessage::noteOff(1, 60));
+    engine.stopPreview(1, 64);
+    REQUIRE(device.run(4000 - 2048 - blockSize) == 0);
+    CHECK(instrument.probe->wellFormed);
+
+    // The note starting after the panic played; the one started before did not again.
+    const auto& out = device.getOutput(0);
+    CHECK(out[2048 + blockSize] == 0.0f);
+    CHECK(out[3200] == 0.25f);
+    CHECK(out[3600] == 0.0f);
+    CHECK(instrument.probe->getHeldCount() == 0);
+    engine.collectGarbage();
+}
+
 TEST_CASE("Live input plays along with the timeline's notes", "[engine][midi]")
 {
     auto instrument = makeTestInstrument();

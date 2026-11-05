@@ -99,6 +99,14 @@ public:
     /** Ends every held note at offset; controllers stay where they are. */
     void endNotes(int offset, EventBuffer& events) noexcept;
 
+    /** Panic: forgets every held note and moved controller (the instrument was reset);
+        their note-offs, when they come, go nowhere. */
+    void forget() noexcept
+    {
+        held.clear();
+        movedCount = 0;
+    }
+
     void adopt(LiveNotes& previous) noexcept;
 
     [[nodiscard]] int getNumHeldNotes() const noexcept { return held.size(); }

@@ -39,7 +39,8 @@ struct EngineCommand
         setLooping,
         resetTransport,
         countIn,
-        record
+        record,
+        panic
     };
 
     Type type = Type::play;
@@ -153,6 +154,12 @@ public:
     void play();
     void pause();
     void stop();
+
+    /** Message thread. Panic, in order with the transport commands: every instrument
+        stops every voice at once (all notes off, all sound off) and every note the
+        engine holds for it (timeline, live input, previews) is forgotten. The
+        transport goes on; notes that start later play. Effects' tails ring on. */
+    void panic();
     void seek(juce::int64 position);
     void setLooping(bool shouldLoop);
     /** Stops and goes to 0 (for a new project). */
@@ -270,6 +277,7 @@ private:
 
     void send(Command command);
     void apply(const Command& command) noexcept;
+    void applyPanic() noexcept;
     void takeNewSnapshot() noexcept;
     void adopt(Snapshot* incoming) noexcept;
     void finishCrossfade() noexcept;

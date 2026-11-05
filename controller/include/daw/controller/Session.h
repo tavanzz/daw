@@ -398,6 +398,10 @@ public:
         the next update(): it is never lost. */
     void stopNotePreview(model::ObjectId trackId, int key);
 
+    /** Panic: every instrument (built-in or plugin) stops every voice at once and
+        forgets the notes it holds; the transport goes on (see Engine::panic()). */
+    void panic();
+
     /** The device's input channels by number, for choosing a track's input (set by
         the app when the device changes; empty while no input is open). */
     void setInputChannelNames(juce::StringArray names) { inputChannelNames = std::move(names); }

@@ -97,6 +97,14 @@ void EffectInstance::process(float* const* channels, int numSamples, const SlotS
     }
 }
 
+void EffectInstance::panic() noexcept
+{
+    if (!instrument)
+        return;
+    held.clear();
+    effect->panic();
+}
+
 void EffectInstance::gatherEvents(midi::EventSpan events, int offset, int numSamples,
                                   bool delivering, EffectScratch& scratch) noexcept
 {

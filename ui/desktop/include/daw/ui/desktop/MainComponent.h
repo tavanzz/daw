@@ -71,6 +71,7 @@ public:
         togglePianoRoll,
         quantiseNotes,
         exportMidi,
+        panic,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8

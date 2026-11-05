@@ -83,6 +83,19 @@ int findBus(const Arrangement& arrangement, juce::int64 id, int hint) noexcept
 
 } // namespace
 
+void MixState::forgetNotes() noexcept
+{
+    for (auto& track : tracks)
+    {
+        if (track.notes != nullptr)
+            track.notes->forget();
+        if (track.live != nullptr)
+            track.live->forget();
+        if (track.previews != nullptr)
+            track.previews->forget();
+    }
+}
+
 MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
 {
     MixState state;

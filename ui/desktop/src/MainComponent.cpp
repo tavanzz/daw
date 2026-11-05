@@ -562,7 +562,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
                        newBus,           toggleAutomation, showThemePreviews, showAnimations,
                        toggleAllAnimations, newMidiTrack, duplicate, togglePianoRoll,
-                       quantiseNotes,    exportMidi});
+                       quantiseNotes,    exportMidi,      panic});
 
     const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
     for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
@@ -694,6 +694,11 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
                        "Transport", 0);
         result.addDefaultKeypress('.', command);
         result.setActive(recording);
+        break;
+    case panic:
+        result.setInfo("Panic", "Stops every note and sound of every instrument at once",
+                       "Transport", 0);
+        result.addDefaultKeypress('.', shiftCommand);
         break;
     case toggleMetronome:
         result.setInfo("Metronome", "Clicks on the beats while playing and recording", "Transport",
@@ -888,6 +893,9 @@ bool MainComponent::perform(const InvocationInfo& info)
         break;
     case discardRecording:
         confirmDiscardRecording();
+        break;
+    case panic:
+        session.panic();
         break;
     case toggleMetronome:
         session.setMetronomeEnabled(!session.getProject().isMetronomeEnabled());

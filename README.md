@@ -148,6 +148,8 @@ MIDI and instruments:
   sampler shows its waveform and loop, the drum sampler its pads: drop WAV or AIFF
   files on them), right-click to change, bypass or remove it. Instrument parameters
   can be automated like effect parameters.
+- Shift+Cmd+. (Transport > Panic) stops every note and sound of every instrument at
+  once, should anything ever keep sounding; playback goes on.
 - Cmd+I imports MIDI files (one track per part; channel 10 gets the drum sampler);
   File > Export MIDI File... writes the MIDI tracks as a type 1 or type 0 file.
 

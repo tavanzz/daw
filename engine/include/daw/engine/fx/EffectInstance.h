@@ -132,6 +132,11 @@ public:
                  const SlotContext& context, EffectScratch& scratch) noexcept;
 
     /** Any thread. Whether the effect was silenced for a NaN or an infinity. */
+    /** Audio thread, between blocks. Panic: an instrument forgets the notes it holds
+        and stops every voice (Effect::panic()); an effect is left alone (its tail
+        rings on). */
+    void panic() noexcept;
+
     [[nodiscard]] bool hasFailed() const noexcept { return failed.load(std::memory_order_relaxed); }
 
     /** The thread that processes: whether the effect runs (it is not fully dry). */

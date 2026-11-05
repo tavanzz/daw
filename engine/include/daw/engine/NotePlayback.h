@@ -45,6 +45,10 @@ public:
     /** Ends every note at offset and returns the controllers to rest. */
     void stop(int offset, midi::EventBuffer& events) noexcept;
 
+    /** Panic: forgets every note and controller sent (the instrument was reset);
+        the next stretch chases the controllers again. */
+    void forget() noexcept;
+
     /** Takes over previous's notes and controllers for track (see the class comment). */
     void adopt(NotePlayback& previous, const ArrangementTrack& track) noexcept;
 

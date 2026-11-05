@@ -88,6 +88,10 @@ struct MixState
     int mixLatency = 0; ///< M: where tracks and buses meet at the master
     int latency = 0;    ///< how far the output lags the timeline read
 
+    /** Rendering thread. Panic: every track forgets the notes it holds (timeline,
+        live, previews); their instruments were reset. */
+    void forgetNotes() noexcept;
+
     /** Message thread. Gains already at the arrangement's targets (no ramps, and
         automation that is there already applies from the first sample); buses sum up
         to busBlockSize samples at once. */
