@@ -19,10 +19,15 @@ namespace daw::ui::desktop
     - A MIDI track's instrument comes first, on a row of its own: click to open its
       editor; right-click to bypass it, change it for another one or remove it; with
       none, "+ Instrument" chooses one.
-    - Bypassed effects are dimmed; one silenced for producing NaN or infinity is red.
+    - Bypassed effects are dimmed; one silenced for producing NaN or infinity is red;
+      a slow plugin is in the warning colour; a plugin that is loading, missing, failed
+      or kept from loading is a placeholder ("Load Plugin" in its menu for the last).
+    - The add and instrument menus list the catalogue's plugins too, by manufacturer.
+    - An effect or instrument dragged from the plugin browser goes in where it is
+      dropped (an instrument replaces a MIDI track's instrument).
     - The wheel scrolls when there are more effects than rows.
 */
-class EffectSlots final : public juce::Component
+class EffectSlots final : public juce::Component, public juce::DragAndDropTarget
 {
 public:
     static constexpr int rowHeight = 18;
@@ -39,6 +44,15 @@ public:
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
 
+    // juce::DragAndDropTarget: items from the plugin browser.
+    bool isInterestedInDragSource(const SourceDetails& details) override;
+    void itemDragMove(const SourceDetails& details) override;
+    void itemDragExit(const SourceDetails& details) override;
+    void itemDropped(const SourceDetails& details) override;
+
+    /** What a row shows, for tests: its name with the plugin's state ("Gain (missing)"). */
+    [[nodiscard]] juce::StringArray getRowTexts() const;
+
 private:
     struct Row
     {
@@ -47,8 +61,15 @@ private:
         bool bypassed = false;
         bool failed = false;
         bool instrument = false;
+        bool isPlugin = false;
+        controller::PluginStatus status = controller::PluginStatus::ready;
+        bool slow = false;
         bool operator==(const Row&) const = default;
     };
+
+    [[nodiscard]] static juce::String textOf(const Row& row);
+    /** Where in the chain a drop at this height goes (an index of the owner's effects). */
+    [[nodiscard]] int chainIndexAt(int y) const noexcept;
 
     [[nodiscard]] int visibleRows() const noexcept;
     [[nodiscard]] int rowAt(float y) const noexcept;
@@ -62,6 +83,8 @@ private:
     const controller::ChainOwner owner;
     std::vector<Row> rows;
     int scroll = 0;
+    int dropRow = -1; ///< where a drag would go, while one is over
+    std::vector<juce::PluginDescription> menuPlugins; ///< the plugins of the open menu
 };
 
 /** The user-facing name of an effect or instrument type ("Equaliser"); the type

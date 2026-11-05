@@ -3,20 +3,13 @@
 #include <catch2/catch_test_macros.hpp>
 
 using daw::controller::PluginLoads;
-using daw::controller::Session;
 
 namespace
 {
 
-Session::PluginLoad loadOf(daw::model::ObjectId effectId, float average, float peak = 0.0f, int overruns = 0)
+PluginLoads::Reading loadOf(daw::model::ObjectId effectId, float average, float peak = 0.0f, int overruns = 0)
 {
-    Session::PluginLoad load;
-    load.effectId = effectId;
-    load.name = "Plugin " + juce::String(effectId);
-    load.load.average = average;
-    load.load.peak = peak;
-    load.load.overruns = overruns;
-    return load;
+    return {effectId, "Plugin " + juce::String(effectId), average, peak, overruns};
 }
 
 } // namespace

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "daw/controller/PluginLoads.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/EditorWindow.h"
 
@@ -48,8 +47,7 @@ private:
 class EffectEditors
 {
 public:
-    EffectEditors(controller::Session& sessionToEdit, WindowPositions& pluginWindowPositions,
-                  const controller::PluginLoads& pluginLoads);
+    EffectEditors(controller::Session& sessionToEdit, WindowPositions& pluginWindowPositions);
     ~EffectEditors();
 
     /** Opens the editor of an effect, or brings it to the front. */
@@ -66,7 +64,6 @@ public:
 private:
     controller::Session& session;
     WindowPositions& positions;
-    const controller::PluginLoads& loads;
     std::vector<std::unique_ptr<EditorWindow>> windows;
 };
 

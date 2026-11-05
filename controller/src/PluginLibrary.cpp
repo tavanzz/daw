@@ -37,7 +37,10 @@ void PluginLibrary::scan(bool everything)
     if (!plan.empty())
         scanner.scan(plan, scannerFolders());
     if (catalogue.takeChanged())
+    {
         catalogue.saveTo(options.catalogueFile);
+        ++revision;
+    }
 }
 
 void PluginLibrary::retry(const ScanItem& item)
@@ -45,7 +48,10 @@ void PluginLibrary::retry(const ScanItem& item)
     catalogue.unblock(item);
     scanner.scan({item}, scannerFolders());
     if (catalogue.takeChanged())
+    {
         catalogue.saveTo(options.catalogueFile);
+        ++revision;
+    }
 }
 
 void PluginLibrary::cancelScan()
@@ -65,6 +71,7 @@ bool PluginLibrary::update()
     if (!catalogue.takeChanged())
         return false;
     catalogue.saveTo(options.catalogueFile);
+    ++revision;
     return true;
 }
 

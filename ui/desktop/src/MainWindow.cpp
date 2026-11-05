@@ -6,7 +6,8 @@ namespace daw::ui::desktop
 {
 
 MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& session,
-                       juce::AudioDeviceManager& deviceManager, ThemeManager& themeManager)
+                       juce::AudioDeviceManager& deviceManager, ThemeManager& themeManager,
+                       controller::PluginLibrary* pluginLibrary)
     : DocumentWindow(windowTitle,
                      juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
                          juce::ResizableWindow::backgroundColourId),
@@ -14,7 +15,7 @@ MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& ses
     , themes(themeManager)
 {
     auto content =
-        std::make_unique<MainComponent>(session, deviceManager, commandManager, themeManager);
+        std::make_unique<MainComponent>(session, deviceManager, commandManager, themeManager, pluginLibrary);
     mainComponent = content.get();
 
     commandManager.registerAllCommandsForTarget(mainComponent);
@@ -110,6 +111,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
     case 0:
         add(MainComponent::newProject);
         add(MainComponent::openProject);
+        add(MainComponent::openWithoutPlugins);
         add(MainComponent::saveProject);
         add(MainComponent::saveProjectAs);
         menu.addSeparator();
@@ -159,6 +161,7 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::toggleMixer);
         add(MainComponent::togglePianoRoll);
         add(MainComponent::toggleAutomation);
+        add(MainComponent::togglePluginBrowser);
         menu.addSeparator();
         {
             juce::PopupMenu themeMenu;

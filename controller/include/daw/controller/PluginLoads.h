@@ -1,6 +1,8 @@
 #pragma once
 
-#include "daw/controller/Session.h"
+#include "daw/model/Clip.h"
+
+#include <juce_core/juce_core.h>
 
 #include <map>
 #include <vector>
@@ -13,7 +15,8 @@ namespace daw::controller
     block's duration it takes (the average over about a second, the most of one
     block lately) and whether it is slow: its average above half the block's
     duration, or a block it overran in the last few seconds. A slow plugin is only
-    flagged, never bypassed. Message thread; fed with Session::takePluginLoads().
+    flagged, never bypassed. Message thread; the session feeds it a few times a
+    second (Session::getPluginLoads()).
 */
 class PluginLoads
 {
@@ -21,6 +24,16 @@ public:
     static constexpr float slowAverage = 0.5f;
     /** How long an overrun keeps a plugin flagged. */
     static constexpr double overrunSeconds = 5.0;
+
+    /** What a plugin took since the last reading (engine::plugins::PluginEffect::Load). */
+    struct Reading
+    {
+        model::ObjectId effectId = 0;
+        juce::String name;
+        float average = 0.0f; ///< over about a second, of each block's duration
+        float peak = 0.0f;    ///< the most of one block
+        int overruns = 0;     ///< blocks it took longer than
+    };
 
     struct Entry
     {
@@ -34,7 +47,7 @@ public:
 
     /** The loads taken now; plugins not among them are forgotten (gone, or not
         playing any more). */
-    void add(const std::vector<Session::PluginLoad>& loads, double nowSeconds);
+    void add(const std::vector<Reading>& readings, double nowSeconds);
 
     [[nodiscard]] const Entry* find(model::ObjectId effectId) const;
 

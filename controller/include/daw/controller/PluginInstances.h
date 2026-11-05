@@ -122,6 +122,9 @@ public:
     /** Why it is missing or failed ("not installed", "crashed when scanned"...). */
     [[nodiscard]] juce::String getProblem(model::ObjectId effectId) const;
 
+    /** "name (format)" of every plugin that is missing or failed, each once. */
+    [[nodiscard]] juce::StringArray getUnavailable() const;
+
     /** The plugin of a ready effect, for its editor, parameters and reports; null
         otherwise. */
     [[nodiscard]] engine::plugins::PluginEffect* findPlugin(model::ObjectId effectId) const;

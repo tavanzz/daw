@@ -831,6 +831,21 @@ Modules with one-way dependencies:
   `controller::PluginLoads` (fed four times a second by `MainComponent`) flags a plugin
   slow above half the block's duration on average or for 5 s after an overrun; the
   status bar names slow plugins; nothing is bypassed.
+- Plugin browser and slots (Phase 7): `PluginBrowserPanel` (B, View > Plugin
+  Browser) left of the tracks lists `controller::browserItems()` of the
+  `PluginLibrary`'s catalogue (built-in ones too) with search, format, type and maker
+  filters and favourites (the row's star; saved with the catalogue at the library's
+  next update); rows drag out as `BrowserItem::dragDescription()` (`MainComponent` is
+  the `DragAndDropContainer`) onto the arrange view's track area (a row: its track, or
+  in the automation view a bus or the master; below the rows: a new track) or a mixer
+  slot (`EffectSlots`, where dropped); a double-click goes to the track of the piano
+  roll's clip or the first selected clip, else a new track; every drop goes through
+  `controller::addFromBrowser()` and opens the editor. `EffectSlots` names plugins,
+  draws placeholders (`SlotMark::absent`: "(loading)", "(missing)", "(failed)",
+  "(off)", with "Load Plugin") and slow plugins (`SlotMark::slow`), and lists the
+  catalogue's plugins by maker (and favourites) in "+ Effect" and the instrument menu.
+  File > Open Without Plugins opens a project with its plugins off; after opening, an
+  alert names plugins that are missing or failed (`Session::getUnavailablePlugins()`).
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.

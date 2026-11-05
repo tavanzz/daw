@@ -43,6 +43,10 @@ public:
     /** Applies the scanner's results; true if the catalogue changed (then saved). */
     bool update();
 
+    /** Counts the catalogue's changes the library saw (scans, retries, update()), so
+        views know when to read it again. */
+    [[nodiscard]] juce::uint64 getRevision() const noexcept { return revision; }
+
     [[nodiscard]] PluginScanner::Progress getProgress() const { return scanner.getProgress(); }
     [[nodiscard]] bool isScanning() const { return scanner.isScanning(); }
 
@@ -56,6 +60,7 @@ private:
     juce::AudioPluginFormatManager formats;
     PluginCatalogue catalogue;
     PluginScanner scanner;
+    juce::uint64 revision = 0;
 };
 
 } // namespace daw::controller

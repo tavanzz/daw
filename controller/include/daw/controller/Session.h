@@ -6,6 +6,7 @@
 #include "daw/controller/EffectInstances.h"
 #include "daw/controller/FadeOutKeeper.h"
 #include "daw/controller/LatencyMeasurement.h"
+#include "daw/controller/PluginLoads.h"
 #include "daw/controller/RecordingController.h"
 #include "daw/controller/RecordingJournal.h"
 #include "daw/controller/SampleCache.h"
@@ -239,6 +240,10 @@ public:
     /** Why a plugin is missing or failed. */
     [[nodiscard]] juce::String getPluginProblem(model::ObjectId effectId) const;
 
+    /** "name (format)" of the project's plugins that are missing or failed to load
+        (after the update() that looked for them). */
+    [[nodiscard]] juce::StringArray getUnavailablePlugins() const;
+
     /** The plugin a plugin effect plays through (its editor, its parameters' text);
         null while it loads, or if it is missing or failed. */
     [[nodiscard]] engine::plugins::PluginEffect* findPlugin(model::ObjectId effectId) const;
@@ -255,14 +260,12 @@ public:
     void allowPlugin(model::ObjectId effectId);
     void allowAllPlugins();
 
-    /** What each playing plugin takes of the real time since the last call. */
-    struct PluginLoad
-    {
-        model::ObjectId effectId = 0;
-        juce::String name;
-        engine::plugins::PluginEffect::Load load;
-    };
-    [[nodiscard]] std::vector<PluginLoad> takePluginLoads();
+    /** What each playing plugin takes of the real time, and which are slow; taken
+        from the plugins at update(), four times a second. */
+    [[nodiscard]] const PluginLoads& getPluginLoads() const noexcept { return pluginLoads; }
+
+    /** The catalogue plugins are found in; null without plugins. */
+    [[nodiscard]] const PluginCatalogue* getPluginCatalogue() const noexcept;
 
     /** Fresh instances of the project's plugins for an export at this rate (message
         thread): loaded at once, given their current state, prepared offline. Plugins
@@ -523,6 +526,7 @@ private:
     void startEdit(const juce::String& name);
     void sendPreviewOffs();
     void takePluginChanges();
+    void takePluginLoads();
     void storePluginStates();
     void keepPluginState(const model::Effect& effect);
     void keepPluginStates(const model::EffectList& effects);
@@ -575,6 +579,8 @@ private:
         bool gesture = false;
     } pluginEdit; // the plugin edit the next change may belong to
     bool writingFromPlugin = false;
+    PluginLoads pluginLoads;
+    double lastPluginLoads = 0.0;
     FadeOutKeeper fadeOutKeeper;
     bool freshEffects = true; // the next arrangement's new effects start at once
     juce::String editProblem;

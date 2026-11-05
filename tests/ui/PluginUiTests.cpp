@@ -1,11 +1,14 @@
 // The desktop UI's plugin parts in every theme: plugin editor windows (the generic
 // editor for the test plugins, which have none of their own), placeholders for
-// plugins that are missing or kept from loading.
+// plugins that are missing or kept from loading, the plugin browser, the mixer's
+// slots, and items dragged from the browser.
 
 #include "daw/controller/PluginScanner.h"
 #include "daw/ui/desktop/EffectEditorWindow.h"
+#include "daw/ui/desktop/EffectSlots.h"
 #include "daw/ui/desktop/MainComponent.h"
 #include "daw/ui/desktop/PluginEditorWindow.h"
+#include "support/TestAudioFiles.h"
 #include "support/TestPlugins.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -37,9 +40,8 @@ void writeSnapshot(juce::Component& component, const juce::String& name)
 }
 
 // The VST3 test plugins, scanned in this process (they behave).
-controller::PluginCatalogue testCatalogue()
+void addTestPlugins(controller::PluginCatalogue& catalogue)
 {
-    controller::PluginCatalogue catalogue;
     juce::AudioPluginFormatManager formats;
     juce::addHeadlessDefaultFormatsToManager(formats);
     for (const auto* kind : {"Gain", "Synth"})
@@ -49,7 +51,6 @@ controller::PluginCatalogue testCatalogue()
         REQUIRE_FALSE(outcome.failure);
         catalogue.addScanned(item, std::move(outcome.plugins));
     }
-    return catalogue;
 }
 
 // A session with the test plugins in its catalogue: an audio track with the gain.
@@ -57,6 +58,8 @@ struct PluginStudio
 {
     PluginStudio()
     {
+        addTestPlugins(library.getCatalogue());
+        REQUIRE(library.update()); // saves it
         engine.prepare(sampleRate, 512);
         session.setSampleRate(sampleRate);
         track = session.addTrack("Vocals");
@@ -68,7 +71,7 @@ struct PluginStudio
 
     [[nodiscard]] juce::PluginDescription description(const juce::String& kind) const
     {
-        const auto& plugins = catalogue.getPlugins();
+        const auto plugins = library.getCatalogue().getPlugins();
         const auto found = std::find_if(plugins.begin(), plugins.end(), [&kind](const auto& info) {
             return info.description.name == "DAW Test " + kind;
         });
@@ -93,11 +96,19 @@ struct PluginStudio
         controller::SessionOptions result;
         result.streaming = engine::io::DiskStreamer::Mode::manual;
         result.plugins = &loader;
-        result.catalogue = &catalogue;
+        result.catalogue = &library.getCatalogue();
         return result;
     }
 
-    controller::PluginCatalogue catalogue = testCatalogue();
+    controller::PluginLibrary::Options libraryOptions()
+    {
+        controller::PluginLibrary::Options result;
+        result.catalogueFile = directory.file("Plugins.json");
+        return result;
+    }
+
+    test::TemporaryDirectory directory;
+    controller::PluginLibrary library{libraryOptions()};
     controller::PluginLoader loader{controller::PluginLoader::formatsWithoutEditors()};
     engine::Engine engine;
     controller::Session session{engine, options()};
@@ -107,7 +118,8 @@ struct PluginStudio
 
 struct Desktop
 {
-    explicit Desktop(controller::Session& session) : view(session, devices, commands, themes)
+    explicit Desktop(controller::Session& session, controller::PluginLibrary* library = nullptr)
+        : view(session, devices, commands, themes, library)
     {
         commands.registerAllCommandsForTarget(&view);
         commands.setFirstCommandTarget(&view); // no window has the focus in tests
@@ -223,12 +235,144 @@ TEST_CASE("Every theme paints the plugin windows", "[ui][plugins]")
         const auto& id = desktop.themes.getTheme().id;
         ui::desktop::WindowPositions positions;
         controller::PluginLoads loads;
-        loads.add({{studio.gain, "DAW Test Gain", {0.62f, 0.8f, 0}}}, 1.0);
+        loads.add({{studio.gain, "DAW Test Gain", 0.62f, 0.8f, 0}}, 1.0);
         PluginEditorWindow window(studio.session, studio.gain, positions, loads);
         window.refresh(0.05);
         auto* content = window.getContentComponent();
         REQUIRE(content != nullptr);
         CHECK(content->createComponentSnapshot(content->getLocalBounds()).isValid());
         writeSnapshot(*content, "plugin-editor-" + id);
+    }
+}
+
+TEST_CASE("The plugin browser lists, filters, keeps favourites and adds what is double-clicked",
+          "[ui][plugins]")
+{
+    PluginStudio studio;
+    Desktop desktop(studio.session, &studio.library);
+    REQUIRE(desktop.invoke(MainComponent::togglePluginBrowser));
+    auto& browser = desktop.view.getPluginBrowserForTesting();
+    CHECK(browser.isVisible());
+    CHECK(browser.getWidth() == ui::desktop::PluginBrowserPanel::width);
+
+    const auto names = [&browser] {
+        juce::StringArray result;
+        for (const auto& item : browser.getItems())
+            result.add(item.name);
+        return result;
+    };
+    CHECK(names().contains("Equaliser"));
+    CHECK(names().contains("Synth"));
+    CHECK(names().contains("DAW Test Gain"));
+    CHECK(names().contains("DAW Test Synth"));
+
+    browser.setKind(controller::PluginQuery::Kind::instruments);
+    for (const auto& item : browser.getItems())
+        CHECK(item.isInstrument);
+    browser.setKind(controller::PluginQuery::Kind::any);
+    browser.setSearchText("test gain");
+    REQUIRE(names() == juce::StringArray{"DAW Test Gain"});
+
+    // A favourite is kept in the catalogue's file.
+    browser.toggleFavourite(0);
+    CHECK(browser.getItems()[0].favourite);
+    browser.setSearchText({});
+    browser.setFavouritesOnly(true);
+    CHECK(names() == juce::StringArray{"DAW Test Gain"});
+    CHECK(studio.library.update());
+    CHECK(controller::PluginCatalogue::loadFrom(studio.directory.file("Plugins.json"))
+              .isFavourite(controller::PluginKey::of(studio.description("Gain"))));
+
+    // A double-click with no clip selected: a new track with it, its editor open.
+    const int tracks = studio.session.getProject().getNumTracks();
+    const auto added = browser.addRow(0);
+    REQUIRE(added != 0);
+    CHECK(studio.session.getProject().getNumTracks() == tracks + 1);
+    CHECK(studio.session.getUndoDescription() == "Add DAW Test Gain");
+    CHECK(desktop.view.getEffectEditorsForTesting().find(added) != nullptr);
+    studio.session.undo();
+    CHECK(studio.session.getProject().getNumTracks() == tracks);
+}
+
+TEST_CASE("Items dragged from the browser go onto tracks, below them and into slots", "[ui][plugins]")
+{
+    PluginStudio studio;
+    Desktop desktop(studio.session, &studio.library);
+    auto& target = desktop.view.getArrangeViewForTesting().getDropTargetForTesting();
+    const auto drag = [](const juce::String& description, int y) {
+        return juce::DragAndDropTarget::SourceDetails(description, nullptr, {400, y});
+    };
+    const auto gainDrag = "plugin:" + controller::PluginKey::of(studio.description("Gain")).toString();
+    const auto synthDrag = "plugin:" + controller::PluginKey::of(studio.description("Synth")).toString();
+    const auto lane = ui::desktop::ArrangeState::laneHeight;
+    const auto& project = studio.session.getProject();
+
+    // An effect onto a track: last in its chain.
+    REQUIRE(target.isInterestedInDragSource(drag(gainDrag, lane / 2)));
+    CHECK_FALSE(target.isInterestedInDragSource(drag("plugin:VST3:1", lane / 2)));
+    target.itemDropped(drag(gainDrag, lane / 2));
+    auto effects = studio.session.getEffects(ChainOwner::track(studio.track));
+    REQUIRE(effects.getNumEffects() == 2);
+    CHECK(effects.getEffect(1).getType() == model::pluginEffectType);
+
+    // An instrument onto an audio track, or below the tracks: a new MIDI track with it.
+    target.itemDropped(drag(synthDrag, lane / 2));
+    REQUIRE(project.getNumTracks() == 2);
+    CHECK(project.getTrack(1).isMidi());
+    REQUIRE(project.getTrack(1).getInstrument().has_value());
+    CHECK(project.getTrack(1).getInstrument()->getPlugin()->name == "DAW Test Synth");
+    target.itemDropped(drag("builtin:synth", 5 * lane));
+    REQUIRE(project.getNumTracks() == 3);
+    CHECK(project.getTrack(2).getInstrument()->getType() == "synth");
+
+    // A built-in effect into a slot: where it is dropped.
+    ui::desktop::EffectSlots slots(studio.session, ChainOwner::track(studio.track));
+    slots.setSize(160, 5 * ui::desktop::EffectSlots::rowHeight);
+    REQUIRE(slots.isInterestedInDragSource(drag("builtin:equaliser", 0)));
+    slots.itemDropped(drag("builtin:equaliser", 2));
+    effects = studio.session.getEffects(ChainOwner::track(studio.track));
+    REQUIRE(effects.getNumEffects() == 3);
+    CHECK(effects.getEffect(0).getType() == "equaliser");
+}
+
+TEST_CASE("Mixer slots name plugins and show those that are missing, kept back or slow", "[ui][plugins]")
+{
+    PluginStudio studio;
+    auto gone = studio.description("Gain");
+    gone.name = "Gone";
+    gone.uniqueId = 12345;
+    gone.deprecatedUid = 12345;
+    gone.fileOrIdentifier = "/nowhere/Gone.vst3";
+    REQUIRE(studio.session.addPlugin(ChainOwner::track(studio.track), gone) != 0);
+    studio.session.holdBackPlugins({"DAW Test Synth (VST3)"});
+    const auto keys = studio.session.addMidiTrack("Keys");
+    const auto synth = studio.session.setInstrumentPlugin(keys, studio.description("Synth"));
+    studio.settle();
+
+    ui::desktop::EffectSlots slots(studio.session, ChainOwner::track(studio.track));
+    slots.setSize(160, 5 * ui::desktop::EffectSlots::rowHeight);
+    slots.refresh(true);
+    CHECK(slots.getRowTexts() == juce::StringArray{"DAW Test Gain", "Gone (missing)"});
+    CHECK(studio.session.getUnavailablePlugins() == juce::StringArray{"Gone (VST3)"});
+
+    ui::desktop::EffectSlots instrument(studio.session, ChainOwner::track(keys));
+    instrument.setSize(160, 5 * ui::desktop::EffectSlots::rowHeight);
+    instrument.refresh(true);
+    CHECK(instrument.getRowTexts() == juce::StringArray{"DAW Test Synth (off)"});
+    studio.session.allowPlugin(synth);
+    studio.settle();
+    instrument.refresh(false);
+    CHECK(instrument.getRowTexts() == juce::StringArray{"DAW Test Synth"});
+
+    Desktop desktop(studio.session, &studio.library);
+    for (int index = 0; index < 3; ++index)
+    {
+        REQUIRE(desktop.invoke(MainComponent::firstTheme + index));
+        const auto& id = desktop.themes.getTheme().id;
+        if (!desktop.view.getPluginBrowserForTesting().isVisible())
+            REQUIRE(desktop.invoke(MainComponent::togglePluginBrowser));
+        CHECK(slots.createComponentSnapshot(slots.getLocalBounds()).isValid());
+        CHECK(desktop.view.createComponentSnapshot(desktop.view.getLocalBounds()).isValid());
+        writeSnapshot(desktop.view, "plugins-window-" + id);
     }
 }

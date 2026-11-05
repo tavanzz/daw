@@ -67,6 +67,7 @@ void Session::update()
         if (pluginInstances->update())
             arrangementOutOfDate = true;
         takePluginChanges();
+        takePluginLoads();
     }
 
     if (const auto outcome = recording.update())
@@ -1767,6 +1768,11 @@ PluginStatus Session::getPluginStatus(model::ObjectId effectId) const
     return pluginInstances != nullptr ? pluginInstances->getStatus(effectId) : PluginStatus::missing;
 }
 
+juce::StringArray Session::getUnavailablePlugins() const
+{
+    return pluginInstances != nullptr ? pluginInstances->getUnavailable() : juce::StringArray();
+}
+
 juce::String Session::getPluginProblem(model::ObjectId effectId) const
 {
     return pluginInstances != nullptr ? pluginInstances->getProblem(effectId)
@@ -1814,13 +1820,24 @@ void Session::allowAllPlugins()
     arrangementOutOfDate = true;
 }
 
-std::vector<Session::PluginLoad> Session::takePluginLoads()
+void Session::takePluginLoads()
 {
-    std::vector<PluginLoad> loads;
-    if (pluginInstances != nullptr)
-        for (const auto& [effectId, plugin] : pluginInstances->getPlugins())
-            loads.push_back({effectId, plugin->getPluginDescription().name, plugin->takeLoad()});
-    return loads;
+    const double now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+    if (now - lastPluginLoads < 0.25)
+        return;
+    lastPluginLoads = now;
+    std::vector<PluginLoads::Reading> readings;
+    for (const auto& [effectId, plugin] : pluginInstances->getPlugins())
+    {
+        const auto load = plugin->takeLoad();
+        readings.push_back({effectId, plugin->getPluginDescription().name, load.average, load.peak, load.overruns});
+    }
+    pluginLoads.add(readings, now);
+}
+
+const PluginCatalogue* Session::getPluginCatalogue() const noexcept
+{
+    return pluginInstances != nullptr ? options.catalogue : nullptr;
 }
 
 void Session::takePluginChanges()

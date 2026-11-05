@@ -311,6 +311,15 @@ PluginStatus PluginInstances::getStatus(model::ObjectId effectId) const
     return found != entries.end() ? found->second.status : PluginStatus::loading;
 }
 
+juce::StringArray PluginInstances::getUnavailable() const
+{
+    juce::StringArray names;
+    for (const auto& [effectId, entry] : entries)
+        if (entry.status == PluginStatus::missing || entry.status == PluginStatus::failed)
+            names.addIfNotAlreadyThere(displayNameOf(entry.reference));
+    return names;
+}
+
 juce::String PluginInstances::getProblem(model::ObjectId effectId) const
 {
     const auto found = entries.find(effectId);

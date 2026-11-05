@@ -27,14 +27,16 @@ bool isProjectFile(const juce::File& file)
 MainComponent::MainComponent(controller::Session& sessionToShow,
                              juce::AudioDeviceManager& audioDeviceManager,
                              juce::ApplicationCommandManager& applicationCommandManager,
-                             ThemeManager& themeManager)
+                             ThemeManager& themeManager, controller::PluginLibrary* libraryToUse)
     : session(sessionToShow)
     , deviceManager(audioDeviceManager)
     , commandManager(applicationCommandManager)
     , themes(themeManager)
+    , pluginLibrary(libraryToUse)
     , transportBar(sessionToShow)
     , arrangeView(sessionToShow)
     , mixerView(sessionToShow)
+    , pluginBrowser(sessionToShow, libraryToUse)
 {
     transportBar.onRecord = [this]
     {
@@ -52,6 +54,18 @@ MainComponent::MainComponent(controller::Session& sessionToShow,
     arrangeView.onProblem = [this](const juce::String& title, const juce::String& message) {
         showError(title, message);
     };
+    arrangeView.onEffectAdded = [this](model::ObjectId effectId) { effectEditors.open(effectId); };
+    pluginBrowser.onAdded = [this](model::ObjectId effectId) { effectEditors.open(effectId); };
+    pluginBrowser.targetForDoubleClick = [this] {
+        // The clip in the piano roll, else the selected clips: their track.
+        if (mixerVisible && showingPianoRoll && pianoRoll.getClip() != 0)
+            if (const auto location = session.getProject().findClip(pianoRoll.getClip()))
+                return controller::BrowserTarget{
+                    controller::BrowserTarget::Kind::track,
+                    controller::ChainOwner::track(session.getProject().getTrack(location->trackIndex).getId())};
+        return arrangeView.getSelectedTrackTarget();
+    };
+    addChildComponent(pluginBrowser);
     addAndMakeVisible(statusBar);
 
     mixerSlide.setWantsFrames(false);
@@ -160,6 +174,13 @@ void MainComponent::resized()
     statusBar.setBounds(area.removeFromBottom(StatusBar::height));
     area.reduce(8, 8);
 
+    pluginBrowser.setVisible(browserVisible);
+    if (browserVisible)
+    {
+        pluginBrowser.setBounds(area.removeFromLeft(PluginBrowserPanel::width));
+        area.removeFromLeft(8);
+    }
+
     // While it slides in or out, the lower panel (the mixer or the piano roll) takes
     // part of its height.
     const int panelHeight = showingPianoRoll ? std::max(MixerView::preferredHeight, area.getHeight() / 2)
@@ -219,13 +240,16 @@ void MainComponent::timerCallback()
         if (session.getRevision() != lastRevision)
             pianoRoll.refresh();
     }
-    // What plugins cost, a few times a second: the editors show it, slow ones are
-    // named in the status bar.
-    if (now - lastPluginLoads >= 0.25)
+    if (browserVisible)
+        pluginBrowser.refresh();
+    if (unavailableCheck > 0 && --unavailableCheck == 0)
+        reportUnavailablePlugins();
+
+    // Slow plugins are named in the status bar while they are slow.
+    if (now - lastSlowWarning >= 0.25)
     {
-        lastPluginLoads = now;
-        pluginLoads.add(session.takePluginLoads(), now);
-        if (const auto slow = pluginLoads.getSlowPlugins(); !slow.isEmpty())
+        lastSlowWarning = now;
+        if (const auto slow = session.getPluginLoads().getSlowPlugins(); !slow.isEmpty())
             statusBar.showWarning((slow.size() == 1 ? "Slow plugin: " : "Slow plugins: ") + slow.joinIntoString(", "));
     }
     effectEditors.refresh(elapsed);
@@ -366,9 +390,10 @@ void MainComponent::togglePlayPause()
         session.play();
 }
 
-void MainComponent::openProjectFile(const juce::File& file)
+void MainComponent::openProjectFile(const juce::File& file, bool withPlugins)
 {
-    const auto result = session.openProject(file);
+    effectEditors.closeAll();
+    const auto result = session.openProject(file, withPlugins);
     if (result.failed())
     {
         showError("Could not open the project", result.getErrorMessage());
@@ -377,6 +402,29 @@ void MainComponent::openProjectFile(const juce::File& file)
 
     arrangeView.zoomToFit();
     offerRecovery();
+    // The session looks its plugins up at its next updates.
+    unavailableCheck = 3;
+}
+
+void MainComponent::reportUnavailablePlugins()
+{
+    const auto names = session.getUnavailablePlugins();
+    if (names.isEmpty())
+        return;
+    showError(names.size() == 1 ? "A plugin is missing" : "Some plugins are missing",
+              "This project uses " + names.joinIntoString(", ") +
+                  (names.size() == 1 ? ", which is" : ", which are") +
+                  " not installed here or could not be loaded. Their settings are kept and saved "
+                  "as they are; effects pass the sound through, instruments are silent.");
+}
+
+void MainComponent::showPluginBrowser(bool shouldShow)
+{
+    browserVisible = shouldShow;
+    if (shouldShow)
+        pluginBrowser.refresh();
+    resized();
+    commandManager.commandStatusChanged();
 }
 
 void MainComponent::offerRecovery()
@@ -475,16 +523,16 @@ void MainComponent::chooseMidiExport()
     });
 }
 
-void MainComponent::chooseProjectToOpen()
+void MainComponent::chooseProjectToOpen(bool withPlugins)
 {
-    fileChooser = std::make_unique<juce::FileChooser>("Open a project", juce::File(),
-                                                      projectFilePattern);
+    fileChooser = std::make_unique<juce::FileChooser>(
+        withPlugins ? "Open a project" : "Open a project without its plugins", juce::File(), projectFilePattern);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
                                  juce::FileBrowserComponent::canSelectFiles,
-                             [this](const juce::FileChooser& chooser) {
+                             [this, withPlugins](const juce::FileChooser& chooser) {
                                  const auto file = chooser.getResult();
                                  if (file != juce::File())
-                                     openProjectFile(file);
+                                     openProjectFile(file, withPlugins);
                              });
 }
 
@@ -571,7 +619,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
                        newBus,           toggleAutomation, showThemePreviews, showAnimations,
                        toggleAllAnimations, newMidiTrack, duplicate, togglePianoRoll,
-                       quantiseNotes,    exportMidi,      panic});
+                       quantiseNotes,    exportMidi,      panic, togglePluginBrowser, openWithoutPlugins});
 
     const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
     for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
@@ -758,6 +806,16 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
         result.setInfo("Animations...", "Chooses which animations play, for every theme", "View",
                        0);
         break;
+    case togglePluginBrowser:
+        result.setInfo("Plugin Browser", "Shows or hides the effects, instruments and plugins to drag onto tracks",
+                       "View", 0);
+        result.addDefaultKeypress('b', 0);
+        result.setTicked(browserVisible);
+        break;
+    case openWithoutPlugins:
+        result.setInfo("Open Without Plugins...",
+                       "Opens a project with its plugins switched off (load each from its slot)", "File", 0);
+        break;
     case toggleAllAnimations:
         result.setInfo("All Animations Off", "Switches every animation off, and again back on",
                        "View", 0);
@@ -787,6 +845,7 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
     {
     case newProject:
     case openProject:
+    case openWithoutPlugins:
     case saveProject:
     case saveProjectAs:
     case importAudio:
@@ -905,6 +964,12 @@ bool MainComponent::perform(const InvocationInfo& info)
         break;
     case panic:
         session.panic();
+        break;
+    case togglePluginBrowser:
+        showPluginBrowser(!browserVisible);
+        break;
+    case openWithoutPlugins:
+        askToSaveChanges([this] { chooseProjectToOpen(false); });
         break;
     case toggleMetronome:
         session.setMetronomeEnabled(!session.getProject().isMetronomeEnabled());

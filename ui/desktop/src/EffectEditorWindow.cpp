@@ -249,11 +249,9 @@ void EffectEditorWindow::refresh(double elapsedSeconds)
     content->refresh(elapsedSeconds);
 }
 
-EffectEditors::EffectEditors(controller::Session& sessionToEdit, WindowPositions& pluginWindowPositions,
-                             const controller::PluginLoads& pluginLoads)
+EffectEditors::EffectEditors(controller::Session& sessionToEdit, WindowPositions& pluginWindowPositions)
     : session(sessionToEdit)
     , positions(pluginWindowPositions)
-    , loads(pluginLoads)
 {
 }
 
@@ -276,7 +274,7 @@ void EffectEditors::open(model::ObjectId effectId)
 
     std::unique_ptr<EditorWindow> window;
     if (effect->getType() == model::pluginEffectType)
-        window = std::make_unique<PluginEditorWindow>(session, effectId, positions, loads);
+        window = std::make_unique<PluginEditorWindow>(session, effectId, positions, session.getPluginLoads());
     else
         window = std::make_unique<EffectEditorWindow>(session, effectId);
     window->onClose = [this, effectId] {
