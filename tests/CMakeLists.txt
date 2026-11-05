@@ -24,6 +24,7 @@ add_executable(daw_tests
     controller/MidiFileTests.cpp
     controller/MidiRecordingSessionTests.cpp
     controller/NoteEditingTests.cpp
+    controller/PluginCatalogueTests.cpp
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp

@@ -457,6 +457,19 @@ Modules with one-way dependencies:
   drum sampler; one clip per part to the next bar line) and `exportMidi()`. Tests:
   export, read, write again gives the same bytes (types 0 and 1, tempos 120 and
   123.4); a 480 PPQ file from elsewhere survives a round trip at 960.
+- Plugin catalogue (Phase 7): `controller::PluginCatalogue` holds what the scanner
+  found (`PluginInfo`: JUCE's `PluginDescription`, and why the app cannot host it, if
+  so), per scanned item (`ScanItem`: a VST3 bundle, an AU component's identifier, an
+  LV2 URI), the blacklist (`ScanFailure`: crashed, timed out, no plugins, failed to
+  load), the custom folders per format (searched after the formats' defaults) and
+  the favourites (`PluginKey`: format and JUCE's unique id, the same on every
+  machine). `planScan()` makes scanning incremental: new items, items their format
+  says changed (`pluginNeedsRescanning()`) and, with "everything", all items but the
+  blacklisted ones; items gone are forgotten; a blacklisted file that changed gets
+  another chance. `search()` (words in name, manufacturer, category or format; formats,
+  effects or instruments, manufacturer, favourites) feeds the browser. Saved as JSON
+  (`saveTo()` through a temporary file; reading never fails). Nothing here loads a
+  plugin.
 - Recording in the controller (Phase 3): `Session::record()` records every armed
   track with an input from the playhead (count-in, punch range, latency = device
   input + output latency + manual offset) through `controller::RecordingController`,
@@ -1418,7 +1431,7 @@ while playing, MIDI effects, automation writing, mobile UI.
 - [x] 4. Test plugins built from the SDKs (VST3 on every platform, AU v2 on macOS,
       LV2 on Linux), in CI too: gain, known latency, deterministic synth, crash on
       scan, hang on scan, NaN
-- [ ] 5. Plugin catalogue in the controller: descriptions, files, incremental changes,
+- [x] 5. Plugin catalogue in the controller: descriptions, files, incremental changes,
       blacklist, folders, favourites, search and filters
 - [ ] 6. Out-of-process scanner (`daw_plugin_scanner`): parallel scans, timeouts,
       crashes and hangs blacklisted while the DAW carries on
