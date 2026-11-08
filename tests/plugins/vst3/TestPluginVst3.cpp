@@ -392,7 +392,12 @@ DAW_TEST_EXPORT IPluginFactory* PLUGIN_API GetPluginFactory()
     // The faulty kinds misbehave when the host asks for the factory: when it scans.
     if constexpr (kind == core::Kind::crash)
     {
-        std::abort();
+        // A write through a null pointer, not abort(): with its own C runtime (static on
+        // Windows), a plugin's abort() would open the debug runtime's dialog instead of
+        // ending the scanner, whose handlers belong to its own runtime.
+        static volatile int* volatile nowhere = nullptr;
+        *nowhere = 1;
+        return nullptr; // not reached
     }
     else if constexpr (kind == core::Kind::hang)
     {

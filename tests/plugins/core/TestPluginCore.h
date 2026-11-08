@@ -13,7 +13,8 @@
 //   Notes are matched by channel and key; a note-off for a note it does not hold
 //   counts as a stray.
 // - nan: passes its input through while "fail" is below 0.5, else outputs NaN.
-// - crash and hang: crash (abort) or never return when scanned or loaded.
+// - crash and hang: crash (a write through a null pointer) or never return when scanned
+//   or loaded.
 
 #include <array>
 #include <cmath>

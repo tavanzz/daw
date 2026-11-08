@@ -103,6 +103,7 @@ TEST_CASE("Where the app runs decides whether it can update itself", "[services]
     CHECK_FALSE(installed.allUsers);
 #else
     const auto image = directory.file("Apps/DAW-x86_64.AppImage");
+    REQUIRE(image.getParentDirectory().createDirectory());
     REQUIRE(image.replaceWithText("old"));
     const auto installed = UpdateInstaller::describe(juce::File("/tmp/.mount_DAW/usr/bin/DAW"), image.getFullPathName());
     CHECK(installed.kind == Kind::appImage);
