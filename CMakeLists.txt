@@ -33,6 +33,14 @@ if(DAW_UPDATE_PUBLIC_KEY AND NOT DAW_UPDATE_PUBLIC_KEY MATCHES "^[A-Za-z0-9+/]{4
     message(FATAL_ERROR "DAW_UPDATE_PUBLIC_KEY is not the Base64 of a 32-byte key")
 endif()
 
+# Where crash reports go when the user allows it: a Sentry project's DSN (it is public by
+# design: it lets a client send, not read). The release workflow passes it; without one,
+# reports stay on the user's computer.
+set(DAW_SENTRY_DSN "" CACHE STRING "Sentry DSN for crash reports")
+if(DAW_SENTRY_DSN AND NOT DAW_SENTRY_DSN MATCHES "^https://[0-9a-f]+@[^/]+/[0-9]+$")
+    message(FATAL_ERROR "DAW_SENTRY_DSN does not look like a Sentry DSN")
+endif()
+
 option(DAW_BUILD_TESTS "Build the unit tests" ON)
 option(DAW_ENABLE_RTSAN "Build with Clang's RealtimeSanitizer (Clang 20 or newer)" OFF)
 

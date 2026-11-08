@@ -60,6 +60,7 @@ AppController::AppController(const juce::String& name, const juce::File& setting
     const auto crashed = crashMarker.takeCrashedPlugins();
     session.holdBackPlugins(crashed);
     logStart(crashed);
+    startCrashReports(crashed);
 
     // The theme applies before the first window opens, so nothing flashes in another.
     themes = std::make_unique<ui::desktop::ThemeManager>(
@@ -194,6 +195,26 @@ void AppController::logPlugins()
                              " plugins, " + juce::String(catalogue.getBlocked().size()) + " not loaded");
     for (const auto& blocked : catalogue.getBlocked())
         juce::Logger::writeToLog("  not loaded: " + blocked.item.item + " (" + blocked.detail + ")");
+}
+
+void AppController::startCrashReports(const juce::StringArray& crashedPlugins)
+{
+    const auto& build = services::buildInfo();
+    services::CrashReporting::Options options;
+    options.databaseFolder = settings.getFolder().getChildFile("Crash Reporting");
+    options.reportsFolder = log.getFolder().getChildFile("Crashes");
+    options.dsn = build.crashReportsDsn;
+    options.release = build.bundleId + "@" + build.version;
+    options.environment = build.buildType == "Debug"   ? "development"
+                          : build.version.contains("-") ? "pre-release"
+                                                        : "release";
+    options.crashedPlugins = crashedPlugins;
+    options.sendAllowed = settings.getCrashReportConsent() == services::CrashReportConsent::allowed;
+    crashReports = std::make_unique<services::CrashReporting>(options);
+    juce::Logger::writeToLog(juce::String("Crash reports: kept locally") +
+                             (!crashReports->canSend()     ? ", this build sends none"
+                              : options.sendAllowed        ? ", sent (the user allowed it)"
+                                                           : ", not sent (the user has not allowed it)"));
 }
 
 void AppController::logProject()

@@ -141,6 +141,23 @@ Modules with one-way dependencies:
   options, and /RELAUNCH for the installer to start the app again). Text files the app
   writes for other programs (scripts, envelopes) use LF line endings, never JUCE's CRLF
   default.
+- Crash reports (Phase 8): `services::CrashReporting` runs sentry-native 0.17.4 (pinned
+  by SHA-256) with the inproc backend (at a crash the crashing thread's stack is walked
+  and written to the crash database: addresses and modules, no memory) and no transport
+  of its own: at the next start sentry hands each stored envelope to
+  `receiveEnvelope()`, which keeps only the event and scrubs it (`scrubEvent()`: version,
+  release, OS name and version, architecture, signal, stack, modules, and a "plugin" tag
+  with what the crash marker saw; no user, computer name, breadcrumbs, messages, extra
+  or other contexts; the home folder written "~" in every string). The scrubbed report
+  is always kept as JSON in the log folder's `Crashes` (the last 20); it goes to the
+  outbox, and from there to Sentry's envelope endpoint on a thread of its own, only if
+  the user allowed it (`UserSettings::getCrashReportConsent()`) and the build has a DSN
+  (`DAW_SENTRY_DSN`, `BuildInfo::crashReportsDsn`); refusing empties the outbox, and a
+  report waits at most 30 days. `AppController` starts it right after the crash marker,
+  so sentry's handler runs first and hands the signal on to the marker's (sentry chains
+  to the handlers it found). `daw_crash_probe` (tests) crashes on purpose; the test
+  reads the report of the next start and checks that it names neither the user's home,
+  nor the computer, nor a project. `docs/PRIVACY.md` says what is sent and kept.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1789,7 +1806,7 @@ Windows code signing until an account exists, ASIO.
 - [x] 5. Update checks and downloads: stable and pre-release channels, check at launch,
       skipped versions, progress, cancel, verification
 - [x] 6. Installing updates on each platform and relaunching
-- [ ] 7. Crash reports: sentry-native (inproc), consent, scrubbing, local reports and an
+- [x] 7. Crash reports: sentry-native (inproc), consent, scrubbing, local reports and an
       upload queue, the crash marker chained; `docs/PRIVACY.md`
 - [ ] 8. Desktop UI: Help menu, About window with the licences, update panel (updates
       postponed while recording or exporting), newer projects offering an update;

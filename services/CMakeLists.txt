@@ -15,6 +15,7 @@ add_custom_target(daw_services_commit
 add_library(daw_services STATIC
     src/AppLog.cpp
     src/BuildInfo.cpp
+    src/CrashReporting.cpp
     src/Ed25519.cpp
     src/Http.cpp
     src/SemanticVersion.cpp
@@ -29,12 +30,13 @@ target_include_directories(daw_services
     PUBLIC include
     PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_features(daw_services PUBLIC cxx_std_20)
-target_link_libraries(daw_services PUBLIC daw::juce PRIVATE daw_monocypher)
+target_link_libraries(daw_services PUBLIC daw::juce PRIVATE daw_monocypher sentry::sentry)
 target_compile_definitions(daw_services PRIVATE
     "DAW_PRODUCT_NAME=\"${DAW_PRODUCT_NAME}\""
     "DAW_VERSION=\"${DAW_VERSION}\""
     "DAW_BUNDLE_ID=\"${DAW_BUNDLE_ID}\""
     "DAW_REPOSITORY_URL=\"${DAW_REPOSITORY_URL}\""
     "DAW_BUILD_TYPE=\"$<CONFIG>\""
-    "DAW_UPDATE_PUBLIC_KEY=\"${DAW_UPDATE_PUBLIC_KEY}\"")
+    "DAW_UPDATE_PUBLIC_KEY=\"${DAW_UPDATE_PUBLIC_KEY}\""
+    "DAW_SENTRY_DSN=\"${DAW_SENTRY_DSN}\"")
 daw_enable_warnings(daw_services)

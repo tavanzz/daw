@@ -19,6 +19,7 @@ struct BuildInfo
     juce::String architecture;  ///< "arm64" or "x86_64": the slice running now
     juce::String bundleId;      ///< e.g. "io.github.tavanzz.daw"
     juce::String repositoryUrl; ///< the GitHub repository, for links and updates
+    juce::String crashReportsDsn; ///< where crash reports may go (Sentry); empty: nowhere
 
     /** One line, e.g. "DAW 0.8.0 (3f2a9c1b7e04, Release, macOS arm64)". */
     [[nodiscard]] juce::String describe() const;

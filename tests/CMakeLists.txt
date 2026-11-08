@@ -79,6 +79,7 @@ add_executable(daw_tests
     model/TimelineTests.cpp
     services/AppLogTests.cpp
     services/BuildInfoTests.cpp
+    services/CrashReportingTests.cpp
     services/UpdateCheckerTests.cpp
     services/UpdateInstallerTests.cpp
     services/UpdateManifestTests.cpp
@@ -99,6 +100,13 @@ target_compile_definitions(daw_tests PRIVATE "DAW_TEST_PLUGINS_DIR=\"${DAW_TEST_
 add_dependencies(daw_tests daw_plugin_scanner)
 target_compile_definitions(daw_tests PRIVATE
     "DAW_PLUGIN_SCANNER=\"$<TARGET_FILE:daw_plugin_scanner>\"")
+
+# A program that crashes on purpose, for the crash report tests.
+add_executable(daw_crash_probe support/CrashProbe.cpp)
+target_link_libraries(daw_crash_probe PRIVATE daw::services daw::juce)
+daw_enable_warnings(daw_crash_probe)
+add_dependencies(daw_tests daw_crash_probe)
+target_compile_definitions(daw_tests PRIVATE "DAW_CRASH_PROBE=\"$<TARGET_FILE:daw_crash_probe>\"")
 
 # UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
 # Linux CI, on a virtual display).

@@ -7,6 +7,7 @@
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/AudioDeviceHost.h"
 #include "daw/services/AppLog.h"
+#include "daw/services/CrashReporting.h"
 #include "daw/services/UserSettings.h"
 #include "daw/ui/desktop/MainWindow.h"
 #include "daw/ui/desktop/ThemeManager.h"
@@ -80,6 +81,7 @@ private:
 
     [[nodiscard]] services::AppLog::Options logOptions(const juce::File& settingsFolder) const;
     void logStart(const juce::StringArray& crashedPlugins);
+    void startCrashReports(const juce::StringArray& crashedPlugins);
     void logPlugins();
     void logProject();
 
@@ -87,6 +89,8 @@ private:
     services::UserSettings settings;
     services::AppLog log; // installed as JUCE's logger: everything after it may log
     CrashMarker crashMarker;
+    // After the crash marker: its handler runs first, then hands the crash on to the marker.
+    std::unique_ptr<services::CrashReporting> crashReports;
 
     // Destroyed in reverse order: the window refers to the session, the session to
     // the engine and the plugins, and the device must stop before the engine goes;

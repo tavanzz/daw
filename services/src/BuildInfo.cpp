@@ -45,6 +45,7 @@ BuildInfo makeBuildInfo()
     info.architecture = architectureName();
     info.bundleId = DAW_BUNDLE_ID;
     info.repositoryUrl = DAW_REPOSITORY_URL;
+    info.crashReportsDsn = DAW_SENTRY_DSN;
     return info;
 }
 

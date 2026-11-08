@@ -30,7 +30,25 @@ FetchContent_Declare(Monocypher
     DOWNLOAD_DIR "${DAW_DEPENDENCY_CACHE_DIR}"
     DOWNLOAD_NAME monocypher-4.0.2.tar.gz)
 
-FetchContent_MakeAvailable(JUCE Monocypher)
+# Crash reports (services/CrashReporting): sentry-native, MIT, with its in-process
+# backend (a stack walk at the crash, no memory dump) and no transport of its own (the
+# app sends reports itself, only with the user's consent). Its vendored parts used here
+# (mpack, jsmn, stb_sprintf, libunwind on Linux) are MIT or public domain.
+FetchContent_Declare(sentry
+    URL https://github.com/getsentry/sentry-native/releases/download/0.17.4/sentry-native.zip
+    URL_HASH SHA256=804811557b5d42ddd51cb1241bf851964d75547a4eb7b5ad97b73a4de965ab25
+    DOWNLOAD_DIR "${DAW_DEPENDENCY_CACHE_DIR}"
+    DOWNLOAD_NAME sentry-native-0.17.4.zip
+    SYSTEM)
+set(SENTRY_BACKEND "inproc" CACHE STRING "" FORCE)
+set(SENTRY_TRANSPORT "none" CACHE STRING "" FORCE)
+set(SENTRY_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(SENTRY_BUILD_RUNTIMESTATIC ON CACHE BOOL "" FORCE)
+set(SENTRY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SENTRY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SENTRY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(JUCE Monocypher sentry)
 
 add_library(daw_monocypher STATIC
     "${monocypher_SOURCE_DIR}/src/monocypher.c"
