@@ -79,8 +79,9 @@ UpdateChecker::Status waitWhile(UpdateChecker& checker, std::initializer_list<St
             return status;
         juce::Thread::sleep(10);
     }
-    FAIL("the update checker did not finish");
-    return {};
+    // Not FAIL(): MSVC would call the return after it unreachable code.
+    FAIL_CHECK("the update checker did not finish");
+    return checker.getStatus();
 }
 
 UpdateChecker::Status checkNow(UpdateChecker& checker, const UpdatePreferences& preferences = {}, bool manual = false)

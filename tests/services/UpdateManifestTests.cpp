@@ -71,7 +71,8 @@ TEST_CASE("Ed25519 matches the RFC 8032 test vectors", "[services][updates]")
     CHECK_FALSE(ed25519::verify(fromHex("73"), signature2, pair2.publicKey));
     CHECK_FALSE(ed25519::verify(message2, signature2, pair1.publicKey));
     auto flipped = signature2;
-    static_cast<juce::uint8*>(flipped.getData())[10] ^= 1;
+    auto* flippedBytes = static_cast<juce::uint8*>(flipped.getData());
+    flippedBytes[10] = static_cast<juce::uint8>(flippedBytes[10] ^ 1);
     CHECK_FALSE(ed25519::verify(message2, flipped, pair2.publicKey));
     CHECK_FALSE(ed25519::verify(message2, juce::MemoryBlock(10), pair2.publicKey));
 }
