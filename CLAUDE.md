@@ -1532,7 +1532,7 @@ Phase 6 decisions (agreed before starting):
 - Benchmark: cost per voice of each instrument at 48 kHz and how many voices fit in
   the whole and half the budget with 128, 256 and 512-sample blocks.
 
-Phase 7 (in progress, branch `phase-7`): external plugins. Effect and instrument
+Phase 7 (done, released as v0.7.0): external plugins. Effect and instrument
 plugins in VST3 (Windows, macOS, Linux), AU v2 and v3 (macOS) and LV2 (Linux), through
 adapters onto the Phase 4 and 6 effect and instrument interface, so chains, sends,
 bypass, delay compensation, automation, MIDI, undo, export and Panic work as for the
@@ -1584,7 +1584,8 @@ while playing, MIDI effects, automation writing, mobile UI.
       placeholders, slow-plugin and NaN warnings
 - [x] 14. UI tests in every theme; listening tests for Phase 7 with the plugins
       installed on the Mac; version 0.7.0
-- [ ] Listening tests (`docs/LISTENING_TESTS.md`)
+- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 104 to 122): not run yet; the
+      phase was merged before them, 2026-11-08, and they remain to be done on macOS
 
 Phase 7 decisions (agreed before starting):
 
