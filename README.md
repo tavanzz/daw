@@ -5,13 +5,33 @@ A cross-platform digital audio workstation written in C++20 with
 
 Targets: Windows, macOS and Linux now; iOS/iPadOS and Android later.
 
-> **Licensing: check the JUCE licence before any commercial distribution.**
-> JUCE is dual-licensed under the [AGPLv3](https://www.gnu.org/licenses/agpl-3.0.en.html)
-> and the commercial [JUCE 9 licence](https://juce.com/legal/juce-9-licence/).
-> Distributing this application under the AGPLv3 means releasing its complete
-> source code under the AGPLv3; distributing it as closed source requires a
-> suitable commercial JUCE licence. Review the current terms before releasing
-> anything. See [Licence](#licence).
+> **Licensing.** DAW is not open source: its code is published to be read, and the
+> released versions are free to install and use ([LICENSE.txt](LICENSE.txt)). It uses
+> JUCE under the commercial [JUCE 9 licence](https://juce.com/legal/juce-9-licence/),
+> Starter tier, free under US$20,000 of revenue in twelve months. See [Licence](#licence).
+
+## Installing
+
+Download the latest version from the
+[releases page](https://github.com/tavanzz/daw/releases/latest):
+
+- **macOS 12 or later** (Apple Silicon and Intel): `DAW-x.y.z-macOS.dmg`. Open it and
+  drag DAW onto Applications. If macOS says it cannot check the app (a build without an
+  Apple signature, as the release notes say), open System Settings > Privacy & Security
+  and choose Open Anyway, once.
+- **Windows 10 or 11** (64-bit): `DAW-x.y.z-Windows-x64-Setup.exe`. Choose "only for me"
+  (no administrator rights) or "for all users". While the installer is not signed,
+  SmartScreen warns: More info > Run anyway. With Smart App Control on, Windows refuses
+  unsigned installers altogether.
+- **Linux** (x86_64; Ubuntu 24.04, Debian 13, Fedora 40 or newer): the AppImage. Make it
+  executable (`chmod +x DAW-*.AppImage`) and run it. Plugins in `~/.vst3`, `/usr/lib/vst3`
+  and the LV2 folders are found as usual.
+
+The first launch asks where to play (your audio interface), which theme you like, and
+whether crash reports may be sent; nothing else. At every launch DAW checks GitHub for a
+newer version (Help > Check for Updates at Launch switches it off) and offers it with its
+release notes; Update Now downloads it, checks its signature and installs it. What DAW
+sends and keeps: [docs/PRIVACY.md](docs/PRIVACY.md). Releasing: [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Status
 
@@ -60,7 +80,15 @@ scanning in a separate process that puts plugins that crash or hang on a list of
 their own; a plugin browser with search, filters and favourites, dragged onto tracks
 and mixer slots; each plugin's own editor in a window of its own (or a generic one);
 plugin state saved in the project, kept intact when a plugin is missing. Project
-format version 6. See [CLAUDE.md](CLAUDE.md#status) for the steps.
+format version 6.
+
+Phase 8 (v0.8.0): distribution. Installers for macOS (a universal app, signed and
+notarised when the Apple account is set up), Windows (per user or for everyone) and Linux
+(an AppImage), built, checked and published by GitHub Actions from a tag; automatic
+updates signed with Ed25519 and verified before installing; crash reports only with
+consent, a local log, Help > About with every licence, and a first launch that asks only
+for the audio output, the theme and the consent. See [CLAUDE.md](CLAUDE.md#status) for the
+steps.
 
 ## Building
 
@@ -236,6 +264,17 @@ Effects, buses and automation:
 
 (Ctrl instead of Cmd on Windows and Linux.)
 
+Help:
+
+- Help > Check for Updates... looks for a newer version now; Check for Updates at Launch
+  and Include Pre-releases (release candidates, to try versions before everyone) are
+  switches. Skip This Version in the update panel stops offering a version at launch.
+- Help > Send Crash Reports switches crash reports on or off; Privacy... says what they
+  contain. Help > Open Log Folder shows the logs (one per session) and the crash reports
+  kept on the computer, to send them if something goes wrong.
+- About DAW (in the DAW menu on macOS, in Help elsewhere) shows the version, the commit it
+  was built from and every licence.
+
 Appearance: View > Theme chooses one of three themes (Neon Grid, the default; Acid
 Terminal; Synth Chrome), which applies at once to every window; Show Previews puts
 them side by side. View > Animations sets how much moves: Full, Reduced (no moving
@@ -264,18 +303,22 @@ instrument's voice costs:
 | `app/`        | application entry point                                         |
 | `tests/`      | unit tests; `tests/bench/` the benchmarks                       |
 | `cmake/`      | build helpers: dependencies, warnings, architecture checks      |
-| `tools/`      | development scripts (listening-test files)                      |
-| `docs/`       | manual test procedures, performance measurements, licences     |
+| `services/`   | build information, settings, log, updates, crash reports; no GUI |
+| `packaging/`  | signing, installers and the release checks, per platform        |
+| `tools/`      | development and release scripts and the update tool            |
+| `docs/`       | manual test procedures, performance, licences, privacy, releasing |
 
 Architecture, audio-thread rules and coding conventions are described in
 [CLAUDE.md](CLAUDE.md).
 
 ## Licence
 
-Copyright © 2026. All rights reserved. No open-source licence has been chosen for
-this project's own code yet.
+Copyright © 2026 tavanzz. All rights reserved: the source is published to be read, the
+released versions may be installed and used free of charge, nothing may be copied,
+modified, redistributed or sold without permission ([LICENSE.txt](LICENSE.txt)).
 
-Third-party components keep their own licences: JUCE (AGPLv3 or commercial, see
-the note at the top), Catch2 (Boost Software License 1.0, tests only) and the fonts
-built into the app (SIL Open Font License 1.1). See
-[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+Third-party components keep their own licences: JUCE (the commercial JUCE 9 licence,
+Starter tier), the VST 3 SDK (MIT), Monocypher (CC0 or BSD), sentry-native (MIT), the LV2
+libraries (ISC, Linux), the fonts built into the app (SIL Open Font License 1.1) and
+Catch2 (Boost Software License 1.0, tests only). See
+[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md); Help > About shows them in the app.

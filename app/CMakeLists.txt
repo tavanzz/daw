@@ -50,25 +50,39 @@ add_custom_command(TARGET daw_app POST_BUILD
         "$<TARGET_FILE_DIR:daw_app>/$<TARGET_FILE_NAME:daw_plugin_scanner>"
     VERBATIM)
 
-# The licences of what the app contains travel with it: the fonts' (the SIL Open Font
-# License asks for it) and those of the plugin SDKs JUCE compiles in (MIT and ISC ask
-# for their notices), in the bundle's Resources on macOS, in a Licences folder next to
-# the executable elsewhere. Each entry: the folder under Licences, then the file.
+# The licences of what the app contains travel with it: the app's own (LICENSE.txt), the
+# fonts' (the SIL Open Font License asks for it), those of the plugin SDKs JUCE compiles
+# in, of Monocypher and of sentry-native with its vendored parts (MIT, ISC and BSD ask for
+# their notices), in the bundle's Resources on macOS, in a Licences folder next to the
+# executable elsewhere. Each entry: the folder under Licences, then the file.
 set(format_types "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types")
 set(licences "")
 foreach(family IN ITEMS ChakraPetch IBMPlexMono JetBrainsMono Michroma Rajdhani SpaceGrotesk)
     list(APPEND licences "${family}|${PROJECT_SOURCE_DIR}/appearance/fonts/${family}/OFL.txt")
 endforeach()
 list(APPEND licences "VST3_SDK|${format_types}/VST3_SDK/LICENSE.txt")
+list(APPEND licences "Monocypher|${monocypher_SOURCE_DIR}/LICENCE.md")
+list(APPEND licences "sentry-native|${sentry_SOURCE_DIR}/LICENSE")
+# sentry-native's vendored mpack and jsmn carry their licence in their header's leading
+# comment: it is written out as a file.
+foreach(vendored IN ITEMS mpack jsmn)
+    file(READ "${sentry_SOURCE_DIR}/vendor/${vendored}.h" header)
+    string(FIND "${header}" "*/" comment_end)
+    string(SUBSTRING "${header}" 0 ${comment_end} notice)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/licences/${vendored}.txt" "${notice}*/\n")
+    list(APPEND licences "${vendored}|${CMAKE_CURRENT_BINARY_DIR}/licences/${vendored}.txt")
+endforeach()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     foreach(library IN ITEMS lilv lv2 serd sord sratom)
         list(APPEND licences "${library}|${format_types}/LV2_SDK/${library}/COPYING")
     endforeach()
+    list(APPEND licences "libunwind|${sentry_SOURCE_DIR}/vendor/libunwind/COPYING")
 endif()
 
 if(APPLE)
-    target_sources(daw_app PRIVATE "${PROJECT_SOURCE_DIR}/docs/THIRD_PARTY.md")
-    set_source_files_properties("${PROJECT_SOURCE_DIR}/docs/THIRD_PARTY.md" PROPERTIES
+    target_sources(daw_app PRIVATE "${PROJECT_SOURCE_DIR}/docs/THIRD_PARTY.md" "${PROJECT_SOURCE_DIR}/LICENSE.txt")
+    set_source_files_properties("${PROJECT_SOURCE_DIR}/docs/THIRD_PARTY.md" "${PROJECT_SOURCE_DIR}/LICENSE.txt"
+        PROPERTIES
         HEADER_FILE_ONLY TRUE
         MACOSX_PACKAGE_LOCATION "Resources/Licences")
 
@@ -100,6 +114,9 @@ else()
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${PROJECT_SOURCE_DIR}/docs/THIRD_PARTY.md"
             "$<TARGET_FILE_DIR:daw_app>/Licences/THIRD_PARTY.md"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/LICENSE.txt"
+            "$<TARGET_FILE_DIR:daw_app>/Licences/LICENSE.txt"
         ${licence_commands}
         VERBATIM)
 endif()
