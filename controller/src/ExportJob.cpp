@@ -12,6 +12,9 @@ ExportJob::ExportJob(const Session& session, ExportSettings settingsToUse)
     : projectState(session.getProject().getState().createCopy())
     , settings(std::move(settingsToUse))
 {
+    auto exportPlugins = session.makeExportPlugins(settings.sampleRate);
+    plugins = std::move(exportPlugins.instances);
+    missingPlugins = std::move(exportPlugins.missing);
 }
 
 engine::io::BounceResult ExportJob::run(const std::function<bool(double)>& keepGoing)
@@ -63,8 +66,28 @@ engine::io::BounceResult ExportJob::run(const std::function<bool(double)>& keepG
         }
     }
 
+    // Built-in effects fresh at the export's rate, plugins the constructor's.
+    const auto effects = [this](const ChainOwner&, const std::vector<model::Effect>& list) {
+        std::vector<engine::ChainSlot> slots;
+        for (const auto& effect : list)
+        {
+            engine::ChainSlot slot;
+            if (effect.getType() == model::pluginEffectType)
+            {
+                const auto found = plugins.find(effect.getId());
+                slot.instance = found != plugins.end() ? found->second : nullptr;
+            }
+            else
+            {
+                slot.instance = EffectInstances::makeInstance(effect.getType(), settings.sampleRate,
+                                                              Session::effectBlockSize, false);
+            }
+            slots.push_back(std::move(slot));
+        }
+        return slots;
+    };
     const auto arrangement =
-        buildArrangement(project, settings.sampleRate, lookup, {}, {}, {},
+        buildArrangement(project, settings.sampleRate, lookup, {}, effects, {},
                          [&samples](const juce::File& file) { return samples.find(file); });
 
     engine::io::BounceSettings bounce;

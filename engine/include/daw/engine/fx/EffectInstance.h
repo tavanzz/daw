@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <array>
+#include <span>
 #include <vector>
 
 namespace daw::engine::fx
@@ -27,6 +29,9 @@ public:
         any more jump to their value at the block's end. */
     static constexpr int maximumChangingParameters = 64;
 
+    /** Breakpoints one call carries (ProcessBlock::breakpoints); more are dropped. */
+    static constexpr int maximumBreakpoints = 64;
+
     /** Not real-time safe. eventCapacity: the most events one call to
         EffectInstance::process() gets (see midi::EventBuffer). */
     void prepare(int maximumBlockSize, int eventCapacity = midi::EventBuffer::defaultCapacity);
@@ -40,6 +45,7 @@ private:
     std::vector<float> values; // maximumChangingParameters lanes of blockSize
     std::vector<float> gains;
     midi::EventBuffer events; // one piece's, with the host's own note-offs
+    std::array<int, maximumBreakpoints> breakpoints{}; // one piece's
     int blockSize = 0;
 };
 
@@ -72,6 +78,10 @@ struct SlotContext
     /** For an instrument: the stretch's MIDI events, sorted, offsets within the
         stretch given to process(). Ignored by effects. */
     midi::EventSpan events;
+
+    /** Where the automation may step, sorted offsets within (0, the stretch's length)
+        (see ProcessBlock::breakpoints). */
+    std::span<const int> breakpoints;
 };
 
 /**
@@ -132,6 +142,11 @@ public:
                  const SlotContext& context, EffectScratch& scratch) noexcept;
 
     /** Any thread. Whether the effect was silenced for a NaN or an infinity. */
+    /** Audio thread, between blocks. Panic: an instrument forgets the notes it holds
+        and stops every voice (Effect::panic()); an effect is left alone (its tail
+        rings on). */
+    void panic() noexcept;
+
     [[nodiscard]] bool hasFailed() const noexcept { return failed.load(std::memory_order_relaxed); }
 
     /** The thread that processes: whether the effect runs (it is not fully dry). */

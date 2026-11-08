@@ -7,6 +7,7 @@ Usage: python3 tools/make_listening_test_files.py [output folder] [--long]
 """
 
 import argparse
+import base64
 import json
 import math
 import random
@@ -683,6 +684,65 @@ def write_phase6_files(out):
     (folder / "phase6-instruments.dawproject").write_text(json.dumps(project, indent=2) + "\n")
 
 
+def plugin_effect(effect_id, name, maker, instrument, parameters, state):
+    """A plugin no machine has: its reference, parameters and state must survive."""
+    return {"id": effect_id, "type": "plugin", "bypass": False, "parameters": parameters,
+            "plugin": {"format": "VST3", "uniqueId": 0x0DA70000 + effect_id, "name": name,
+                       "manufacturer": maker, "version": "1.0.0",
+                       "category": "Instrument" if instrument else "Fx",
+                       "identifier": "/Library/Audio/Plug-Ins/VST3/" + name + ".vst3",
+                       "instrument": instrument},
+            "data": base64.b64encode(state.encode()).decode()}
+
+
+def write_phase7_files(out):
+    """Phase 7: a drum loop (twice, for delay compensation), chords for an instrument
+    plugin, and two plugins that are not installed anywhere (120 BPM, 8 bars)."""
+    folder = out / "phase7"
+    folder.mkdir(parents=True, exist_ok=True)
+    rate = 48000
+    sounds = {name: samples for name, samples in drum_sounds(rate).items()}
+    loop = [0.0] * (16 * rate)
+
+    def hit(name, at, gain):
+        start = int(at * rate)
+        for n, value in enumerate(sounds[name]):
+            if start + n < len(loop):
+                loop[start + n] += gain * value
+
+    for b in range(8):
+        for step in range(8):
+            at = b * 2.0 + step * 0.25
+            if step in (0, 4):
+                hit("kick.wav", at, 0.9)
+            if step in (2, 6):
+                hit("snare.wav", at, 0.8)
+            hit("closed-hat.wav", at, 0.6 if step % 2 == 0 else 0.35)
+    write_wav(folder / "drums.wav", rate, [loop, loop])
+
+    progression = [(57, 60, 64), (53, 57, 60), (55, 60, 64), (55, 59, 62)]
+    chords = [(b * 2.0, 1.75, key, 90) for b in range(8) for key in progression[b % 4]]
+    tracks = [
+        dict(mixer_track(1, "Drums", [dict(clip(2, "drums.wav", 0.0), kind="audio")]), kind="audio"),
+        dict(mixer_track(3, "Drums copy", [dict(clip(4, "drums.wav", 0.0), kind="audio")], mute=True),
+             kind="audio"),
+        midi_track(5, "Keys", instrument(6, "synth", {"cutoff": 2000.0}),
+                   [midi_clip(7, "Chords", 0.0, 16.0, chords)], volume=0.4),
+        dict(mixer_track(8, "Missing effect", [dict(clip(9, "drums.wav", 0.0), kind="audio")],
+                         effects=[plugin_effect(10, "Gone Reverb", "Nowhere Audio", False,
+                                                {"mix": 0.25}, "Gone Reverb: its state stays the same")],
+                         lanes=[("effect:10:mix", [(0.0, 0.25, 0.0), (16.0, 0.75, 0.0)])], mute=True),
+             kind="audio"),
+        midi_track(11, "Missing instrument",
+                   plugin_effect(12, "Gone Synth", "Nowhere Audio", True, {"cutoff": 0.5},
+                                 "Gone Synth: its state stays the same"),
+                   [midi_clip(13, "Chords", 0.0, 16.0, chords)], volume=0.4, channel=2),
+    ]
+    project = project_v4([], [], tracks)
+    project["formatVersion"] = 6
+    (folder / "phase7-plugins.dawproject").write_text(json.dumps(project, indent=2) + "\n")
+
+
 def extended80(value):
     """IEEE 754 80-bit extended float, as AIFF stores its sample rate."""
     exponent = 16383 + int(math.floor(math.log2(value)))
@@ -739,6 +799,7 @@ def main():
     write_phase3_files(out, arguments.long)
     write_phase4_files(out)
     write_phase6_files(out)
+    write_phase7_files(out)
 
     print(f"Listening test files written to {out.resolve()}")
 

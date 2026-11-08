@@ -1,12 +1,63 @@
 #include "daw/ui/desktop/EffectSlots.h"
 
+#include "daw/controller/PluginBrowser.h"
 #include "daw/engine/fx/BuiltInEffects.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
+#include <map>
 
 namespace daw::ui::desktop
 {
+
+namespace
+{
+
+constexpr int firstPluginItem = 1000;
+
+// The catalogue's effects or instruments: favourites first, then a submenu per
+// manufacturer. Their descriptions go into plugins, item firstPluginItem + index.
+void addPluginItems(juce::PopupMenu& menu, const controller::PluginCatalogue* catalogue, bool instruments,
+                    std::vector<juce::PluginDescription>& plugins)
+{
+    plugins.clear();
+    if (catalogue == nullptr)
+        return;
+    controller::PluginQuery query;
+    query.kind = instruments ? controller::PluginQuery::Kind::instruments : controller::PluginQuery::Kind::effects;
+    std::map<juce::String, juce::PopupMenu> byMaker;
+    juce::PopupMenu favourites;
+    for (const auto& item : controller::browserItems(*catalogue, query))
+    {
+        if (!item.plugin)
+            continue;
+        const int id = firstPluginItem + static_cast<int>(plugins.size());
+        plugins.push_back(*item.plugin);
+        const auto text = item.name + " (" + item.format + ")";
+        if (item.favourite)
+            favourites.addItem(id, text);
+        const auto maker = item.manufacturer.isNotEmpty() ? item.manufacturer : juce::String("Other");
+        byMaker[maker].addItem(id, text);
+    }
+    if (plugins.empty())
+        return;
+    menu.addSeparator();
+    if (favourites.getNumItems() > 0)
+        menu.addSubMenu("Favourites", favourites);
+    juce::PopupMenu all;
+    for (auto& [maker, items] : byMaker)
+        all.addSubMenu(maker, items);
+    menu.addSubMenu("Plugins", all);
+}
+
+const controller::PluginCatalogue& catalogueOrNone(const controller::Session& session)
+{
+    static const controller::PluginCatalogue none;
+    const auto* catalogue = session.getPluginCatalogue();
+    return catalogue != nullptr ? *catalogue : none;
+}
+
+} // namespace
 
 juce::String effectTypeName(const juce::String& type)
 {
@@ -17,6 +68,14 @@ juce::String effectTypeName(const juce::String& type)
         if (type == instrument.type)
             return instrument.name;
     return type;
+}
+
+juce::String effectDisplayName(const model::Effect& effect)
+{
+    if (effect.getType() == model::pluginEffectType)
+        if (const auto plugin = effect.getPlugin())
+            return plugin->name;
+    return effectTypeName(effect.getType());
 }
 
 EffectSlots::EffectSlots(controller::Session& sessionToEdit, controller::ChainOwner chainOwner)
@@ -38,8 +97,8 @@ void EffectSlots::refresh(bool projectChanged)
             if (index >= 0 && project.getTrack(index).isMidi())
             {
                 if (const auto instrument = project.getTrack(index).getInstrument())
-                    now.push_back({instrument->getId(), effectTypeName(instrument->getType()),
-                                   instrument->isBypassed(), false, true});
+                    now.push_back({instrument->getId(), effectDisplayName(*instrument), instrument->isBypassed(), false, true,
+                                   instrument->getType() == model::pluginEffectType});
                 else
                     now.push_back({0, {}, false, false, true});
             }
@@ -49,7 +108,8 @@ void EffectSlots::refresh(bool projectChanged)
         for (int i = 0; i < effects.getNumEffects(); ++i)
         {
             const auto effect = effects.getEffect(i);
-            now.push_back({effect.getId(), effectTypeName(effect.getType()), effect.isBypassed(), false});
+            now.push_back({effect.getId(), effectDisplayName(effect), effect.isBypassed(), false, false,
+                           effect.getType() == model::pluginEffectType});
         }
     }
     else
@@ -57,10 +117,17 @@ void EffectSlots::refresh(bool projectChanged)
         now = rows;
     }
 
+    const auto& loads = session.getPluginLoads();
     for (auto& row : now)
     {
         const auto instance = session.getEffectInstance(row.id);
         row.failed = instance != nullptr && instance->hasFailed();
+        if (row.isPlugin)
+        {
+            row.status = session.getPluginStatus(row.id);
+            const auto* load = loads.find(row.id);
+            row.slow = load != nullptr && load->slow;
+        }
     }
 
     if (now != rows)
@@ -95,16 +162,55 @@ void EffectSlots::paint(juce::Graphics& g)
         if (index < count)
         {
             const auto& row = rows[static_cast<std::size_t>(index)];
+            using Mark = ThemedLookAndFeel::SlotMark;
+            const auto mark = row.failed                                                  ? Mark::failed
+                              : row.isPlugin && row.status != controller::PluginStatus::ready ? Mark::absent
+                              : row.slow                                                  ? Mark::slow
+                                                                                          : Mark::none;
             if (row.instrument && row.id == 0)
                 look.drawEmptySlot(g, area.toFloat(), "+ Instrument");
             else
-                look.drawEffectSlot(g, area.toFloat(), row.name, row.bypassed, row.failed);
+                look.drawEffectSlot(g, area.toFloat(), textOf(row), row.bypassed, mark);
         }
         else if (index == count)
         {
             look.drawEmptySlot(g, area.toFloat(), "+ Effect");
         }
     }
+
+    if (dropRow >= 0)
+    {
+        g.setColour(look.colour(appearance::ColourRole::focus));
+        g.fillRect(0, (dropRow - scroll) * rowHeight - 1, getWidth(), 2);
+    }
+}
+
+juce::String EffectSlots::textOf(const Row& row)
+{
+    if (!row.isPlugin)
+        return row.name;
+    switch (row.status)
+    {
+    case controller::PluginStatus::loading:
+        return row.name + " (loading)";
+    case controller::PluginStatus::missing:
+        return row.name + " (missing)";
+    case controller::PluginStatus::failed:
+        return row.name + " (failed)";
+    case controller::PluginStatus::off:
+        return row.name + " (off)";
+    case controller::PluginStatus::ready:
+        break;
+    }
+    return row.name;
+}
+
+juce::StringArray EffectSlots::getRowTexts() const
+{
+    juce::StringArray texts;
+    for (const auto& row : rows)
+        texts.add(row.instrument && row.id == 0 ? juce::String("+ Instrument") : textOf(row));
+    return texts;
 }
 
 void EffectSlots::mouseDown(const juce::MouseEvent& event)
@@ -153,6 +259,7 @@ void EffectSlots::showInstrumentMenu(const Row& row)
     constexpr int bypassItem = 2;
     constexpr int reactivateItem = 3;
     constexpr int removeItem = 4;
+    constexpr int loadItem = 5;
     constexpr int firstType = 100;
 
     juce::PopupMenu menu;
@@ -164,9 +271,13 @@ void EffectSlots::showInstrumentMenu(const Row& row)
         if (row.failed)
             menu.addItem(reactivateItem, "Reactivate");
         menu.addSeparator();
+        if (row.isPlugin && row.status == controller::PluginStatus::off)
+            menu.addItem(loadItem, "Load Plugin");
+        menu.addSeparator();
         juce::PopupMenu change;
         for (std::size_t i = 0; i < instruments.size(); ++i)
             change.addItem(firstType + static_cast<int>(i), instruments[i].name);
+        addPluginItems(change, session.getPluginCatalogue(), true, menuPlugins);
         menu.addSubMenu("Change Instrument", change);
         menu.addItem(removeItem, "Remove Instrument");
     }
@@ -174,6 +285,7 @@ void EffectSlots::showInstrumentMenu(const Row& row)
     {
         for (std::size_t i = 0; i < instruments.size(); ++i)
             menu.addItem(firstType + static_cast<int>(i), instruments[i].name);
+        addPluginItems(menu, session.getPluginCatalogue(), true, menuPlugins);
     }
 
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [this, row](int choice) {
@@ -186,6 +298,16 @@ void EffectSlots::showInstrumentMenu(const Row& row)
             session.reviveEffect(row.id);
         else if (choice == removeItem)
             session.removeInstrument(owner.id);
+        else if (choice == loadItem)
+            session.allowPlugin(row.id);
+        else if (choice >= firstPluginItem &&
+                 static_cast<std::size_t>(choice - firstPluginItem) < menuPlugins.size())
+        {
+            const auto id = session.setInstrumentPlugin(
+                owner.id, menuPlugins[static_cast<std::size_t>(choice - firstPluginItem)]);
+            if (id != 0 && onOpen)
+                onOpen(id);
+        }
         else if (choice >= firstType && static_cast<std::size_t>(choice - firstType) < list.size())
         {
             const auto id = session.setInstrument(owner.id, list[static_cast<std::size_t>(choice - firstType)].type);
@@ -210,6 +332,8 @@ void EffectSlots::showEffectMenu(const Row& row, int index)
     menu.addItem(2, row.bypassed ? "Switch On" : "Bypass");
     if (row.failed)
         menu.addItem(3, "Reactivate");
+    if (row.isPlugin && row.status == controller::PluginStatus::off)
+        menu.addItem(7, "Load Plugin");
     menu.addSeparator();
     menu.addItem(4, "Move Up", index > 0);
     menu.addItem(5, "Move Down", index + 1 + firstEffectRow() < static_cast<int>(rows.size()));
@@ -239,6 +363,9 @@ void EffectSlots::showEffectMenu(const Row& row, int index)
                            case 6:
                                session.removeEffect(row.id);
                                break;
+                           case 7:
+                               session.allowPlugin(row.id);
+                               break;
                            default:
                                break;
                            }
@@ -255,24 +382,68 @@ void EffectSlots::showAddMenu()
     const auto& effects = engine::fx::builtInEffects();
     for (std::size_t i = 0; i < effects.size(); ++i)
         menu.addItem(static_cast<int>(i) + 1, effects[i].name);
+    addPluginItems(menu, session.getPluginCatalogue(), false, menuPlugins);
 
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [this](int choice) {
         const auto& list = engine::fx::builtInEffects();
-        if (choice <= 0 || static_cast<std::size_t>(choice) > list.size())
+        model::ObjectId id = 0;
+        if (choice >= firstPluginItem && static_cast<std::size_t>(choice - firstPluginItem) < menuPlugins.size())
+            id = session.addPlugin(owner, menuPlugins[static_cast<std::size_t>(choice - firstPluginItem)]);
+        else if (choice > 0 && static_cast<std::size_t>(choice) <= list.size())
+            id = session.addEffect(owner, list[static_cast<std::size_t>(choice) - 1].type);
+        else
             return;
 
-        const auto id = session.addEffect(owner, list[static_cast<std::size_t>(choice) - 1].type);
         if (id == 0)
-        {
-            if (const auto problem = session.takeEditProblem(); problem.isNotEmpty())
-                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Effects", problem);
-        }
+            reportProblem();
         else if (onOpen)
-        {
             onOpen(id);
-        }
     });
+}
+
+int EffectSlots::chainIndexAt(int y) const noexcept
+{
+    const int effects = static_cast<int>(rows.size()) - firstEffectRow();
+    const int row = (y + rowHeight / 2) / rowHeight + scroll;
+    return std::clamp(row - firstEffectRow(), 0, effects);
+}
+
+bool EffectSlots::isInterestedInDragSource(const SourceDetails& details)
+{
+    return controller::browserItemFor(catalogueOrNone(session), details.description.toString()).has_value();
+}
+
+void EffectSlots::itemDragMove(const SourceDetails& details)
+{
+    const auto item = controller::browserItemFor(catalogueOrNone(session), details.description.toString());
+    // An instrument takes the instrument's row; an effect goes between effects.
+    const int row = item && item->isInstrument ? 0 : chainIndexAt(details.localPosition.y) + firstEffectRow();
+    if (row != dropRow)
+    {
+        dropRow = row;
+        repaint();
+    }
+}
+
+void EffectSlots::itemDragExit(const SourceDetails&)
+{
+    dropRow = -1;
+    repaint();
+}
+
+void EffectSlots::itemDropped(const SourceDetails& details)
+{
+    dropRow = -1;
+    repaint();
+    const auto item = controller::browserItemFor(catalogueOrNone(session), details.description.toString());
+    if (!item)
+        return;
+    const auto id = controller::addFromBrowser(
+        session, *item, {controller::BrowserTarget::Kind::chain, owner, chainIndexAt(details.localPosition.y)});
+    if (id == 0)
+        reportProblem();
+    else if (onOpen)
+        onOpen(id);
 }
 
 } // namespace daw::ui::desktop

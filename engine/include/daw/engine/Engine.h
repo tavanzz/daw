@@ -39,7 +39,8 @@ struct EngineCommand
         setLooping,
         resetTransport,
         countIn,
-        record
+        record,
+        panic
     };
 
     Type type = Type::play;
@@ -48,12 +49,14 @@ struct EngineCommand
     const RecordingSetup* recording = nullptr; ///< for record
 };
 
-/** A preview note from the piano roll: on (velocity above 0) or off. */
+/** A preview note from the piano roll: on (velocity above 0) or off; or the end of
+    every preview note of a track (or of every track). */
 struct PreviewCommand
 {
     juce::int64 track = 0;
     std::uint8_t key = 0;
     float velocity = 0.0f;
+    bool endsAll = false;
 };
 
 /** An arrangement with the mixer state that goes with it: what the message thread
@@ -151,6 +154,12 @@ public:
     void play();
     void pause();
     void stop();
+
+    /** Message thread. Panic, in order with the transport commands: every instrument
+        stops every voice at once (all notes off, all sound off) and every note the
+        engine holds for it (timeline, live input, previews) is forgotten. The
+        transport goes on; notes that start later play. Effects' tails ring on. */
+    void panic();
     void seek(juce::int64 position);
     void setLooping(bool shouldLoop);
     /** Stops and goes to 0 (for a new project). */
@@ -188,9 +197,15 @@ public:
     bool pushMidi(const midi::TimedMessage& message) noexcept { return midiInput.push(message); }
 
     /** Message thread. Plays key on the track (velocity 0 to 1, above 0) until
-        stopPreview(), through its instrument, at the next block. */
-    void startPreview(juce::int64 trackId, int key, float velocity);
-    void stopPreview(juce::int64 trackId, int key);
+        stopPreview(), through its instrument, at the next block. Stop and pause end
+        every preview note, and a track that is not heard plays none. False if the
+        queue is full (try again after the next block). */
+    bool startPreview(juce::int64 trackId, int key, float velocity);
+    bool stopPreview(juce::int64 trackId, int key);
+
+    /** Message thread. Ends every preview note of the track (midi::LiveEvent::
+        everyTrack: of every track) at the next block. False if the queue is full. */
+    bool stopAllPreviews(juce::int64 trackId);
 
     /** Message thread. Frees arrangements the audio thread no longer uses.
         setArrangement() calls it too; call it regularly (a UI timer is fine). */
@@ -262,6 +277,7 @@ private:
 
     void send(Command command);
     void apply(const Command& command) noexcept;
+    void applyPanic() noexcept;
     void takeNewSnapshot() noexcept;
     void adopt(Snapshot* incoming) noexcept;
     void finishCrossfade() noexcept;
@@ -335,6 +351,7 @@ private:
     std::array<midi::LiveEvent, maximumPendingMidi> liveEvents{};
     int liveEventCount = 0;
     bool liveSkipped = false; // a block went by without hearing live MIDI
+    bool releasePreviews = false; // stop or pause: every preview note ends
     bool liveMissed = false;  // this block could not render it
 
     // MIDI thread -> audio thread.

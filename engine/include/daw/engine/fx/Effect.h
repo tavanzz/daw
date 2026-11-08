@@ -38,6 +38,7 @@ struct ProcessSetup
     double sampleRate = 48000.0;
     int maximumBlockSize = 512; ///< process() never gets more samples
     int numChannels = 2;
+    bool offline = false; ///< rendering faster than real time (an export): plugins may take their time
 };
 
 /** Where the audio of a block is on the timeline, and the project's tempo: for
@@ -110,6 +111,11 @@ struct ProcessBlock
         for this block. A pointer different from the last block's means the old
         sample may be gone: stop reading it at once. */
     std::span<const Sample* const> samples;
+
+    /** The samples, within (0, numSamples), where an automated parameter's curve has
+        a point or the timeline jumps, sorted: where a value may step. Plugin adapters
+        cut their calls there, so that the plugin gets each step on its sample. */
+    std::span<const int> breakpoints;
 };
 
 /**
@@ -151,6 +157,12 @@ public:
 
     /** Audio thread. Processes block.numSamples samples of each channel in place. */
     virtual void process(const ProcessBlock& block) noexcept = 0;
+
+    /** Audio thread, instruments only: Panic. All notes off and all sound off: every
+        voice stops at once and the next process() starts with no note held (the
+        host forgets them too). A plugin adapter also sends the format's "all notes
+        off" and "all sound off". By default reset(). */
+    virtual void panic() noexcept { reset(); }
 
     /** Samples the output lags behind the input, at the prepared sample rate. */
     [[nodiscard]] virtual int getLatency() const noexcept { return 0; }

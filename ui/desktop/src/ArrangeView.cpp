@@ -1,5 +1,6 @@
 #include "daw/ui/desktop/ArrangeView.h"
 
+#include "daw/controller/PluginBrowser.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
@@ -7,16 +8,20 @@
 namespace daw::ui::desktop
 {
 
-// Headers and lanes side by side, so they scroll up and down together.
-class ArrangeView::TrackArea final : public juce::Component
+// Headers and lanes side by side, so they scroll up and down together. Items from
+// the plugin browser are dropped on a row (a track, or in the automation view a bus
+// or the master) or below the last one (a new track).
+class ArrangeView::TrackArea final : public juce::Component, public juce::DragAndDropTarget
 {
 public:
-    explicit TrackArea(ArrangeState& state)
-        : headers(state)
-        , lanes(state)
+    explicit TrackArea(ArrangeState& stateToUse)
+        : state(stateToUse)
+        , headers(stateToUse)
+        , lanes(stateToUse)
     {
         addAndMakeVisible(headers);
         addAndMakeVisible(lanes);
+        addChildComponent(highlight);
     }
 
     void resized() override
@@ -26,8 +31,75 @@ public:
         lanes.setBounds(area);
     }
 
+    [[nodiscard]] controller::BrowserTarget targetAt(int y) const
+    {
+        const int row = y / ArrangeState::laneHeight;
+        if (y < 0 || row >= state.numRows())
+            return {};
+        const auto owner = state.ownerOfRow(row);
+        if (owner.kind == controller::ChainOwner::Kind::track)
+            return {controller::BrowserTarget::Kind::track, owner};
+        return {controller::BrowserTarget::Kind::chain, owner, -1};
+    }
+
+    bool isInterestedInDragSource(const SourceDetails& details) override
+    {
+        return item(details).has_value();
+    }
+
+    void itemDragMove(const SourceDetails& details) override
+    {
+        const int rows = state.numRows();
+        const int row = std::clamp(details.localPosition.y / ArrangeState::laneHeight, 0, rows);
+        highlight.setBounds(0, row * ArrangeState::laneHeight, getWidth(), ArrangeState::laneHeight);
+        highlight.setVisible(true);
+        highlight.toFront(false);
+    }
+
+    void itemDragExit(const SourceDetails&) override { highlight.setVisible(false); }
+
+    void itemDropped(const SourceDetails& details) override
+    {
+        highlight.setVisible(false);
+        if (const auto dropped = item(details))
+        {
+            const auto id = controller::addFromBrowser(state.session, *dropped, targetAt(details.localPosition.y));
+            if (id != 0 && onAdded)
+                onAdded(id);
+            else if (id == 0 && onRefused)
+                onRefused(state.session.takeEditProblem());
+        }
+    }
+
+    std::function<void(model::ObjectId)> onAdded;
+    std::function<void(const juce::String& problem)> onRefused;
+
+    ArrangeState& state;
     TrackHeaderList headers;
     TrackLanes lanes;
+
+private:
+    // Where a browser item would go: the row's outline.
+    class Highlight final : public juce::Component
+    {
+    public:
+        Highlight() { setInterceptsMouseClicks(false, false); }
+
+        void paint(juce::Graphics& g) override
+        {
+            g.setColour(ThemedLookAndFeel::get(*this).colour(appearance::ColourRole::focus));
+            g.drawRect(getLocalBounds(), 2);
+        }
+    };
+
+    [[nodiscard]] std::optional<controller::BrowserItem> item(const SourceDetails& details) const
+    {
+        static const controller::PluginCatalogue none;
+        const auto* catalogue = state.session.getPluginCatalogue();
+        return controller::browserItemFor(catalogue != nullptr ? *catalogue : none, details.description.toString());
+    }
+
+    Highlight highlight;
 };
 
 ArrangeView::ArrangeView(controller::Session& session)
@@ -42,6 +114,14 @@ ArrangeView::ArrangeView(controller::Session& session)
     trackArea->lanes.onProblem = [this](const juce::String& title, const juce::String& message) {
         if (onProblem)
             onProblem(title, message);
+    };
+    trackArea->onAdded = [this](model::ObjectId effectId) {
+        if (onEffectAdded)
+            onEffectAdded(effectId);
+    };
+    trackArea->onRefused = [this](const juce::String& problem) {
+        if (onProblem && problem.isNotEmpty())
+            onProblem("It cannot go there", problem);
     };
 
     addAndMakeVisible(ruler);
@@ -173,6 +253,21 @@ void ArrangeView::resized()
 
     state.viewport.setWidth(std::max(1, contentWidth - ArrangeState::headerWidth));
     updateScrollBar();
+}
+
+juce::DragAndDropTarget& ArrangeView::getDropTargetForTesting() noexcept
+{
+    return *trackArea;
+}
+
+controller::BrowserTarget ArrangeView::getSelectedTrackTarget() const
+{
+    const auto& project = state.session.getProject();
+    for (const auto clipId : state.selection)
+        if (const auto location = project.findClip(clipId))
+            return {controller::BrowserTarget::Kind::track,
+                    controller::ChainOwner::track(project.getTrack(location->trackIndex).getId())};
+    return {};
 }
 
 void ArrangeView::paint(juce::Graphics& g)

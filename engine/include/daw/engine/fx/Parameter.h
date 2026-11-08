@@ -38,6 +38,9 @@ struct ParameterInfo
     juce::StringArray choices; ///< non-empty for a choice parameter
     bool automatable = true;
     juce::String group; ///< the section of an editor it belongs to; empty for none
+    /** Whether the host ramps the user's changes over 20 ms; plugins smooth their
+        own, so their parameters jump (as choices do). */
+    bool smoothed = true;
 
     [[nodiscard]] bool isChoice() const noexcept { return !choices.isEmpty(); }
 
@@ -74,6 +77,9 @@ public:
     [[nodiscard]] float toNormalised(float value) const noexcept;
     [[nodiscard]] bool isChoice() const noexcept { return choiceCount > 0; }
 
+    /** Whether a change jumps instead of ramping (a choice, or not smoothed). */
+    [[nodiscard]] bool jumps() const noexcept { return choiceCount > 0 || !smoothed; }
+
 private:
     ParameterScale scale = ParameterScale::linear;
     float minimum = 0.0f;
@@ -81,6 +87,7 @@ private:
     float logMinimum = 0.0f;
     float logRange = 0.0f;
     int choiceCount = 0;
+    bool smoothed = true;
 };
 
 } // namespace daw::engine::fx

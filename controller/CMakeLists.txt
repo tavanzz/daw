@@ -13,7 +13,14 @@ add_library(daw_controller STATIC
     src/MidiFiles.cpp
     src/MidiTakes.cpp
     src/NoteEditing.cpp
+    src/NotePreview.cpp
     src/PianoRollViewport.cpp
+    src/PluginBrowser.cpp
+    src/PluginCatalogue.cpp
+    src/PluginInstances.cpp
+    src/PluginLibrary.cpp
+    src/PluginLoads.cpp
+    src/PluginScanner.cpp
     src/RecordingController.cpp
     src/RecordingJournal.cpp
     src/SampleCache.cpp

@@ -83,6 +83,19 @@ int findBus(const Arrangement& arrangement, juce::int64 id, int hint) noexcept
 
 } // namespace
 
+void MixState::forgetNotes() noexcept
+{
+    for (auto& track : tracks)
+    {
+        if (track.notes != nullptr)
+            track.notes->forget();
+        if (track.live != nullptr)
+            track.live->forget();
+        if (track.previews != nullptr)
+            track.previews->forget();
+    }
+}
+
 MixState MixState::startingAt(const Arrangement& arrangement, int busBlockSize)
 {
     MixState state;
@@ -653,13 +666,15 @@ void Mixer::gatherNotes(const ArrangementTrack& track, MixState::TrackGains& gai
     else
         gains.notes->stop(0, noteEvents);
 
-    // Live input while monitoring says so; previews always, until the track goes.
+    // Live input while monitoring says so.
     const bool listens = !vanishing && (track.monitoring == InputMonitoring::on ||
                                         (track.monitoring == InputMonitoring::automatic &&
                                          track.armed));
     if (!listens || context.liveRestarts)
         gains.live->releaseAll(0, noteEvents);
-    if (vanishing)
+    // Previews play until their track goes or is not heard (muted, another soloed).
+    const bool previews = !vanishing && track.heard;
+    if (!previews)
         gains.previews->releaseAll(0, noteEvents);
 
     for (const auto& live : context.live)
@@ -672,7 +687,7 @@ void Mixer::gatherNotes(const ArrangementTrack& track, MixState::TrackGains& gai
         event.offset = offset;
         if (live.device < 0)
         {
-            if (live.track == track.id && !vanishing)
+            if (previews && live.isPreviewFor(track.id))
                 gains.previews->receive(event, noteEvents);
         }
         else if (listens && track.midiInput.accepts(live))
@@ -710,8 +725,10 @@ void Mixer::processChain(const EffectChain& chain, const Arrangement& arrangemen
                             }
                         });
 
+        int breakpointCount = 0;
         if (!slot.automation.empty())
         {
+            breakpointCount = findBreakpoints(slot, context, timelineStart, latency, numSamples);
             const auto count = std::min(slot.automation.size(), automationPointers.size());
             int lanes = 0;
             for (std::size_t p = 0; p < count; ++p)
@@ -728,6 +745,9 @@ void Mixer::processChain(const EffectChain& chain, const Arrangement& arrangemen
             }
             slotContext.automation = std::span<const float* const>(automationPointers.data(), count);
         }
+
+        slotContext.breakpoints = std::span<const int>(slotBreakpoints.data(),
+                                                       static_cast<std::size_t>(breakpointCount));
 
         // The notes go to the instruments (the one at the head of the chain, and one
         // being replaced while it fades out); effects ignore them.
@@ -762,6 +782,47 @@ void Mixer::forEachPosition(const MixContext& context, juce::int64 timelineStart
                                  callback(offset, length, stretch.position,
                                           stretch.kind == TimelineHistory::Kind::playing);
                              });
+}
+
+int Mixer::findBreakpoints(const ChainSlot& slot, const MixContext& context,
+                           juce::int64 timelineStart, int latency, int numSamples) noexcept
+{
+    int count = 0;
+    const auto add = [&](int offset) noexcept {
+        if (offset <= 0 || offset >= numSamples)
+            return;
+        // Sorted and unique, by insertion (a handful at most).
+        int i = count;
+        while (i > 0 && slotBreakpoints[static_cast<std::size_t>(i - 1)] > offset)
+            --i;
+        if ((i > 0 && slotBreakpoints[static_cast<std::size_t>(i - 1)] == offset) ||
+            count >= static_cast<int>(slotBreakpoints.size()))
+            return;
+        for (int j = count; j > i; --j)
+            slotBreakpoints[static_cast<std::size_t>(j)] = slotBreakpoints[static_cast<std::size_t>(j - 1)];
+        slotBreakpoints[static_cast<std::size_t>(i)] = offset;
+        ++count;
+    };
+
+    forEachPosition(context, timelineStart, latency, numSamples,
+                    [&](int offset, int length, juce::int64 position, bool running) {
+                        add(offset); // where the timeline jumps
+                        if (!running)
+                            return;
+                        for (const auto& curve : slot.automation)
+                        {
+                            if (curve == nullptr)
+                                continue;
+                            const auto& points = curve->getPoints();
+                            auto point = std::lower_bound(points.begin(), points.end(), position,
+                                                          [](const AutomationPoint& p, juce::int64 at) {
+                                                              return p.position < at;
+                                                          });
+                            for (; point != points.end() && point->position < position + length; ++point)
+                                add(offset + static_cast<int>(point->position - position));
+                        }
+                    });
+    return count;
 }
 
 void Mixer::fillCurve(const AutomationCurve& curve, const MixContext& context,

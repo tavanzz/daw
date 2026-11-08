@@ -20,6 +20,22 @@ bool EventBuffer::add(const Event& event) noexcept
     return true;
 }
 
+bool EventBuffer::removeNoteOn(std::int32_t noteId, int offset) noexcept
+{
+    for (int i = count - 1; i >= 0; --i)
+    {
+        const auto& event = storage[static_cast<std::size_t>(i)];
+        if (event.type == EventType::noteOn && event.noteId == noteId && event.offset == offset)
+        {
+            for (int j = i + 1; j < count; ++j)
+                storage[static_cast<std::size_t>(j - 1)] = storage[static_cast<std::size_t>(j)];
+            --count;
+            return true;
+        }
+    }
+    return false;
+}
+
 void EventBuffer::sort() noexcept
 {
     // Insertion sort: stable, allocates nothing (std::stable_sort may), and the

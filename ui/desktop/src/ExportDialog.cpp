@@ -70,6 +70,14 @@ public:
                     text << "it is clipped in the file. Lower the master volume and export "
                             "again.";
             }
+
+            // Plugins that could not load for the export were left out of it.
+            if (const auto& missing = job.getMissingPlugins(); !missing.isEmpty())
+            {
+                icon = juce::MessageBoxIconType::WarningIcon;
+                text << "\n\nLeft out, as they could not be loaded: " << missing.joinIntoString(", ")
+                     << " (effects passed the sound through, instruments were silent).";
+            }
         }
 
         showAlert(

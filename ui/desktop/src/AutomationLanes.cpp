@@ -3,10 +3,13 @@
 #include "daw/controller/AutomationEditing.h"
 #include "daw/engine/dsp/FaderLaw.h"
 #include "daw/engine/fx/BuiltInEffects.h"
+#include "daw/engine/plugins/PluginEffect.h"
 #include "daw/ui/desktop/EffectSlots.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <cmath>
+#include <functional>
+#include <vector>
 
 namespace daw::ui::desktop
 {
@@ -17,16 +20,48 @@ namespace
 constexpr float margin = 6.0f;
 constexpr float pointRadius = 4.0f;
 
-// The description of an effect's type, for its parameters' names and mappings.
+// The description of an effect's type, for its parameters' names and mappings: a
+// plugin's own while it is loaded.
 std::optional<engine::fx::EffectDescription> describe(const controller::Session& session,
                                                       model::ObjectId effectId)
 {
     const auto effect = session.getEffect(effectId);
     if (!effect)
         return std::nullopt;
+    if (effect->getType() == model::pluginEffectType)
+    {
+        if (const auto* plugin = session.findPlugin(effectId))
+            return plugin->getDescription();
+        return std::nullopt;
+    }
     if (auto made = engine::fx::createBuiltInEffect(effect->getType()))
         return made->getDescription();
     return std::nullopt;
+}
+
+// An effect's automatable parameters; a plugin's many in submenus of a few dozen.
+void addParameters(juce::PopupMenu& into, const engine::fx::EffectDescription& description,
+                   const std::function<void(juce::PopupMenu&, const engine::fx::ParameterInfo&)>& add)
+{
+    constexpr int perMenu = 40;
+    std::vector<const engine::fx::ParameterInfo*> shown;
+    for (const auto& info : description.parameters)
+        if (info.automatable)
+            shown.push_back(&info);
+    if (static_cast<int>(shown.size()) <= perMenu)
+    {
+        for (const auto* info : shown)
+            add(into, *info);
+        return;
+    }
+    for (std::size_t first = 0; first < shown.size(); first += perMenu)
+    {
+        const auto last = std::min(shown.size(), first + perMenu);
+        juce::PopupMenu part;
+        for (auto i = first; i < last; ++i)
+            add(part, *shown[i]);
+        into.addSubMenu(shown[first]->name + " ... " + shown[last - 1]->name, part);
+    }
 }
 
 } // namespace
@@ -64,7 +99,7 @@ juce::String AutomationLanes::targetName(const controller::Session& session,
         if (!effect || !description)
             return target.parameter;
         const int index = description->indexOf(target.parameter);
-        return effectTypeName(effect->getType()) + ": " +
+        return effectDisplayName(*effect) + ": " +
                (index >= 0 ? description->parameters[static_cast<std::size_t>(index)].name
                            : target.parameter);
     }
@@ -91,6 +126,8 @@ juce::String AutomationLanes::valueText(const controller::Session& session,
     if (const auto description = describe(session, target.object))
         if (const int index = description->indexOf(target.parameter); index >= 0)
         {
+            if (const auto* plugin = session.findPlugin(target.object))
+                return plugin->getParameterText(index, static_cast<float>(normalised));
             const auto& info = description->parameters[static_cast<std::size_t>(index)];
             return info.toText(info.fromNormalised(static_cast<float>(normalised)));
         }
@@ -139,19 +176,25 @@ void AutomationLanes::showTargetMenu(controller::Session& session, const control
                     for (const auto& info : description->parameters)
                         if (info.automatable)
                             groups.addIfNotAlreadyThere(info.group);
-                    for (const auto& group : groups)
+                    const auto addParameter = [&](juce::PopupMenu& into, const engine::fx::ParameterInfo& info) {
+                        add(into, info.name, model::AutomationTarget::effectParameter(instrument->getId(), info.id));
+                    };
+                    if (groups.size() <= 1)
                     {
-                        juce::PopupMenu section;
-                        for (const auto& info : description->parameters)
-                            if (info.automatable && info.group == group)
-                                add(section, info.name,
-                                    model::AutomationTarget::effectParameter(instrument->getId(), info.id));
-                        if (groups.size() == 1)
-                            sub = section;
-                        else
-                            sub.addSubMenu(group.isEmpty() ? juce::String("Other") : group, section);
+                        addParameters(sub, *description, addParameter);
                     }
-                    menu.addSubMenu("Instrument: " + effectTypeName(instrument->getType()), sub);
+                    else
+                    {
+                        for (const auto& group : groups)
+                        {
+                            juce::PopupMenu section;
+                            for (const auto& info : description->parameters)
+                                if (info.automatable && info.group == group)
+                                    addParameter(section, info);
+                            sub.addSubMenu(group.isEmpty() ? juce::String("Other") : group, section);
+                        }
+                    }
+                    menu.addSubMenu("Instrument: " + effectDisplayName(*instrument), sub);
                 }
 
     const auto effects = session.getEffects(owner);
@@ -162,10 +205,10 @@ void AutomationLanes::showTargetMenu(controller::Session& session, const control
         if (!description)
             continue;
         juce::PopupMenu sub;
-        for (const auto& info : description->parameters)
-            if (info.automatable)
-                add(sub, info.name, model::AutomationTarget::effectParameter(effect.getId(), info.id));
-        menu.addSubMenu(juce::String(e + 1) + ". " + effectTypeName(effect.getType()), sub);
+        addParameters(sub, *description, [&](juce::PopupMenu& into, const engine::fx::ParameterInfo& info) {
+            add(into, info.name, model::AutomationTarget::effectParameter(effect.getId(), info.id));
+        });
+        menu.addSubMenu(juce::String(e + 1) + ". " + effectDisplayName(effect), sub);
     }
 
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(near));
@@ -218,8 +261,11 @@ double AutomationLanes::fixedValue(const controller::ChainOwner& owner,
             {
                 const auto& info = description->parameters[static_cast<std::size_t>(index)];
                 const auto effect = state.session.getEffect(target.object);
+                // A plugin's parameter the model holds no value for: the plugin's own.
+                const auto* plugin = state.session.findPlugin(target.object);
+                const auto fallback = plugin != nullptr ? plugin->getParameter(index) : info.defaultValue;
                 return info.toNormalised(static_cast<float>(
-                    effect->getParameter(info.id).value_or(static_cast<double>(info.defaultValue))));
+                    effect->getParameter(info.id).value_or(static_cast<double>(fallback))));
             }
         return 0.0;
     }

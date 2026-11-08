@@ -1,5 +1,6 @@
 #include "daw/controller/ArrangementBuilder.h"
 #include "daw/controller/ExportJob.h"
+#include "daw/controller/NotePreview.h"
 #include "daw/controller/Session.h"
 
 #include "support/InstrumentRunner.h"
@@ -308,6 +309,72 @@ TEST_CASE("Previews play a note through the track's instrument", "[controller][m
     const auto off = fixture.play(2);
     CHECK(off.front() == 0.0f);
     CHECK(fixture.instrumentOf(track).getHeldCount() == 0);
+}
+
+TEST_CASE("A note preview ends where it started: mouse up, track change, closing, a full queue",
+          "[controller][midi]")
+{
+    Fixture fixture;
+    auto& session = fixture.session;
+    const auto keys = session.addMidiTrack("Keys", "test-instrument");
+    const auto bass = session.addMidiTrack("Bass", "test-instrument");
+    session.update();
+    fixture.play(2);
+    auto& first = fixture.instrumentOf(keys);
+    auto& second = fixture.instrumentOf(bass);
+
+    SECTION("fast drags, several keys between two blocks, released anywhere")
+    {
+        daw::controller::NotePreview preview(session);
+        juce::Random random(7);
+        for (int block = 0; block < 40; ++block)
+        {
+            for (int change = 0; change < 1 + block % 3; ++change)
+                preview.play(keys, 48 + random.nextInt(24), 100);
+            if (block % 5 == 4)
+                preview.stop();
+            fixture.play(1);
+        }
+        preview.stop();
+        fixture.play(2);
+    }
+    SECTION("a preview on another track, then the view closes")
+    {
+        auto preview = std::make_unique<daw::controller::NotePreview>(session);
+        preview->play(keys, 60, 100);
+        preview->play(bass, 40, 100);
+        fixture.play(1);
+        CHECK(first.getHeldCount() == 0);
+        CHECK(second.getHeldCount() == 1);
+        CHECK(preview->getTrack() == bass);
+        preview.reset();
+        fixture.play(2);
+    }
+    SECTION("stop ends the note; the preview's later note-off goes nowhere")
+    {
+        daw::controller::NotePreview preview(session);
+        preview.play(keys, 60, 100);
+        fixture.play(1);
+        CHECK(first.getHeldCount() == 1);
+        session.stop();
+        fixture.play(1);
+        CHECK(first.getHeldCount() == 0);
+        preview.stop();
+        fixture.play(1);
+    }
+    SECTION("more changes than the engine's queue holds between two blocks")
+    {
+        daw::controller::NotePreview preview(session);
+        for (int i = 0; i < 1000; ++i)
+            preview.play(keys, 40 + i % 40, 100);
+        preview.stop();
+        fixture.play(4);
+    }
+    CHECK(first.getHeldCount() == 0);
+    CHECK(second.getHeldCount() == 0);
+    CHECK(first.wellFormed);
+    CHECK(second.wellFormed);
+    CHECK(fixture.heapOperations == 0);
 }
 
 TEST_CASE("A sampler plays its file through the session, and the export holds the same",

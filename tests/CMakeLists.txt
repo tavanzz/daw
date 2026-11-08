@@ -1,5 +1,7 @@
 include(Catch)
 
+add_subdirectory(plugins)
+
 add_executable(daw_tests
     support/Phase3Mixer.cpp
     support/RealtimeCheck.cpp
@@ -7,6 +9,7 @@ add_executable(daw_tests
     support/SimulatedDevice.cpp
     support/TestMain.cpp
     support/TestAudioFiles.cpp
+    support/TestPlugins.cpp
     appearance/AnimationSettingsTests.cpp
     appearance/BundledFontsTests.cpp
     appearance/ColourTests.cpp
@@ -21,6 +24,10 @@ add_executable(daw_tests
     controller/MidiFileTests.cpp
     controller/MidiRecordingSessionTests.cpp
     controller/NoteEditingTests.cpp
+    controller/PluginCatalogueTests.cpp
+    controller/PluginLoadsTests.cpp
+    controller/PluginScannerTests.cpp
+    controller/PluginSessionTests.cpp
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp
@@ -52,6 +59,8 @@ add_executable(daw_tests
     engine/MidiRecordingTests.cpp
     engine/MixerTests.cpp
     engine/MonitoringTests.cpp
+    engine/PluginEffectTests.cpp
+    engine/PluginHostingTests.cpp
     engine/RecorderTests.cpp
     engine/RecordingWriterTests.cpp
     engine/SamplerTests.cpp
@@ -72,6 +81,17 @@ target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::engine daw::model
     Catch2::Catch2)
 daw_enable_warnings(daw_tests)
+# The test plugins are built with the tests, which find them here.
+add_dependencies(daw_tests daw_test_plugins)
+if(APPLE)
+    target_link_libraries(daw_tests PRIVATE daw_test_audio_units)
+endif()
+target_compile_definitions(daw_tests PRIVATE "DAW_TEST_PLUGINS_DIR=\"${DAW_TEST_PLUGINS_DIR}\"")
+# The scanner program (app/scanner): the tests run it, as the app does, to scan plugins
+# in a process of its own; they link none of the app's code.
+add_dependencies(daw_tests daw_plugin_scanner)
+target_compile_definitions(daw_tests PRIVATE
+    "DAW_PLUGIN_SCANNER=\"$<TARGET_FILE:daw_plugin_scanner>\"")
 
 # UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
 # Linux CI, on a virtual display).
@@ -83,6 +103,7 @@ add_executable(daw_ui_tests
     ui/AnimationClockTests.cpp
     ui/MidiUiTests.cpp
     ui/PanelsTests.cpp
+    ui/PluginUiTests.cpp
     ui/PrerenderedImagesTests.cpp
     ui/ThemeManagerTests.cpp
     ui/ThemeSwitchTests.cpp
@@ -92,6 +113,9 @@ target_include_directories(daw_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_ui_tests PRIVATE daw::ui_desktop daw::appearance daw::controller
     daw::engine daw::model daw::juce Catch2::Catch2)
 daw_enable_warnings(daw_ui_tests)
+# The VST3 test plugins (support/TestPlugins.h, its inline parts only).
+add_dependencies(daw_ui_tests daw_test_plugins)
+target_compile_definitions(daw_ui_tests PRIVATE "DAW_TEST_PLUGINS_DIR=\"${DAW_TEST_PLUGINS_DIR}\"")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # The virtual display in CI has no window manager (see WindowManagerAtoms.h).
@@ -117,6 +141,14 @@ daw_enable_warnings(daw_fx_bench)
 add_executable(daw_instrument_bench bench/InstrumentBenchmark.cpp)
 target_link_libraries(daw_instrument_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_instrument_bench)
+
+# What hosting a plugin costs on top of the plugin (with the VST3 test plugins).
+add_executable(daw_plugin_bench bench/PluginBenchmark.cpp)
+target_include_directories(daw_plugin_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(daw_plugin_bench PRIVATE daw::engine daw::juce)
+target_compile_definitions(daw_plugin_bench PRIVATE "DAW_TEST_PLUGINS_DIR=\"${DAW_TEST_PLUGINS_DIR}\"")
+add_dependencies(daw_plugin_bench daw_test_plugins)
+daw_enable_warnings(daw_plugin_bench)
 
 # The interface's cost per theme and animation level, in a window of its own (an app,
 # so that the system draws it as it draws the real one). See the source.
@@ -173,6 +205,13 @@ add_test(NAME architecture.detects_appearance_include_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_appearance_include_in_engine PROPERTIES
     PASS_REGULAR_EXPRESSION "engine/src/UsesAppearance\\.cpp: <daw/appearance/Theme\\.h>")
+
+add_test(NAME architecture.detects_plugin_editors_in_engine
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_plugin_editors_in_engine PROPERTIES
+    PASS_REGULAR_EXPRESSION
+    "engine/src/UsesPluginEditors\\.cpp: <juce_audio_processors/juce_audio_processors\\.h>"
+    FAIL_REGULAR_EXPRESSION "HostsPlugins")
 
 # No literal colours or fonts in the desktop UI's components (cmake/CheckUiLiterals.cmake).
 set(check_ui_literals "${PROJECT_SOURCE_DIR}/cmake/CheckUiLiterals.cmake")

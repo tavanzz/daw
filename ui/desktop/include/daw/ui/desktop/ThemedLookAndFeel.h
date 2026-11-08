@@ -318,8 +318,16 @@ public:
 
     /** The list behind a strip's insert or send slots. */
     void drawSlotList(juce::Graphics& g, juce::Rectangle<float> area) const;
+    /** What an effect slot shows besides its name. */
+    enum class SlotMark
+    {
+        none,
+        failed, ///< silenced after NaN or infinity
+        slow,   ///< a plugin too slow for the audio
+        absent  ///< a plugin's placeholder: loading, missing, failed or kept from loading
+    };
     void drawEffectSlot(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& name,
-                        bool bypassed, bool failed) const;
+                        bool bypassed, SlotMark mark) const;
     /** A send: its bus, and its level as a bar (automation's colour when automated). */
     void drawSendSlot(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& name,
                       float levelProportion, bool automated) const;
