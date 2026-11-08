@@ -8,6 +8,8 @@
 #include "daw/engine/io/AudioDeviceHost.h"
 #include "daw/services/AppLog.h"
 #include "daw/services/CrashReporting.h"
+#include "daw/services/UpdateChecker.h"
+#include "daw/services/UpdateInstaller.h"
 #include "daw/services/UserSettings.h"
 #include "daw/ui/desktop/MainWindow.h"
 #include "daw/ui/desktop/ThemeManager.h"
@@ -82,6 +84,10 @@ private:
     [[nodiscard]] services::AppLog::Options logOptions(const juce::File& settingsFolder) const;
     void logStart(const juce::StringArray& crashedPlugins);
     void startCrashReports(const juce::StringArray& crashedPlugins);
+    [[nodiscard]] std::unique_ptr<services::UpdateChecker> makeUpdateChecker() const;
+    [[nodiscard]] ui::desktop::AppServices appServices();
+    void installUpdate(std::function<void(const juce::String&)> onProblem);
+    void watchUpdates();
     void logPlugins();
     void logProject();
 
@@ -100,6 +106,7 @@ private:
     engine::Engine engine;
     engine::io::AudioDeviceHost deviceHost{engine};
     controller::Session session{engine, sessionOptions()};
+    std::unique_ptr<services::UpdateChecker> updates;
     std::unique_ptr<ui::desktop::ThemeManager> themes; // the window draws with its looks
     std::unique_ptr<ui::desktop::MainWindow> window;
 
@@ -108,6 +115,11 @@ private:
     bool shownUnsaved = false;
     juce::String loggedDevice, loggedMidiInputs;
     bool loggedScanning = false;
+    int ticks = 0;               // timer ticks since the start (the check at launch waits)
+    int watchedUpdates = -1;     // the update status last looked at
+    bool offeredUpdate = false;  // a release found at launch is offered once
+    std::unique_ptr<juce::Thread> updatePreparation;
+    juce::StringArray relaunchArguments; // what the new version starts with after an update
 
     // Inputs: asking the user, or the device has none (until the device changes).
     bool askingForInputs = false;

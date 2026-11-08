@@ -941,7 +941,7 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         return failure(0, "the file has no valid format version.");
 
     if (*version > newestVersion)
-        return failure(*version, "the project was saved by a newer version of the app (file format " +
+        return failure(*version, "the project was " + juce::String(newerFormatMessage) + " (file format " +
                                      juce::String(*version) + "; this version reads up to " +
                                      juce::String(newestVersion) +
                                      "). Update the app to open it.");

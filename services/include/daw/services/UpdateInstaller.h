@@ -68,6 +68,9 @@ public:
     /** The installer's command line on Windows (Inno Setup options). */
     [[nodiscard]] static juce::String windowsInstallerArguments(const Installation& installation);
 
+    /** This process's id, for finishAfterQuit(). */
+    [[nodiscard]] static int currentProcessId();
+
     /** The team that signed a macOS bundle ("" if unsigned or ad-hoc). */
     [[nodiscard]] static juce::String signingTeam(const juce::File& bundle);
 

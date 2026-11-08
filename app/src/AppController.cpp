@@ -2,6 +2,7 @@
 
 #include "daw/engine/io/MicrophoneAccess.h"
 #include "daw/services/BuildInfo.h"
+#include "daw/services/Ed25519.h"
 #include "daw/ui/desktop/Alerts.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -95,7 +96,8 @@ AppController::AppController(const juce::String& name, const juce::File& setting
 
     window = std::make_unique<ui::desktop::MainWindow>(applicationName, session,
                                                        deviceHost.getDeviceManager(), *themes, &plugins);
-    view().setAppServices({log.getFolder()});
+    updates = makeUpdateChecker();
+    view().setAppServices(appServices());
 
     auto& positions = view().getPluginWindowPositions();
     positions = ui::desktop::WindowPositions::fromJson(settings.getPluginWindows());
@@ -215,6 +217,124 @@ void AppController::startCrashReports(const juce::StringArray& crashedPlugins)
                              (!crashReports->canSend()     ? ", this build sends none"
                               : options.sendAllowed        ? ", sent (the user allowed it)"
                                                            : ", not sent (the user has not allowed it)"));
+}
+
+std::unique_ptr<services::UpdateChecker> AppController::makeUpdateChecker() const
+{
+    const auto& build = services::buildInfo();
+    services::UpdateChecker::Options options;
+    // For checking the updater by hand or in the release checks: another version to start
+    // from, another manifest to read. Harmless: what gets installed still needs a valid
+    // signature by the key built into the app.
+    options.currentVersion = juce::SystemStats::getEnvironmentVariable("DAW_PRETEND_VERSION", build.version);
+    options.feedOverride = juce::SystemStats::getEnvironmentVariable("DAW_UPDATE_FEED", {});
+    options.bundleId = build.bundleId;
+    options.publicKey = services::updatePublicKey();
+    options.repositoryUrl = build.repositoryUrl;
+    options.downloadFolder = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                 .getChildFile(applicationName + " Updates");
+    if (options.currentVersion != build.version || options.feedOverride.isNotEmpty())
+        juce::Logger::writeToLog("Updates: pretending to be " + options.currentVersion + ", reading " +
+                                 (options.feedOverride.isNotEmpty() ? options.feedOverride : juce::String("GitHub")));
+    return std::make_unique<services::UpdateChecker>(options);
+}
+
+ui::desktop::AppServices AppController::appServices()
+{
+    ui::desktop::AppServices services;
+    services.logFolder = log.getFolder();
+    const auto executable = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+#if JUCE_MAC
+    const auto bundle = executable.getParentDirectory().getParentDirectory().getParentDirectory();
+    services.licencesFolder = bundle.getChildFile("Contents/Resources/Licences");
+    const auto team = services::UpdateInstaller::signingTeam(bundle);
+    services.signature = team.isNotEmpty() ? "Signed with Developer ID (team " + team + ") and notarised by Apple"
+                                           : juce::String("Not signed");
+#else
+    services.licencesFolder = executable.getSiblingFile("Licences");
+#endif
+    services.settings = &settings;
+    services.updates = updates.get();
+    services.crashReports = crashReports.get();
+    services.updateInstallProblem = services::UpdateInstaller::describeRunningApp().whyNot;
+    if (services::updatePublicKey().isEmpty())
+        services.updateInstallProblem = "this build cannot check the signature of updates";
+    services.installUpdate = [this](std::function<void(const juce::String&)> onProblem) {
+        installUpdate(std::move(onProblem));
+    };
+    return services;
+}
+
+void AppController::installUpdate(std::function<void(const juce::String&)> onProblem)
+{
+    if (session.isRecording())
+    {
+        onProblem("stop the recording first, then update");
+        return;
+    }
+    const auto status = updates->getStatus();
+    if (status.state != services::UpdateChecker::State::ready || updatePreparation != nullptr)
+        return;
+
+    // Unsaved changes first; then the update is got ready off the message thread (a disk
+    // image takes seconds), and the app quits for the helper to finish it.
+    view().askToSaveChanges([this, onProblem, download = status.downloadedFile] {
+        juce::Logger::writeToLog("Updates: installing " + download.getFileName());
+        auto installer = std::make_shared<services::UpdateInstaller>(services::UpdateInstaller::describeRunningApp());
+
+        struct Preparation final : juce::Thread
+        {
+            std::function<void()> job;
+            Preparation() : juce::Thread("Update preparation") {}
+            void run() override { job(); }
+        };
+        auto preparation = std::make_unique<Preparation>();
+        preparation->job = [this, installer, download, onProblem, stillHere = alive] {
+            const auto problem = installer->prepare(download);
+            juce::MessageManager::callAsync([this, installer, problem, onProblem, stillHere] {
+                if (!*stillHere)
+                    return;
+                if (problem.isEmpty() &&
+                    installer->finishAfterQuit(services::UpdateInstaller::currentProcessId(), relaunchArguments))
+                {
+                    juce::Logger::writeToLog("Updates: ready, quitting for the new version to start");
+                    juce::JUCEApplication::getInstance()->quit();
+                    return;
+                }
+                juce::Logger::writeToLog("Updates: cannot install: " + problem);
+                updatePreparation.reset();
+                onProblem(problem.isNotEmpty() ? problem : juce::String("the update could not be started"));
+            });
+        };
+        preparation->startThread();
+        updatePreparation = std::move(preparation);
+    });
+}
+
+void AppController::watchUpdates()
+{
+    // The check at launch, once the window has settled.
+    ++ticks;
+    if (ticks == 5 * updateRateHz && settings.getUpdatePreferences().checkAtLaunch)
+        updates->check(settings.getUpdatePreferences(), false);
+
+    if (updates->getRevision() == watchedUpdates)
+        return;
+    watchedUpdates = updates->getRevision();
+    const auto status = updates->getStatus();
+    using State = services::UpdateChecker::State;
+    if (status.state == State::failed)
+        juce::Logger::writeToLog("Updates: " + status.problem);
+    if (status.state == State::available && status.release)
+    {
+        juce::Logger::writeToLog("Updates: " + status.release->version.toString() + " is available");
+        // Found at launch: offered once, unless the user asked anyway.
+        if (!status.manual && !offeredUpdate)
+        {
+            offeredUpdate = true;
+            view().showUpdatePanel();
+        }
+    }
 }
 
 void AppController::logProject()
@@ -385,6 +505,7 @@ void AppController::timerCallback()
     }
 
     updateWindowTitle();
+    watchUpdates();
 }
 
 } // namespace daw::app

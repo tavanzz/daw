@@ -158,6 +158,23 @@ Modules with one-way dependencies:
   to the handlers it found). `daw_crash_probe` (tests) crashes on purpose; the test
   reads the report of the next start and checks that it names neither the user's home,
   nor the computer, nor a project. `docs/PRIVACY.md` says what is sent and kept.
+- Help menu, About and updates in the desktop UI (Phase 8): the app hands the UI an
+  `AppServices` (log folder, licences folder, how the copy is signed, the user
+  settings, the update checker, crash reporting, why this copy cannot update itself, and
+  `installUpdate`). Help has Check for Updates..., Check for Updates at Launch, Include
+  Pre-releases, Send Crash Reports (off without a DSN), Privacy... (the repository's
+  `docs/PRIVACY.md`) and Open Log Folder; About and Check for Updates are in the
+  application menu on macOS, at the top of Help elsewhere. `AboutPanel` shows the build
+  (version, commit, platform, the project format, network protocol and settings
+  versions, the signature), links, Steinberg's VST trademark and every licence shipped
+  in `Licences/` (the app's own, `THIRD_PARTY.md`, each component's). `UpdatePanel`
+  shows the checker's status and the release notes; "Update Now" downloads, verifies and
+  installs in one click, "Skip This Version" saves the version, "Later" closes; a copy
+  that cannot replace itself offers the download page. `AppController` checks 5 s after
+  launch when the user wants it and offers a release found then once; installing refuses
+  while recording, offers to save, prepares the update on a thread of its own, then
+  calls `finishAfterQuit()` and quits. A project from a newer version
+  (`model::newerFormatMessage`) is refused with a "Check for Updates" button.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1808,10 +1825,11 @@ Windows code signing until an account exists, ASIO.
 - [x] 6. Installing updates on each platform and relaunching
 - [x] 7. Crash reports: sentry-native (inproc), consent, scrubbing, local reports and an
       upload queue, the crash marker chained; `docs/PRIVACY.md`
-- [ ] 8. Desktop UI: Help menu, About window with the licences, update panel (updates
-      postponed while recording or exporting), newer projects offering an update;
-      `--update-test`; themed, UI tests in every theme
-- [ ] 9. Desktop UI: first launch (output device, theme, consent); `--smoke-test`
+- [x] 8. Desktop UI: Help menu, About window with the licences, update panel (updates
+      refused while recording), newer projects offering an update; themed, UI tests in
+      every theme
+- [ ] 9. Desktop UI: first launch (output device, theme, consent); `--smoke-test` and
+      `--update-test` for the release checks
 - [ ] 10. macOS packaging: hardened runtime, minimal entitlements, signing, notarisation,
       stapling, .dmg; ad-hoc signing without secrets; all of this Mac's plugins scanned by
       the hardened app

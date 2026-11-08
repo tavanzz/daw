@@ -81,6 +81,12 @@ public:
         openWithoutPlugins,
         showPluginManager,
         openLogFolder,
+        showAbout,
+        checkForUpdates,
+        toggleCheckAtLaunch,
+        toggleIncludePreReleases,
+        toggleCrashReports,
+        showPrivacy,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8
@@ -103,6 +109,9 @@ public:
 
     /** What the app provides for the Help menu (log folder, ...). */
     void setAppServices(AppServices servicesToUse);
+
+    /** Shows the update panel (the app does when a check at launch found a release). */
+    void showUpdatePanel();
 
     void showError(const juce::String& title, const juce::String& message);
 
@@ -188,6 +197,8 @@ private:
     std::unique_ptr<PanelWindow> previewsWindow;
     std::unique_ptr<PanelWindow> animationsWindow;
     std::unique_ptr<PanelWindow> pluginManagerWindow;
+    std::unique_ptr<PanelWindow> aboutWindow;
+    std::unique_ptr<PanelWindow> updateWindow;
     StatusBar statusBar{session};
     PluginBrowserPanel pluginBrowser;
     bool browserVisible = false;

@@ -32,7 +32,13 @@ MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& ses
 #if JUCE_MAC
     // The macOS menu bar belongs to the application (none in the UI tests).
     if (juce::JUCEApplicationBase::getInstance() != nullptr)
-        juce::MenuBarModel::setMacMainMenu(this);
+    {
+        // About and Check for Updates belong in the application menu on macOS.
+        juce::PopupMenu applicationMenu;
+        applicationMenu.addCommandItem(&commandManager, MainComponent::showAbout);
+        applicationMenu.addCommandItem(&commandManager, MainComponent::checkForUpdates);
+        juce::MenuBarModel::setMacMainMenu(this, &applicationMenu);
+    }
 #else
     setMenuBar(this);
 #endif
@@ -180,6 +186,17 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::toggleAllAnimations);
         break;
     case 5:
+#if !JUCE_MAC
+        add(MainComponent::showAbout);
+        menu.addSeparator();
+#endif
+        add(MainComponent::checkForUpdates);
+        add(MainComponent::toggleCheckAtLaunch);
+        add(MainComponent::toggleIncludePreReleases);
+        menu.addSeparator();
+        add(MainComponent::toggleCrashReports);
+        add(MainComponent::showPrivacy);
+        menu.addSeparator();
         add(MainComponent::openLogFolder);
         break;
     default:

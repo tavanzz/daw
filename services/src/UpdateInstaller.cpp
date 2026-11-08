@@ -1,5 +1,11 @@
 #include "daw/services/UpdateInstaller.h"
 
+#if JUCE_WINDOWS
+ #include <windows.h>
+#else
+ #include <unistd.h>
+#endif
+
 namespace daw::services
 {
 
@@ -126,6 +132,15 @@ juce::String UpdateInstaller::prepare(const juce::File& download)
     default:
         return "this copy of the app cannot be updated in place";
     }
+}
+
+int UpdateInstaller::currentProcessId()
+{
+#if JUCE_WINDOWS
+    return static_cast<int>(GetCurrentProcessId());
+#else
+    return static_cast<int>(getpid());
+#endif
 }
 
 juce::String UpdateInstaller::signingTeam(const juce::File& bundle)
