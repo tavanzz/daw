@@ -112,6 +112,18 @@ Modules with one-way dependencies:
   cryptographic random source, key file readable by its owner only), prints the public
   key, signs payloads, verifies manifests and hashes files. Tests: RFC 8032's vectors,
   another key, a changed payload, a changed file.
+- Update checks (Phase 8): `services::UpdateChecker` works on a thread of its own and
+  every UI polls `getStatus()` (state idle, checking, upToDate, available, downloading,
+  ready or failed; the release, whether it has a file for this platform, the progress,
+  the problem, the downloaded file; `getRevision()` changes with it). The stable channel
+  reads `<repository>/releases/latest/download/update.json` (GitHub's redirect, no API);
+  the pre-release channel asks GitHub's releases API for the newest release (by version,
+  drafts left out) that has an update.json; `Options::feedOverride` reads one manifest
+  instead (tests, `DAW_UPDATE_FEED`). A release is offered only for this app, newer than
+  the running version (never a downgrade) and, unless the user asked, not skipped. The
+  download (`services::http`: JUCE's URL with redirects, a timeout, progress and cancel;
+  `file://` for tests; the User-Agent "DAW/<version>") goes to a ".part" file and counts
+  only with the manifest's size and SHA-256. Tests run local feeds of signed manifests.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1757,7 +1769,7 @@ Windows code signing until an account exists, ASIO.
       Log Folder
 - [x] 4. Signed update manifests: Monocypher (Ed25519), SHA-256, `update.json`, semantic
       versions, `daw_update_tool` (keygen, sign, verify)
-- [ ] 5. Update checks and downloads: stable and pre-release channels, check at launch,
+- [x] 5. Update checks and downloads: stable and pre-release channels, check at launch,
       skipped versions, progress, cancel, verification
 - [ ] 6. Installing updates on each platform and relaunching; postponed while recording
       or exporting; `--update-test`

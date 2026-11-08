@@ -16,7 +16,9 @@ add_library(daw_services STATIC
     src/AppLog.cpp
     src/BuildInfo.cpp
     src/Ed25519.cpp
+    src/Http.cpp
     src/SemanticVersion.cpp
+    src/UpdateChecker.cpp
     src/UpdateManifest.cpp
     src/UserSettings.cpp)
 add_library(daw::services ALIAS daw_services)
