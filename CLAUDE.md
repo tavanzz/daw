@@ -1926,11 +1926,12 @@ Windows code signing until an account exists, ASIO.
       downgrade refused)
 - [x] 15. Licences and documents: LICENSE, README, `docs/THIRD_PARTY.md`,
       `docs/RELEASING.md` (accounts and secrets), `docs/PRIVACY.md`
-- [ ] 16. Trial release candidates (`v0.8.0-rc.1`, published 2026-11-08 by the workflow
+- [x] 16. Trial release candidates (`v0.8.0-rc.1`, published 2026-11-08 by the workflow
       with every check green on the three platforms, unsigned, with a throwaway update
-      key; `rc.2` and `rc.3` once the update key is set); practical tests in
-      `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from one version to
-      the next, a friend on Windows); version 0.8.0
+      key; `rc.2` and `rc.3` the same day, signed with the project's update key, their
+      `update.json` checked against `DAW_UPDATE_PUBLIC_KEY`); practical tests in
+      `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from rc.2 to rc.3, a
+      friend on Windows); version 0.8.0
 - [ ] Practical tests (`docs/INSTALL_TESTS.md`)
 
 Phase 8 decisions (agreed before starting):

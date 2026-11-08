@@ -8,8 +8,9 @@ dialogs, the first launch, the update panel.
 
 They use two pre-releases built with the update key (docs/RELEASING.md, step 1), from
 https://github.com/tavanzz/daw/releases: `v0.8.0-rc.2` and `v0.8.0-rc.3`. (`v0.8.0-rc.1`
-was the pipeline's first trial, signed with a throwaway key: it cannot update itself.) Before starting on a Mac where DAW ran before,
-keep your settings aside, so that you see what a new user sees:
+was the pipeline's first trial, signed with a throwaway key: it cannot update itself.)
+Before starting on a Mac where DAW ran before, keep your settings aside, so that you see
+what a new user sees:
 
 ```bash
 mv ~/Library/Application\ Support/DAW ~/Library/Application\ Support/DAW.before-tests
