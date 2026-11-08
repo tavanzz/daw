@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The project file type, for desktops that read the AppImage's MIME information. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-dawproject">
+    <comment>DAW project</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.dawproject"/>
+  </mime-type>
+</mime-info>

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DAW
+GenericName=Digital Audio Workstation
+Comment=Record, arrange and mix music
+Exec=DAW %f
+Icon=io.github.tavanzz.daw
+Categories=AudioVideo;Audio;Music;
+MimeType=application/x-dawproject;
+Terminal=false
