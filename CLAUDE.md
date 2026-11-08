@@ -69,6 +69,21 @@ Modules with one-way dependencies:
   Windows programs carry their C++ runtime (`CMAKE_MSVC_RUNTIME_LIBRARY`, static, for
   every target). On Linux JUCE does HTTPS with libcurl, opened only when first used
   (`JUCE_LOAD_CURL_SYMBOLS_LAZILY`): building needs its header, running does not.
+- User settings (Phase 8): `services::UserSettings` is the one place that reads and
+  writes `DAW.settings` (JUCE's PropertiesFile XML, in `UserSettings::defaultFolder()`:
+  `~/Library/Application Support/DAW` on macOS, `%APPDATA%\DAW`, `~/.config/DAW`), with
+  typed values: audio device, MIDI inputs switched off, appearance (the appearance
+  module's JSON), plugin window positions, the last project, latency offsets per device
+  pair and rate, what the first launch has decided, crash-report consent, update
+  preferences. Versioned like project files: "settingsVersion" (`currentSettingsVersion`)
+  and a chain of migrations run on opening (0, as v0.7.0 wrote it, to 1: the offsets
+  gathered into one JSON object, a device or theme already there counts as chosen).
+  Settings from a newer version are read as far as understood; their version is never
+  lowered and unknown keys stay. Any change to what a key holds bumps the version and
+  adds a migration, with a test that opens the previous version's file. `--settings-dir=`
+  gives a run settings of its own (the plugin catalogue and the crash marker live next
+  to them), and such a run never hands over to a running copy. `Plugins.json` from a
+  newer version keeps its folders and favourites and its plugins are scanned again.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1707,7 +1722,7 @@ Windows code signing until an account exists, ASIO.
       rules, `BuildInfo` (version with the tag's suffix, commit, date, signed or not),
       bundle id, app icon, `.dawproject` document type, `--version`,
       `model::networkProtocolVersion`, static MSVC runtime, libcurl loaded lazily on Linux
-- [ ] 2. Versioned user settings: `services::UserSettings`, migration from version 0
+- [x] 2. Versioned user settings: `services::UserSettings`, migration from version 0
       (v0.7.0), newer settings read without being downgraded, the plugin catalogue's
       version, `--settings-dir`
 - [ ] 3. Local log: one file per session, rotation, the home folder masked; Help > Open

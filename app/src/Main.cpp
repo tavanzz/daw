@@ -15,11 +15,24 @@
 namespace
 {
 
+// The value of an option "--name=value" on the command line (quotes removed), if given.
+juce::String optionValue(const juce::String& commandLine, const juce::String& name)
+{
+    for (const auto& argument : juce::StringArray::fromTokens(commandLine, true))
+    {
+        const auto text = argument.unquoted();
+        if (text.startsWith(name + "="))
+            return text.fromFirstOccurrenceOf("=", false, false).unquoted();
+    }
+    return {};
+}
+
 // Options that make a run of its own (they never hand over to a running copy of the app):
-// printing the version, and the diagnostic runs that the release checks make.
+// printing the version, and runs with settings of their own (--settings-dir=<folder>),
+// such as the release checks make.
 bool isSeparateRun(const juce::String& commandLine)
 {
-    return commandLine.contains("--version");
+    return commandLine.contains("--version") || optionValue(commandLine, "--settings-dir").isNotEmpty();
 }
 
 // "DAW 0.8.0 (3f2a9c1b7e04, Release, macOS arm64)" on the console that started the app.
@@ -57,7 +70,11 @@ public:
             return;
         }
 
-        controller = std::make_unique<daw::app::AppController>(getApplicationName());
+        // Empty: the user's own settings folder.
+        const auto settingsPath = optionValue(commandLine, "--settings-dir");
+        const auto settingsFolder = settingsPath.isEmpty() ? juce::File()
+                                    : juce::File::getCurrentWorkingDirectory().getChildFile(settingsPath);
+        controller = std::make_unique<daw::app::AppController>(getApplicationName(), settingsFolder);
         openFromCommandLine(commandLine);
     }
 
@@ -94,8 +111,11 @@ private:
                 continue;
             }
 
-            const juce::File file(text);
-            if (!opened && juce::File::isAbsolutePath(text) && file.existsAsFile())
+            // Other options are not files; only absolute paths make a juce::File.
+            if (opened || text.startsWith("--") || !juce::File::isAbsolutePath(text))
+                continue;
+
+            if (const juce::File file(text); file.existsAsFile())
             {
                 controller->openFile(file);
                 opened = true;

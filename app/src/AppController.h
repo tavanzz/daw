@@ -6,10 +6,10 @@
 #include "daw/controller/Session.h"
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/AudioDeviceHost.h"
+#include "daw/services/UserSettings.h"
 #include "daw/ui/desktop/MainWindow.h"
 #include "daw/ui/desktop/ThemeManager.h"
 
-#include <juce_data_structures/juce_data_structures.h>
 #include <juce_events/juce_events.h>
 
 #include <memory>
@@ -36,12 +36,17 @@ namespace daw::app
     to (also those plugged in later) unless switched off in the device settings,
     which the user settings remember.
 
+    The user settings (services::UserSettings) are in the user's settings folder, or in
+    a folder of its own for diagnostic runs (--settings-dir=), with everything else the
+    app keeps there (plugin catalogue, crash marker).
+
     Message thread only.
 */
 class AppController final : private juce::ChangeListener, private juce::Timer
 {
 public:
-    explicit AppController(const juce::String& applicationName);
+    /** `settingsFolder`: where the settings live; empty for the user's own. */
+    AppController(const juce::String& applicationName, const juce::File& settingsFolder);
     ~AppController() override;
 
     AppController(const AppController&) = delete;
@@ -57,8 +62,7 @@ public:
     void requestQuit();
 
 private:
-    [[nodiscard]] static juce::PropertiesFile::Options settingsOptions(const juce::String& name);
-    [[nodiscard]] static controller::PluginLibrary::Options libraryOptions(const juce::String& name);
+    [[nodiscard]] static controller::PluginLibrary::Options libraryOptions(const juce::File& folder);
     [[nodiscard]] static std::unique_ptr<juce::AudioPluginFormatManager> pluginFormats();
     [[nodiscard]] controller::SessionOptions sessionOptions();
     void offerProjectWithoutCrashedPlugins(const juce::StringArray& names);
@@ -74,7 +78,7 @@ private:
     void timerCallback() override;
 
     const juce::String applicationName;
-    juce::ApplicationProperties settings;
+    services::UserSettings settings;
     CrashMarker crashMarker;
 
     // Destroyed in reverse order: the window refers to the session, the session to

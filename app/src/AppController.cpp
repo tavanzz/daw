@@ -10,28 +10,11 @@ namespace daw::app
 
 namespace
 {
-constexpr const char* deviceStateKey = "audioDevice";
-constexpr const char* midiInputsOffKey = "midiInputsOff";
-constexpr const char* appearanceKey = "appearance";
-constexpr const char* pluginWindowsKey = "pluginWindows";
-constexpr const char* lastProjectKey = "lastProject";
 constexpr int updateRateHz = 60;
 } // namespace
 
-juce::PropertiesFile::Options AppController::settingsOptions(const juce::String& name)
+controller::PluginLibrary::Options AppController::libraryOptions(const juce::File& folder)
 {
-    juce::PropertiesFile::Options options;
-    options.applicationName = name;
-    options.filenameSuffix = ".settings";
-    options.folderName = name;
-    options.osxLibrarySubFolder = "Application Support";
-    return options;
-}
-
-controller::PluginLibrary::Options AppController::libraryOptions(const juce::String& name)
-{
-    const auto folder = settingsOptions(name).getDefaultFile().getParentDirectory();
-    folder.createDirectory();
     controller::PluginLibrary::Options options;
     options.catalogueFile = folder.getChildFile("Plugins.json");
     options.scanner.executable =
@@ -55,25 +38,24 @@ controller::SessionOptions AppController::sessionOptions()
     return options;
 }
 
-AppController::AppController(const juce::String& name)
+AppController::AppController(const juce::String& name, const juce::File& settingsFolder)
     : applicationName(name)
-    , crashMarker(settingsOptions(name).getDefaultFile().getSiblingFile("CrashedPlugins.txt"))
-    , plugins(libraryOptions(name))
+    , settings(settingsFolder != juce::File() ? settingsFolder : services::UserSettings::defaultFolder(name), name)
+    , crashMarker(settings.getFolder().getChildFile("CrashedPlugins.txt"))
+    , plugins(libraryOptions(settings.getFolder()))
 {
-    settings.setStorageParameters(settingsOptions(applicationName));
-
     // A plugin that crashed the app last time stays off until the user loads it.
     const auto crashed = crashMarker.takeCrashedPlugins();
     session.holdBackPlugins(crashed);
 
     // The theme applies before the first window opens, so nothing flashes in another.
     themes = std::make_unique<ui::desktop::ThemeManager>(
-        appearance::AppearancePreferences::fromJson(
-            settings.getUserSettings()->getValue(appearanceKey)),
+        appearance::AppearancePreferences::fromJson(settings.getAppearance()),
         [this](const appearance::AppearancePreferences& preferences)
         {
-            settings.getUserSettings()->setValue(appearanceKey, preferences.toJson());
-            settings.saveIfNeeded();
+            settings.setAppearance(preferences.toJson());
+            settings.setThemeChosen();
+            settings.save();
         });
 
     // Inputs open at launch only if the user already allowed them: never a prompt.
@@ -85,7 +67,7 @@ AppController::AppController(const juce::String& name)
                                ? controller::Session::InputAccess::denied
                                : controller::Session::InputAccess::unknown);
 
-    const auto savedDevice = settings.getUserSettings()->getXmlValue(deviceStateKey);
+    const auto savedDevice = settings.getAudioDeviceState();
     const auto deviceError =
         deviceHost.initialise(savedDevice.get(), access == MicrophoneAccess::Status::granted);
     deviceHost.getDeviceManager().addChangeListener(this);
@@ -94,20 +76,17 @@ AppController::AppController(const juce::String& name)
     // Every MIDI input is listened to, also those plugged in later, unless the user
     // switched it off in the device settings.
     deviceHost.onMidiDevicesChanged = [this] { midiDevicesChanged(); };
-    deviceHost.openMidiInputs(juce::StringArray::fromLines(
-        settings.getUserSettings()->getValue(midiInputsOffKey)));
+    deviceHost.openMidiInputs(settings.getMidiInputsSwitchedOff());
     midiDevicesChanged();
 
     window = std::make_unique<ui::desktop::MainWindow>(applicationName, session,
                                                        deviceHost.getDeviceManager(), *themes, &plugins);
 
     auto& positions = view().getPluginWindowPositions();
-    positions = ui::desktop::WindowPositions::fromJson(
-        juce::JSON::parse(settings.getUserSettings()->getValue(pluginWindowsKey)));
+    positions = ui::desktop::WindowPositions::fromJson(settings.getPluginWindows());
     positions.onChange = [this] {
-        settings.getUserSettings()->setValue(pluginWindowsKey,
-                                             juce::JSON::toString(view().getPluginWindowPositions().toJson(), true));
-        settings.saveIfNeeded();
+        settings.setPluginWindows(view().getPluginWindowPositions().toJson());
+        settings.save();
     };
 
     // New and changed plugins are found in the background.
@@ -128,7 +107,7 @@ AppController::AppController(const juce::String& name)
 void AppController::offerProjectWithoutCrashedPlugins(const juce::StringArray& names)
 {
     const auto list = names.joinIntoString(", ");
-    const juce::File project(settings.getUserSettings()->getValue(lastProjectKey));
+    const auto project = settings.getLastProject();
     const auto message = "The app quit unexpectedly while " + list + (names.size() == 1 ? " was" : " were") +
                          " running. " + (names.size() == 1 ? "It stays" : "They stay") +
                          " switched off in the projects you open now: load " +
@@ -196,10 +175,9 @@ void AppController::updateWindowTitle()
 void AppController::saveDeviceState()
 {
     if (const auto state = deviceHost.getDeviceManager().createStateXml())
-        settings.getUserSettings()->setValue(deviceStateKey, state.get());
-    settings.getUserSettings()->setValue(midiInputsOffKey,
-                                         deviceHost.getMidiInputsSwitchedOff().joinIntoString("\n"));
-    settings.saveIfNeeded();
+        settings.setAudioDeviceState(*state);
+    settings.setMidiInputsSwitchedOff(deviceHost.getMidiInputsSwitchedOff());
+    settings.save();
 }
 
 void AppController::midiDevicesChanged()
@@ -238,7 +216,7 @@ void AppController::deviceChanged()
 
     // Each device pair and rate has its own measured offset.
     offsetKey = latencyOffsetKey();
-    savedOffset = settings.getUserSettings()->getIntValue(offsetKey, 0);
+    savedOffset = settings.getLatencyOffset(offsetKey);
     session.setLatencyOffset(savedOffset);
 }
 
@@ -246,8 +224,8 @@ juce::String AppController::latencyOffsetKey()
 {
     auto& manager = deviceHost.getDeviceManager();
     const auto setup = manager.getAudioDeviceSetup();
-    return "latencyOffset " + manager.getCurrentAudioDeviceType() + "|" + setup.inputDeviceName +
-           "|" + setup.outputDeviceName + "|" + juce::String(engine.getSampleRate());
+    return manager.getCurrentAudioDeviceType() + "|" + setup.inputDeviceName + "|" +
+           setup.outputDeviceName + "|" + juce::String(engine.getSampleRate());
 }
 
 void AppController::openInputsIfNeeded()
@@ -291,8 +269,8 @@ void AppController::timerCallback()
     if (const auto project = session.getProjectFile(); project != shownProject)
     {
         shownProject = project;
-        settings.getUserSettings()->setValue(lastProjectKey, project.getFullPathName());
-        settings.saveIfNeeded();
+        settings.setLastProject(project);
+        settings.save();
     }
     openInputsIfNeeded();
 
@@ -300,8 +278,8 @@ void AppController::timerCallback()
     if (session.getLatencyOffset() != savedOffset)
     {
         savedOffset = session.getLatencyOffset();
-        settings.getUserSettings()->setValue(offsetKey, savedOffset);
-        settings.saveIfNeeded();
+        settings.setLatencyOffset(offsetKey, savedOffset);
+        settings.save();
     }
 
     updateWindowTitle();

@@ -77,7 +77,8 @@ add_executable(daw_tests
     model/ProjectFileTests.cpp
     model/ProjectTests.cpp
     model/TimelineTests.cpp
-    services/BuildInfoTests.cpp)
+    services/BuildInfoTests.cpp
+    services/UserSettingsTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::engine daw::model
