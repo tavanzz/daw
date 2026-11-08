@@ -50,10 +50,13 @@ services::AppLog::Options AppController::logOptions(const juce::File& settingsFo
     return options;
 }
 
-AppController::AppController(const juce::String& name, const juce::File& settingsFolder)
+AppController::AppController(const juce::String& name, Options options)
     : applicationName(name)
-    , settings(settingsFolder != juce::File() ? settingsFolder : services::UserSettings::defaultFolder(name), name)
-    , log(logOptions(settingsFolder))
+    , runOptions(std::move(options))
+    , settings(runOptions.settingsFolder != juce::File() ? runOptions.settingsFolder
+                                                         : services::UserSettings::defaultFolder(name),
+               name)
+    , log(logOptions(runOptions.settingsFolder))
     , crashMarker(settings.getFolder().getChildFile("CrashedPlugins.txt"))
     , plugins(libraryOptions(settings.getFolder()))
 {
@@ -106,13 +109,30 @@ AppController::AppController(const juce::String& name, const juce::File& setting
         settings.save();
     };
 
-    // New and changed plugins are found in the background.
-    plugins.scan();
+    const bool releaseCheck = runOptions.smokeTest.has_value() || runOptions.updateTestResult != juce::File();
+    if (runOptions.smokeTest)
+        smokeTest = std::make_unique<SmokeTest>(*runOptions.smokeTest, session, plugins,
+                                                settings.getFolder().getChildFile("Smoke"));
+
+    // New and changed plugins are found in the background (a release check scans only
+    // what it needs, itself).
+    if (!releaseCheck)
+        plugins.scan();
 
     if (deviceError.isNotEmpty())
-        view().showError("No audio output", "The audio output could not be opened: " +
-                                                deviceError +
-                                                "\n\nChoose another one in File > Audio Settings.");
+    {
+        if (releaseCheck)
+            juce::Logger::writeToLog("No audio output: " + deviceError);
+        else
+            view().showError("No audio output", "The audio output could not be opened: " + deviceError +
+                                                    "\n\nChoose another one in File > Audio Settings.");
+    }
+
+    // The first launch asks what is still undecided (not in the release checks' runs).
+    if (const auto pages = settings.getFirstLaunchPages(crashReports->canSend()); pages.any() && !releaseCheck)
+        view().showFirstLaunch(pages, [this, pages](std::optional<bool> sendCrashReports) {
+            finishFirstLaunch(pages, sendCrashReports);
+        });
 
     updateWindowTitle();
     startTimerHz(updateRateHz);
@@ -295,7 +315,8 @@ void AppController::installUpdate(std::function<void(const juce::String&)> onPro
                 if (!*stillHere)
                     return;
                 if (problem.isEmpty() &&
-                    installer->finishAfterQuit(services::UpdateInstaller::currentProcessId(), relaunchArguments))
+                    installer->finishAfterQuit(services::UpdateInstaller::currentProcessId(),
+                                              runOptions.relaunchArguments))
                 {
                     juce::Logger::writeToLog("Updates: ready, quitting for the new version to start");
                     juce::JUCEApplication::getInstance()->quit();
@@ -311,8 +332,84 @@ void AppController::installUpdate(std::function<void(const juce::String&)> onPro
     });
 }
 
+void AppController::finishFirstLaunch(const services::FirstLaunchPages& pages, std::optional<bool> sendCrashReports)
+{
+    // Whatever the device and the theme are now is the user's choice.
+    if (pages.audioDevice)
+    {
+        settings.setAudioDeviceChosen();
+        saveDeviceState();
+    }
+    if (pages.theme)
+        settings.setThemeChosen();
+    if (pages.crashReports)
+    {
+        // Closing the window without an answer is no consent.
+        const bool allowed = sendCrashReports.value_or(false);
+        settings.setCrashReportConsent(allowed ? services::CrashReportConsent::allowed
+                                               : services::CrashReportConsent::refused);
+        crashReports->setSendAllowed(allowed);
+        juce::Logger::writeToLog(juce::String("First launch: crash reports ") + (allowed ? "allowed" : "refused"));
+    }
+    settings.save();
+}
+
+void AppController::runUpdateTest()
+{
+    // Check, download, verify, install, report: each step as soon as the last is done.
+    using State = services::UpdateChecker::State;
+    if (!updateTestStarted)
+    {
+        updateTestStarted = true;
+        updates->check(settings.getUpdatePreferences(), true);
+        return;
+    }
+    const auto status = updates->getStatus();
+    const auto report = [this, &status](const juce::String& outcome, const juce::String& problem) {
+        auto json = std::make_unique<juce::DynamicObject>();
+        json->setProperty("outcome", outcome);
+        json->setProperty("problem", problem);
+        json->setProperty("found", status.release ? status.release->version.toString() : juce::String());
+        runOptions.updateTestResult.replaceWithText(juce::JSON::toString(juce::var(json.release())), false, false,
+                                                    "\n");
+        juce::Logger::writeToLog("Update test: " + outcome + (problem.isNotEmpty() ? ": " + problem : juce::String()));
+    };
+
+    if (status.state == State::available && status.installable)
+        updates->download();
+    else if (status.state == State::ready && updatePreparation == nullptr)
+    {
+        report("installing", {});
+        installUpdate([report](const juce::String& problem) {
+            report("refused", problem);
+            juce::JUCEApplication::getInstance()->quit();
+        });
+    }
+    else if (status.state == State::failed || status.state == State::upToDate ||
+             (status.state == State::available && !status.installable))
+    {
+        report(status.state == State::upToDate ? "upToDate" : "refused", status.problem);
+        juce::JUCEApplication::getInstance()->quit();
+    }
+}
+
 void AppController::watchUpdates()
 {
+    if (runOptions.updateTestResult != juce::File())
+    {
+        runUpdateTest();
+        return;
+    }
+    if (smokeTest != nullptr)
+    {
+        if (smokeTest->tick())
+        {
+            smokeTest.reset();
+            juce::JUCEApplication::getInstance()->quit();
+        }
+        return;
+    }
+
     // The check at launch, once the window has settled.
     ++ticks;
     if (ticks == 5 * updateRateHz && settings.getUpdatePreferences().checkAtLaunch)

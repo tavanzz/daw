@@ -233,15 +233,44 @@ juce::String UpdateInstaller::finishingScript(int processId, const juce::File& i
 
 juce::String UpdateInstaller::windowsInstallerArguments(const Installation& target)
 {
-    return juce::String("/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS ") +
-           (target.allUsers ? "/ALLUSERS" : "/CURRENTUSER") + " /DIR=\"" + target.location.getFullPathName() +
-           "\" /RELAUNCH";
+    return juce::String("/SILENT /SUPPRESSMSGBOXES /NORESTART ") + (target.allUsers ? "/ALLUSERS" : "/CURRENTUSER") +
+           " /DIR=\"" + target.location.getFullPathName() + "\"";
+}
+
+juce::String UpdateInstaller::windowsFinishingScript(int processId, const juce::File& setup,
+                                                     const Installation& target, const juce::StringArray& arguments)
+{
+    // Arguments are quoted for the command line; they never hold double quotes.
+    juce::StringArray quoted;
+    for (const auto& argument : arguments)
+        quoted.add("\"" + argument.removeCharacters("\"") + "\"");
+    const auto pid = juce::String(processId);
+    juce::String script;
+    script << "@echo off\r\n"
+           << "rem Finishes an update once the app has quit (services/UpdateInstaller.cpp).\r\n"
+           << ":wait\r\n"
+           << "tasklist /FI \"PID eq " << pid << "\" /NH 2>NUL | find \" " << pid << " \" >NUL\r\n"
+           << "if not errorlevel 1 (\r\n  ping -n 2 127.0.0.1 >NUL\r\n  goto wait\r\n)\r\n"
+           << "\"" << setup.getFullPathName() << "\" " << windowsInstallerArguments(target) << "\r\n"
+           << "start \"\" \"" << target.location.getChildFile(juce::File::getSpecialLocation(
+                                                           juce::File::currentExecutableFile).getFileName())
+                                        .getFullPathName()
+           << "\" " << quoted.joinIntoString(" ") << "\r\n";
+    return script;
 }
 
 bool UpdateInstaller::finishAfterQuit(int processId, const juce::StringArray& relaunchArguments)
 {
     if (installation.kind == Kind::windowsInstall)
-        return installer.existsAsFile() && installer.startAsProcess(windowsInstallerArguments(installation));
+    {
+        if (!installer.existsAsFile())
+            return false;
+        const auto script = juce::File::createTempFile(".cmd");
+        if (!script.replaceWithText(windowsFinishingScript(processId, installer, installation, relaunchArguments)))
+            return false;
+        juce::ChildProcess helper;
+        return helper.start(juce::StringArray{"cmd.exe", "/c", script.getFullPathName()}, 0);
+    }
 
     if (!staged.exists())
         return false;

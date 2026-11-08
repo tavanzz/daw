@@ -28,6 +28,16 @@ enum class UpdateChannel
     preRelease  ///< release candidates too
 };
 
+/** The pages the first launch shows: only what the user has not decided yet. */
+struct FirstLaunchPages
+{
+    bool audioDevice = false;
+    bool theme = false;
+    bool crashReports = false;
+
+    [[nodiscard]] bool any() const noexcept { return audioDevice || theme || crashReports; }
+};
+
 struct UpdatePreferences
 {
     bool checkAtLaunch = true;
@@ -104,6 +114,10 @@ public:
 
     [[nodiscard]] CrashReportConsent getCrashReportConsent() const;
     void setCrashReportConsent(CrashReportConsent consent);
+
+    /** What the first launch still has to ask; the crash-report question only when the
+        build can send reports at all. */
+    [[nodiscard]] FirstLaunchPages getFirstLaunchPages(bool crashReportsPossible) const;
 
     [[nodiscard]] UpdatePreferences getUpdatePreferences() const;
     void setUpdatePreferences(const UpdatePreferences& preferences);

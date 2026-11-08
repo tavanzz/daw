@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/services/UserSettings.h"
 #include "daw/ui/desktop/AppServices.h"
 
 #include "daw/controller/PluginLibrary.h"
@@ -113,6 +114,10 @@ public:
     /** Shows the update panel (the app does when a check at launch found a release). */
     void showUpdatePanel();
 
+    /** The first launch's questions; `finished` gets the crash-report answer (nothing if
+        that page was not shown or the window was closed). */
+    void showFirstLaunch(services::FirstLaunchPages pages, std::function<void(std::optional<bool>)> finished);
+
     void showError(const juce::String& title, const juce::String& message);
 
     /** If the project has unsaved changes, asks whether to save them first; then
@@ -199,6 +204,7 @@ private:
     std::unique_ptr<PanelWindow> pluginManagerWindow;
     std::unique_ptr<PanelWindow> aboutWindow;
     std::unique_ptr<PanelWindow> updateWindow;
+    std::unique_ptr<PanelWindow> firstLaunchWindow;
     StatusBar statusBar{session};
     PluginBrowserPanel pluginBrowser;
     bool browserVisible = false;

@@ -50,6 +50,41 @@ void printVersion()
     std::fflush(stdout);
 }
 
+// A path given on the command line, relative to where the app was started.
+juce::File fileOption(const juce::String& commandLine, const juce::String& name)
+{
+    const auto path = optionValue(commandLine, name);
+    return path.isEmpty() ? juce::File() : juce::File::getCurrentWorkingDirectory().getChildFile(path);
+}
+
+// The release checks' runs (they need --settings-dir):
+//   --smoke-test=new|<project> --smoke-result=<json> [--smoke-plugin=<.vst3>]
+//   --update-test=<json> [--smoke-result=<json>]: updates, and the new version then runs
+//   the smoke test with the same settings.
+daw::app::AppController::Options runOptions(const juce::String& commandLine)
+{
+    daw::app::AppController::Options options;
+    options.settingsFolder = fileOption(commandLine, "--settings-dir");
+    if (options.settingsFolder == juce::File())
+        return options;
+
+    options.updateTestResult = fileOption(commandLine, "--update-test");
+    if (const auto project = optionValue(commandLine, "--smoke-test");
+        project.isNotEmpty() && options.updateTestResult == juce::File())
+    {
+        daw::app::SmokeTest::Options smoke;
+        smoke.project = project == "new" ? project : fileOption(commandLine, "--smoke-test").getFullPathName();
+        smoke.result = fileOption(commandLine, "--smoke-result");
+        smoke.plugin = fileOption(commandLine, "--smoke-plugin");
+        options.smokeTest = smoke;
+    }
+    if (options.updateTestResult != juce::File())
+        if (const auto result = fileOption(commandLine, "--smoke-result"); result != juce::File())
+            options.relaunchArguments = {"--settings-dir=" + options.settingsFolder.getFullPathName(),
+                                         "--smoke-test=new", "--smoke-result=" + result.getFullPathName()};
+    return options;
+}
+
 class Application final : public juce::JUCEApplication
 {
 public:
@@ -70,11 +105,7 @@ public:
             return;
         }
 
-        // Empty: the user's own settings folder.
-        const auto settingsPath = optionValue(commandLine, "--settings-dir");
-        const auto settingsFolder = settingsPath.isEmpty() ? juce::File()
-                                    : juce::File::getCurrentWorkingDirectory().getChildFile(settingsPath);
-        controller = std::make_unique<daw::app::AppController>(getApplicationName(), settingsFolder);
+        controller = std::make_unique<daw::app::AppController>(getApplicationName(), runOptions(commandLine));
         openFromCommandLine(commandLine);
     }
 

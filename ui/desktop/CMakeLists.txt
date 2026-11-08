@@ -15,6 +15,7 @@ add_library(daw_ui_desktop STATIC
     src/EffectSlots.cpp
     src/EqualiserView.cpp
     src/ExportDialog.cpp
+    src/FirstLaunchPanel.cpp
     src/GenericEffectEditor.cpp
     src/HazardBand.cpp
     src/InstrumentViews.cpp

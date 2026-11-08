@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CrashMarker.h"
+#include "SmokeTest.h"
 #include "daw/controller/PluginInstances.h"
 #include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
@@ -49,8 +50,16 @@ namespace daw::app
 class AppController final : private juce::ChangeListener, private juce::Timer
 {
 public:
-    /** `settingsFolder`: where the settings live; empty for the user's own. */
-    AppController(const juce::String& applicationName, const juce::File& settingsFolder);
+    /** How this run differs from a normal launch (the release checks' runs). */
+    struct Options
+    {
+        juce::File settingsFolder;   ///< empty: the user's own
+        std::optional<SmokeTest::Options> smokeTest;
+        juce::File updateTestResult; ///< --update-test: check, download, install, report here
+        juce::StringArray relaunchArguments; ///< what the new version starts with after an update
+    };
+
+    AppController(const juce::String& applicationName, Options options);
     ~AppController() override;
 
     AppController(const AppController&) = delete;
@@ -88,10 +97,13 @@ private:
     [[nodiscard]] ui::desktop::AppServices appServices();
     void installUpdate(std::function<void(const juce::String&)> onProblem);
     void watchUpdates();
+    void runUpdateTest();
+    void finishFirstLaunch(const services::FirstLaunchPages& pages, std::optional<bool> sendCrashReports);
     void logPlugins();
     void logProject();
 
     const juce::String applicationName;
+    const Options runOptions;
     services::UserSettings settings;
     services::AppLog log; // installed as JUCE's logger: everything after it may log
     CrashMarker crashMarker;
@@ -119,7 +131,8 @@ private:
     int watchedUpdates = -1;     // the update status last looked at
     bool offeredUpdate = false;  // a release found at launch is offered once
     std::unique_ptr<juce::Thread> updatePreparation;
-    juce::StringArray relaunchArguments; // what the new version starts with after an update
+    std::unique_ptr<SmokeTest> smokeTest;
+    bool updateTestStarted = false;
 
     // Inputs: asking the user, or the device has none (until the device changes).
     bool askingForInputs = false;

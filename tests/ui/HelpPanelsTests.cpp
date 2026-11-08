@@ -4,6 +4,7 @@
 #include "daw/services/UpdateChecker.h"
 #include "daw/services/UserSettings.h"
 #include "daw/ui/desktop/AboutPanel.h"
+#include "daw/ui/desktop/FirstLaunchPanel.h"
 #include "daw/ui/desktop/ThemeManager.h"
 #include "daw/ui/desktop/UpdatePanel.h"
 
@@ -173,4 +174,59 @@ TEST_CASE("A copy that cannot update itself offers the download page instead", "
     failed.refresh();
     CHECK(failed.getHeadline() == "Could not check for updates");
     CHECK(failed.getButtonTexts().contains("Try Again"));
+}
+
+TEST_CASE("The first launch asks only what is undecided and needs an answer on crash reports", "[ui]")
+{
+    ui::desktop::ThemeManager themes({});
+    juce::AudioDeviceManager devices;
+
+    std::optional<std::optional<bool>> answer;
+    ui::desktop::FirstLaunchPanel all({true, true, true}, devices, themes,
+                                      [&answer](std::optional<bool> send) { answer = send; });
+    all.setBounds(all.getLocalBounds());
+    CHECK(all.getNumPages() == 3);
+    CHECK(all.getPageTitle().startsWith("Where"));
+    snapshot(all, "first-launch-device");
+    all.next();
+    CHECK(all.getPageTitle() == "Pick a look");
+    for (const auto& theme : themes.getLibrary().getThemes())
+    {
+        themes.setTheme(theme.id);
+        snapshot(all, "first-launch-theme-" + theme.id);
+    }
+    all.next();
+    CHECK(all.getPageTitle() == "Crash reports");
+    snapshot(all, "first-launch-consent");
+
+    // Neither answer is chosen for the user.
+    CHECK_FALSE(all.canGoOn());
+    all.next();
+    CHECK_FALSE(answer.has_value());
+    all.chooseCrashReports(false);
+    CHECK(all.canGoOn());
+    all.back();
+    CHECK(all.getPageIndex() == 1);
+    all.next();
+    all.next();
+    REQUIRE(answer.has_value());
+    CHECK(*answer == std::optional<bool>(false));
+
+    // A user coming from v0.7.0: only the consent.
+    answer.reset();
+    ui::desktop::FirstLaunchPanel consentOnly({false, false, true}, devices, themes,
+                                              [&answer](std::optional<bool> send) { answer = send; });
+    CHECK(consentOnly.getNumPages() == 1);
+    consentOnly.chooseCrashReports(true);
+    consentOnly.next();
+    REQUIRE(answer.has_value());
+    CHECK(*answer == std::optional<bool>(true));
+
+    // No consent page (a build that sends nothing): no answer.
+    answer.reset();
+    ui::desktop::FirstLaunchPanel deviceOnly({true, false, false}, devices, themes,
+                                             [&answer](std::optional<bool> send) { answer = send; });
+    deviceOnly.next();
+    REQUIRE(answer.has_value());
+    CHECK_FALSE(answer->has_value());
 }

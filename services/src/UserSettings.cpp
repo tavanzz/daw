@@ -77,7 +77,7 @@ void migrateFrom0(juce::PropertiesFile& file)
 }
 
 constexpr Migration migrations[] = {migrateFrom0};
-static_assert(std::size(migrations) == currentSettingsVersion,
+static_assert(static_cast<int>(std::size(migrations)) == currentSettingsVersion,
               "every settings version needs a migration from the previous one");
 
 } // namespace
@@ -244,6 +244,15 @@ void UserSettings::setCrashReportConsent(CrashReportConsent consent)
     properties->setValue(crashReportsKey, consent == CrashReportConsent::allowed   ? "allowed"
                                           : consent == CrashReportConsent::refused ? "refused"
                                                                                    : "undecided");
+}
+
+FirstLaunchPages UserSettings::getFirstLaunchPages(bool crashReportsPossible) const
+{
+    FirstLaunchPages pages;
+    pages.audioDevice = !isAudioDeviceChosen();
+    pages.theme = !isThemeChosen();
+    pages.crashReports = crashReportsPossible && getCrashReportConsent() == CrashReportConsent::undecided;
+    return pages;
 }
 
 UpdatePreferences UserSettings::getUpdatePreferences() const

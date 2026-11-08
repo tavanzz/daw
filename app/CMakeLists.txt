@@ -22,7 +22,8 @@ juce_add_gui_app(daw_app
 target_sources(daw_app PRIVATE
     src/AppController.cpp
     src/CrashMarker.cpp
-    src/Main.cpp)
+    src/Main.cpp
+    src/SmokeTest.cpp)
 
 # The version (with a release candidate's suffix) comes from services::buildInfo().
 target_compile_definitions(daw_app PRIVATE

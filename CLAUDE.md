@@ -175,6 +175,26 @@ Modules with one-way dependencies:
   while recording, offers to save, prepares the update on a thread of its own, then
   calls `finishAfterQuit()` and quits. A project from a newer version
   (`model::newerFormatMessage`) is refused with a "Check for Updates" button.
+- First launch (Phase 8): `FirstLaunchPanel` asks, page by page, only what
+  `UserSettings::getFirstLaunchPages()` says is undecided: the audio output (JUCE's device
+  selector with no inputs, so nothing asks for the microphone; Test plays a tone), the
+  theme (the previews, applied as they are clicked), and crash reports (Send / Don't
+  send, neither chosen until the user picks; only in builds that can send). Finishing
+  marks the device and the theme as chosen and stores the answer; closing the window
+  counts as no consent. Settings from v0.7.0 already have a device and a theme.
+- Release checks in the app (Phase 8): with `--settings-dir=` the app can run checks for
+  the release workflow and quit on its own. `--smoke-test=new` (`app/src/SmokeTest`)
+  scans a plugin given with `--smoke-plugin=` through the app's own scanner program, makes
+  a project (an audio track with a tone and the plugin, a MIDI track with the synth and a
+  note), saves it, opens it again from the disk and, after three seconds of updates,
+  writes what it finds to `--smoke-result=` as JSON (opened, tracks, clips, notes, the
+  plugin ready, unavailable plugins, version); `--smoke-test=<project>` opens a given
+  project (one from a newer version must be refused). `--update-test=<json>` checks
+  (`DAW_UPDATE_FEED`, `DAW_PRETEND_VERSION`), downloads, verifies and installs the update
+  as a user would, reports the outcome, and the new version starts with
+  `--smoke-test=new` and the same settings when `--smoke-result=` is given. On Windows the
+  helper is a batch script (`windowsFinishingScript()`): it waits for the app, runs the
+  installer and starts the new version as the user, never elevated.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1828,7 +1848,7 @@ Windows code signing until an account exists, ASIO.
 - [x] 8. Desktop UI: Help menu, About window with the licences, update panel (updates
       refused while recording), newer projects offering an update; themed, UI tests in
       every theme
-- [ ] 9. Desktop UI: first launch (output device, theme, consent); `--smoke-test` and
+- [x] 9. Desktop UI: first launch (output device, theme, consent); `--smoke-test` and
       `--update-test` for the release checks
 - [ ] 10. macOS packaging: hardened runtime, minimal entitlements, signing, notarisation,
       stapling, .dmg; ad-hoc signing without secrets; all of this Mac's plugins scanned by

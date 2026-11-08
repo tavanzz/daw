@@ -14,8 +14,8 @@ namespace daw::services
     - macOS: the .dmg is mounted, the app inside must be signed by the running app's team
       (when the running app is signed at all), copied next to the installed one; the
       helper swaps the two bundles and opens the new one.
-    - Windows: the installer runs silently, for the same users and into the same folder,
-      and starts the app again itself.
+    - Windows: a helper waits for the app to end, runs the installer silently, for the
+      same users and into the same folder, and starts the new version.
     - Linux: the new AppImage is copied next to the running one ($APPIMAGE); the helper
       renames it over the old one and starts it.
 
@@ -67,6 +67,13 @@ public:
 
     /** The installer's command line on Windows (Inno Setup options). */
     [[nodiscard]] static juce::String windowsInstallerArguments(const Installation& installation);
+
+    /** The helper's batch script on Windows: waits for the process, runs the installer
+        silently (which waits for its elevated self when installing for all users), then
+        starts the app with the arguments, as the user, not elevated. */
+    [[nodiscard]] static juce::String windowsFinishingScript(int processId, const juce::File& installer,
+                                                             const Installation& installation,
+                                                             const juce::StringArray& arguments);
 
     /** This process's id, for finishAfterQuit(). */
     [[nodiscard]] static int currentProcessId();

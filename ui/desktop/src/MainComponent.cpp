@@ -11,6 +11,7 @@
 #include "daw/ui/desktop/AnimationsPanel.h"
 #include "daw/ui/desktop/AudioSettingsDialog.h"
 #include "daw/ui/desktop/ExportDialog.h"
+#include "daw/ui/desktop/FirstLaunchPanel.h"
 #include "daw/ui/desktop/PluginManagerPanel.h"
 #include "daw/ui/desktop/ThemePreviewsPanel.h"
 #include "daw/ui/desktop/UpdatePanel.h"
@@ -132,6 +133,28 @@ void MainComponent::setAppServices(AppServices servicesToUse)
 {
     appServices = std::move(servicesToUse);
     commandManager.commandStatusChanged();
+}
+
+void MainComponent::showFirstLaunch(services::FirstLaunchPages pages,
+                                    std::function<void(std::optional<bool>)> finished)
+{
+    if (firstLaunchWindow != nullptr || !pages.any())
+        return;
+
+    // Answered once, either by finishing the pages or by closing the window.
+    auto answer = std::make_shared<std::function<void(std::optional<bool>)>>(std::move(finished));
+    const auto finish = [this, answer](std::optional<bool> sendCrashReports) {
+        if (*answer)
+            std::exchange(*answer, nullptr)(sendCrashReports);
+        juce::MessageManager::callAsync([safe = juce::Component::SafePointer<MainComponent>(this)] {
+            if (safe != nullptr)
+                safe->firstLaunchWindow.reset();
+        });
+    };
+    firstLaunchWindow = std::make_unique<PanelWindow>(
+        "Welcome to " + services::buildInfo().productName,
+        std::make_unique<FirstLaunchPanel>(pages, deviceManager, themes, finish), this,
+        [finish] { finish(std::nullopt); });
 }
 
 void MainComponent::showUpdatePanel()

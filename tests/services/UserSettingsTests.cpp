@@ -180,3 +180,25 @@ TEST_CASE("Settings from a newer version are read, never downgraded, unknown key
     CHECK(static_cast<int>(updates["futureOption"]) == 3);
     CHECK(updates["skippedVersion"].toString() == "2.0.0");
 }
+
+TEST_CASE("The first launch asks only what is still undecided", "[services][settings]")
+{
+    daw::test::TemporaryDirectory directory;
+    UserSettings settings(directory.file("Settings"), "DAW");
+
+    auto pages = settings.getFirstLaunchPages(true);
+    CHECK(pages.audioDevice);
+    CHECK(pages.theme);
+    CHECK(pages.crashReports);
+    CHECK_FALSE(settings.getFirstLaunchPages(false).crashReports); // a build that sends none
+
+    settings.setAudioDeviceChosen();
+    settings.setThemeChosen();
+    pages = settings.getFirstLaunchPages(true);
+    CHECK_FALSE(pages.audioDevice);
+    CHECK_FALSE(pages.theme);
+    CHECK(pages.any());
+
+    settings.setCrashReportConsent(CrashReportConsent::refused);
+    CHECK_FALSE(settings.getFirstLaunchPages(true).any());
+}

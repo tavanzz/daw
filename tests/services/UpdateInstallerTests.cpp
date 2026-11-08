@@ -4,6 +4,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#if JUCE_LINUX
+ #include <unistd.h>
+#endif
+
 using daw::services::UpdateInstaller;
 using Kind = UpdateInstaller::Kind;
 
@@ -56,7 +60,15 @@ TEST_CASE("The installer's options update the same installation", "[services][up
     CHECK(arguments.contains("/SILENT"));
     CHECK(arguments.contains("/CURRENTUSER"));
     CHECK(arguments.contains("/DIR=\"" + perUser.location.getFullPathName() + "\""));
-    CHECK(arguments.contains("/RELAUNCH"));
+
+    const auto script = UpdateInstaller::windowsFinishingScript(1234, juce::File::getSpecialLocation(
+                                                                          juce::File::tempDirectory)
+                                                                          .getChildFile("Setup.exe"),
+                                                                perUser, {"--settings-dir=C:\\x", "--smoke-test=new"});
+    CHECK(script.contains("PID eq 1234"));
+    CHECK(script.contains("Setup.exe\" /SILENT"));
+    CHECK(script.contains("\"--settings-dir=C:\\x\" \"--smoke-test=new\""));
+    CHECK(script.contains("start \"\" \"" + perUser.location.getFullPathName()));
 
     auto allUsers = perUser;
     allUsers.allUsers = true;
@@ -161,6 +173,6 @@ TEST_CASE("A new AppImage is put next to the running one, executable", "[service
     CHECK(installer.prepare(download).isEmpty());
     const auto staged = directory.file(".DAW-x86_64.AppImage.update");
     CHECK(staged.loadFileAsString() == "new");
-    CHECK(staged.hasExecutePermission());
+    CHECK(access(staged.getFullPathName().toRawUTF8(), X_OK) == 0);
 }
 #endif
