@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.25)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
 
 project(daw
-    VERSION 0.7.0
+    VERSION 0.8.0
     DESCRIPTION "Cross-platform digital audio workstation"
     LANGUAGES C CXX)
 
@@ -60,7 +60,9 @@ if(DAW_RELEASE_SYMBOLS)
     # Symbols for every target, JUCE's too, so crash reports can name functions; they are
     # kept apart from what ships (dSYM, PDB, a debug file) by the release workflow.
     if(MSVC)
-        add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/Zi>)
+        # In the objects (/Z7): Ninja compiles a target's files at once, and a shared
+        # compile-time PDB would be written by several compilers together.
+        set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
         add_link_options(/DEBUG /OPT:REF /OPT:ICF)
     else()
         add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-g>)

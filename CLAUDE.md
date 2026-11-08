@@ -1924,7 +1924,7 @@ Windows code signing until an account exists, ASIO.
       install, launch, test project, newer project refused, clean quit, uninstall;
       updates end to end (a valid one installed; a bad signature, a tampered file and a
       downgrade refused)
-- [ ] 15. Licences and documents: LICENSE, README, `docs/THIRD_PARTY.md`,
+- [x] 15. Licences and documents: LICENSE, README, `docs/THIRD_PARTY.md`,
       `docs/RELEASING.md` (accounts and secrets), `docs/PRIVACY.md`
 - [ ] 16. Trial release candidates `v0.8.0-rc.1` and `rc.2`; practical tests in
       `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from one version to
