@@ -367,8 +367,9 @@ jobs:
           $setup = (Get-ChildItem dist\*-Setup.exe).FullName
           $plugin = "$PWD\build\release\test-plugins\VST3\DAW Test Gain.vst3"
           foreach ($mode in @("CURRENTUSER", "ALLUSERS")) {
-            $dir = if ($mode -eq "ALLUSERS") { "$env:ProgramFiles\DAW Release Check" } else { "$env:LOCALAPPDATA\Programs\DAW Release Check" }
-            Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/$mode", "/DIR=$dir" -Wait
+            $dir = if ($mode -eq "ALLUSERS") { "$env:ProgramFiles\DAWReleaseCheck" } else { "$env:LOCALAPPDATA\Programs\DAWReleaseCheck" }
+            # Start-Process joins its arguments unquoted: the folder is quoted here.
+            Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/$mode", "/DIR=`"$dir`"" -Wait
             if (-not (Test-Path "$dir\DAW.exe")) { throw "Not installed for $mode" }
             python packaging\release_checks.py smoke "$dir\DAW.exe" "$env:RUNNER_TEMP\smoke-$mode" --plugin $plugin --version "${{ needs.prepare.outputs.version }}"
             if ($LASTEXITCODE -ne 0) { throw "Smoke test failed for $mode" }

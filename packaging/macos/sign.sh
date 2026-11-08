@@ -28,7 +28,7 @@ sign() { # <path> <entitlements or empty>
 
 # Inside first: every helper program next to the app's executable.
 for program in "$app"/Contents/MacOS/*; do
-    if [ "$(basename "$program")" != "$(defaults read "$app/Contents/Info" CFBundleExecutable)" ]; then
+    if [ "$(basename "$program")" != "$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")" ]; then
         sign "$program" "$here/Scanner.entitlements"
     fi
 done

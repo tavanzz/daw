@@ -28,7 +28,7 @@ app="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
 echo "== Signature"
 codesign --verify --deep --strict --verbose=2 "$app"
 codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -p - || true
-lipo -archs "$app/Contents/MacOS/$(defaults read "$app/Contents/Info" CFBundleExecutable)"
+lipo -archs "$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
 
 if [ "$mode" = "signed" ]; then
     echo "== Developer ID, notarisation, tickets"
