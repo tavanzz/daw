@@ -25,6 +25,14 @@ if(NOT DAW_VERSION_SUFFIX MATCHES "^(-[0-9A-Za-z]+(\\.[0-9A-Za-z]+)*)?$")
 endif()
 set(DAW_VERSION "${PROJECT_VERSION}${DAW_VERSION_SUFFIX}")
 
+# The Ed25519 public key whose signatures the app accepts on updates (Base64, 32 bytes).
+# The release workflow passes it; a build without one finds updates but cannot install
+# them.
+set(DAW_UPDATE_PUBLIC_KEY "" CACHE STRING "Base64 Ed25519 public key that signs updates")
+if(DAW_UPDATE_PUBLIC_KEY AND NOT DAW_UPDATE_PUBLIC_KEY MATCHES "^[A-Za-z0-9+/]{43}=$")
+    message(FATAL_ERROR "DAW_UPDATE_PUBLIC_KEY is not the Base64 of a 32-byte key")
+endif()
+
 option(DAW_BUILD_TESTS "Build the unit tests" ON)
 option(DAW_ENABLE_RTSAN "Build with Clang's RealtimeSanitizer (Clang 20 or newer)" OFF)
 
@@ -55,6 +63,7 @@ add_subdirectory(model)
 add_subdirectory(controller)
 add_subdirectory(appearance)
 add_subdirectory(services)
+add_subdirectory(tools)
 add_subdirectory(ui/desktop)
 add_subdirectory(app)
 

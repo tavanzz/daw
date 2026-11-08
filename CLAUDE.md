@@ -97,6 +97,21 @@ Modules with one-way dependencies:
   is saved, and the end of the session; the desktop UI logs every alert it shows
   (`MainComponent::showError()`), dropouts and exports. Help > Open Log Folder
   (`ui::desktop::AppServices`, what the app hands the UI for the Help menu).
+- Signed updates (Phase 8): every release carries an `update.json`
+  (`services::manifest`): `{"format": 1, "payload": <Base64 of the payload JSON>,
+  "signature": <Base64>}`, the signature Ed25519 (`services::ed25519`, Monocypher 4.0.2,
+  pinned by SHA-256 in `cmake/Dependencies.cmake`) over the payload's exact bytes, so
+  JSON formatting never matters. The payload names the app (`bundleId`), the version
+  (`services::SemanticVersion`: Semantic Versioning 2.0.0 order, release candidates
+  before their release), date, notes (Markdown), release page and per platform key
+  (`manifest::platformKey()`: "macos", "windows-x86_64", "linux-x86_64") the file's
+  URL, size and SHA-256 (`sha256Of()`, JUCE's `juce_cryptography`). `manifest::read()`
+  checks the signature before reading anything else; the public key comes from the
+  build (`DAW_UPDATE_PUBLIC_KEY`, `updatePublicKey()`; empty: nothing can be installed).
+  `daw_update_tool` (`tools/update-tool/`) makes the key pair (`keygen`: the system's
+  cryptographic random source, key file readable by its owner only), prints the public
+  key, signs payloads, verifies manifests and hashes files. Tests: RFC 8032's vectors,
+  another key, a changed payload, a changed file.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1740,7 +1755,7 @@ Windows code signing until an account exists, ASIO.
       version, `--settings-dir`
 - [x] 3. Local log: one file per session, rotation, the home folder masked; Help > Open
       Log Folder
-- [ ] 4. Signed update manifests: Monocypher (Ed25519), SHA-256, `update.json`, semantic
+- [x] 4. Signed update manifests: Monocypher (Ed25519), SHA-256, `update.json`, semantic
       versions, `daw_update_tool` (keygen, sign, verify)
 - [ ] 5. Update checks and downloads: stable and pre-release channels, check at launch,
       skipped versions, progress, cancel, verification

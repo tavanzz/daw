@@ -34,6 +34,7 @@ add_library(daw::juce ALIAS daw_juce)
 target_link_libraries(daw_juce
     PRIVATE
         juce::juce_core
+        juce::juce_cryptography
         juce::juce_events
         juce::juce_data_structures
         juce::juce_audio_basics

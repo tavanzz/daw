@@ -22,7 +22,22 @@ FetchContent_Declare(Catch2
     DOWNLOAD_NAME Catch2-3.16.1.tar.gz
     SYSTEM)
 
-FetchContent_MakeAvailable(JUCE)
+# Ed25519 signatures of updates (services/). Dual-licensed CC0 or BSD 2-clause; it has
+# no CMake project, so its two source files become a library here.
+FetchContent_Declare(Monocypher
+    URL https://monocypher.org/download/monocypher-4.0.2.tar.gz
+    URL_HASH SHA256=38d07179738c0c90677dba3ceb7a7b8496bcfea758ba1a53e803fed30ae0879c
+    DOWNLOAD_DIR "${DAW_DEPENDENCY_CACHE_DIR}"
+    DOWNLOAD_NAME monocypher-4.0.2.tar.gz)
+
+FetchContent_MakeAvailable(JUCE Monocypher)
+
+add_library(daw_monocypher STATIC
+    "${monocypher_SOURCE_DIR}/src/monocypher.c"
+    "${monocypher_SOURCE_DIR}/src/optional/monocypher-ed25519.c")
+target_include_directories(daw_monocypher SYSTEM PUBLIC
+    "${monocypher_SOURCE_DIR}/src"
+    "${monocypher_SOURCE_DIR}/src/optional")
 
 if(DAW_BUILD_TESTS)
     FetchContent_MakeAvailable(Catch2)

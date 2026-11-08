@@ -15,6 +15,9 @@ add_custom_target(daw_services_commit
 add_library(daw_services STATIC
     src/AppLog.cpp
     src/BuildInfo.cpp
+    src/Ed25519.cpp
+    src/SemanticVersion.cpp
+    src/UpdateManifest.cpp
     src/UserSettings.cpp)
 add_library(daw::services ALIAS daw_services)
 add_dependencies(daw_services daw_services_commit)
@@ -23,11 +26,12 @@ target_include_directories(daw_services
     PUBLIC include
     PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_features(daw_services PUBLIC cxx_std_20)
-target_link_libraries(daw_services PUBLIC daw::juce)
+target_link_libraries(daw_services PUBLIC daw::juce PRIVATE daw_monocypher)
 target_compile_definitions(daw_services PRIVATE
     "DAW_PRODUCT_NAME=\"${DAW_PRODUCT_NAME}\""
     "DAW_VERSION=\"${DAW_VERSION}\""
     "DAW_BUNDLE_ID=\"${DAW_BUNDLE_ID}\""
     "DAW_REPOSITORY_URL=\"${DAW_REPOSITORY_URL}\""
-    "DAW_BUILD_TYPE=\"$<CONFIG>\"")
+    "DAW_BUILD_TYPE=\"$<CONFIG>\""
+    "DAW_UPDATE_PUBLIC_KEY=\"${DAW_UPDATE_PUBLIC_KEY}\"")
 daw_enable_warnings(daw_services)
