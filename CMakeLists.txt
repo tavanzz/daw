@@ -46,7 +46,8 @@ option(DAW_ENABLE_RTSAN "Build with Clang's RealtimeSanitizer (Clang 20 or newer
 
 if(DAW_ENABLE_RTSAN)
     # Applied to everything, JUCE included, before any target is created.
-    add_compile_options(-fsanitize=realtime)
+    # C and C++ only: assembly (sentry's libunwind on Linux) may go to another compiler.
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fsanitize=realtime>)
     add_link_options(-fsanitize=realtime)
 endif()
 

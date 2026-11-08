@@ -95,7 +95,8 @@ bool parseEnvelope(const std::string& text, juce::var& header, std::vector<Envel
         }
         else
         {
-            const auto payloadEnd = std::min(text.find('\n', position), text.size());
+            // In parentheses: sentry.h brings windows.h, whose min macro would take it.
+            const auto payloadEnd = (std::min)(text.find('\n', position), text.size());
             item.payload = text.substr(position, payloadEnd - position);
             position = payloadEnd + 1;
         }
