@@ -231,6 +231,22 @@ Modules with one-way dependencies:
   fonts and libcurl stay the system's) and packs it with appimagetool and the static
   type-2 runtime (no libfuse2). Tools at pinned versions, checked by SHA-256. Built on
   Ubuntu 24.04: glibc 2.39 and newer.
+- Release workflow (Phase 8, `.github/workflows/release.yml`, `docs/RELEASING.md`): a
+  tag `vX.Y.Z` (or `-rc.N`, a pre-release) must agree with the project's version;
+  `prepare` writes the notes (`tools/release_notes.py`: commit subjects since the
+  previous release, merges and "CI:" commits left out, warnings for what is unsigned) and
+  takes the update key (the secret, or a throwaway one for the run, kept a day as an
+  artifact; `.github/actions/update-key`). Then on each platform: Release build with
+  symbols, every test (macOS: both slices, Intel under Rosetta), symbols kept apart,
+  signing and packaging, the signature checks, and `packaging/release_checks.py`: the
+  installed app's smoke test with the VST3 test plugin and a newer project, on Windows
+  for one user and for everyone then uninstalled; and the update end to end (an
+  installed copy pretending to be 0.0.1 refuses a bad signature, a tampered file and an
+  older version, then installs the new one, which starts and passes the smoke test).
+  `publish` (tags only) writes `update.json` (`tools/make_update_payload.py`, signed by
+  `daw_update_tool`), `SHA256SUMS.txt`, uploads symbols to Sentry when configured and
+  makes the GitHub Release; `check-feed` reads the published `update.json` as the app does
+  and checks its signature. Run by hand it does everything but publish.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1171,6 +1187,12 @@ ctest --preset debug            # run all tests
   animation level, `"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI
   Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
   four minutes); results in `docs/PERFORMANCE.md`.
+- Packaging locally (no account needed): `cmake --preset macos-universal`, build, then
+  `packaging/macos/sign.sh <DAW.app> -`, `make-dmg.sh`, `verify.sh <dmg> unsigned` and
+  `python3 packaging/release_checks.py smoke|update ...` (`docs/RELEASING.md`). Release
+  checks of the app: `DAW --settings-dir=<folder> --smoke-test=new|scan|<project>
+  --smoke-result=<json>`; `DAW --version`. Release notes: `python3 tools/release_notes.py
+  <tag>`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen. The app's
   `--show=previews,animations,mixer,editors,browser,plugins` option opens the theme
@@ -1181,6 +1203,9 @@ ctest --preset debug            # run all tests
   put it back afterwards.
 
 ## CI
+
+Releases are made by `.github/workflows/release.yml` from tags (Architecture, Release
+workflow; `docs/RELEASING.md`), apart from the CI below.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on every
 push to `main`: configure, build and test with the `debug` preset on Linux (GCC),
