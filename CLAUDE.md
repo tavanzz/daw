@@ -215,6 +215,22 @@ Modules with one-way dependencies:
   compare a hardened build with a development one. The release checks' runs open no
   audio device (build machines have none, and an interface with inputs may make macOS
   ask for the microphone first) and load audio at 48 kHz.
+- Windows packaging (Phase 8, `packaging/windows/DAW.iss`): an Inno Setup 6 installer,
+  x64, English or Italian. Its AppId never changes (Windows knows the installed app and
+  replaces it by it). `PrivilegesRequired=lowest` with the override dialog: "only for me"
+  (`%LOCALAPPDATA%\Programs\DAW`, no administrator, updates without elevation) or "for
+  all users" (Program Files); `/CURRENTUSER` and `/ALLUSERS` choose it silently. Start
+  menu entry, optional desktop icon, `.dawproject` opened by the app (registered for the
+  same users), the licences beside the program; uninstalling leaves settings, logs and
+  projects. Programs and installer are signed with SSL.com eSigner when its secrets
+  exist (not yet: the Inno uninstaller is never signed).
+- Linux packaging (Phase 8, `packaging/linux/`): `make-appimage.sh` puts the app, its
+  scanner and licences (`usr/bin/Licences`, where the app looks), the desktop file
+  (`io.github.tavanzz.daw.desktop`), a 512 px icon and the `.dawproject` MIME type in an
+  AppDir, lets linuxdeploy bundle the libraries not every distribution has (ALSA, X11,
+  fonts and libcurl stay the system's) and packs it with appimagetool and the static
+  type-2 runtime (no libfuse2). Tools at pinned versions, checked by SHA-256. Built on
+  Ubuntu 24.04: glibc 2.39 and newer.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
