@@ -58,7 +58,7 @@ juce::File fileOption(const juce::String& commandLine, const juce::String& name)
 }
 
 // The release checks' runs (they need --settings-dir):
-//   --smoke-test=new|<project> --smoke-result=<json> [--smoke-plugin=<.vst3>]
+//   --smoke-test=new|scan|<project> --smoke-result=<json> [--smoke-plugin=<.vst3>]
 //   --update-test=<json> [--smoke-result=<json>]: updates, and the new version then runs
 //   the smoke test with the same settings.
 daw::app::AppController::Options runOptions(const juce::String& commandLine)
@@ -73,7 +73,8 @@ daw::app::AppController::Options runOptions(const juce::String& commandLine)
         project.isNotEmpty() && options.updateTestResult == juce::File())
     {
         daw::app::SmokeTest::Options smoke;
-        smoke.project = project == "new" ? project : fileOption(commandLine, "--smoke-test").getFullPathName();
+        smoke.project = project == "new" || project == "scan" ? project
+                                                             : fileOption(commandLine, "--smoke-test").getFullPathName();
         smoke.result = fileOption(commandLine, "--smoke-result");
         smoke.plugin = fileOption(commandLine, "--smoke-plugin");
         options.smokeTest = smoke;

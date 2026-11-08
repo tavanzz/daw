@@ -29,8 +29,12 @@ set(DAW_VERSION "${PROJECT_VERSION}${DAW_VERSION_SUFFIX}")
 # The release workflow passes it; a build without one finds updates but cannot install
 # them.
 set(DAW_UPDATE_PUBLIC_KEY "" CACHE STRING "Base64 Ed25519 public key that signs updates")
-if(DAW_UPDATE_PUBLIC_KEY AND NOT DAW_UPDATE_PUBLIC_KEY MATCHES "^[A-Za-z0-9+/]{43}=$")
-    message(FATAL_ERROR "DAW_UPDATE_PUBLIC_KEY is not the Base64 of a 32-byte key")
+if(DAW_UPDATE_PUBLIC_KEY)
+    # 32 bytes in Base64: 43 characters and one "=" (CMake's regular expressions have no {n}).
+    string(LENGTH "${DAW_UPDATE_PUBLIC_KEY}" key_length)
+    if(NOT key_length EQUAL 44 OR NOT DAW_UPDATE_PUBLIC_KEY MATCHES "^[A-Za-z0-9+/]+=$")
+        message(FATAL_ERROR "DAW_UPDATE_PUBLIC_KEY is not the Base64 of a 32-byte key")
+    endif()
 endif()
 
 # Where crash reports go when the user allows it: a Sentry project's DSN (it is public by
@@ -42,6 +46,7 @@ if(DAW_SENTRY_DSN AND NOT DAW_SENTRY_DSN MATCHES "^https://[0-9a-f]+@[^/]+/[0-9]
 endif()
 
 option(DAW_BUILD_TESTS "Build the unit tests" ON)
+option(DAW_RELEASE_SYMBOLS "Debug symbols in optimised builds (releases keep them for crash reports)" OFF)
 option(DAW_ENABLE_RTSAN "Build with Clang's RealtimeSanitizer (Clang 20 or newer)" OFF)
 
 if(DAW_ENABLE_RTSAN)
@@ -49,6 +54,17 @@ if(DAW_ENABLE_RTSAN)
     # C and C++ only: assembly (sentry's libunwind on Linux) may go to another compiler.
     add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fsanitize=realtime>)
     add_link_options(-fsanitize=realtime)
+endif()
+
+if(DAW_RELEASE_SYMBOLS)
+    # Symbols for every target, JUCE's too, so crash reports can name functions; they are
+    # kept apart from what ships (dSYM, PDB, a debug file) by the release workflow.
+    if(MSVC)
+        add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/Zi>)
+        add_link_options(/DEBUG /OPT:REF /OPT:ICF)
+    else()
+        add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-g>)
+    endif()
 endif()
 
 # Same language standard for JUCE and for our code, so they agree on the ABI.

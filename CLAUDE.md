@@ -195,6 +195,26 @@ Modules with one-way dependencies:
   `--smoke-test=new` and the same settings when `--smoke-result=` is given. On Windows the
   helper is a batch script (`windowsFinishingScript()`): it waits for the app, runs the
   installer and starts the new version as the user, never elevated.
+- macOS packaging (Phase 8, `packaging/macos/`): `sign.sh` signs inside out (the plugin
+  scanner, then the bundle) with the hardened runtime, a secure timestamp and the
+  entitlements in `App.entitlements` / `Scanner.entitlements`: microphone (the app),
+  `disable-library-validation` (plugins from other developers) and
+  `allow-unsigned-executable-memory` (plugins protected by PACE/iLok decrypt their code in
+  memory: with the hardened runtime a scan of this Mac's plugins lost 125 of them without
+  it, and with it found 696 with one timeout, KICK808's VST3, as in Phase 7; Ableton Live
+  and GarageBand carry the same three). Identity "-" signs ad hoc (no Apple
+  account: it runs, Gatekeeper asks). `notarize.sh` sends a file to Apple's notary service
+  (App Store Connect API key), waits, prints the log on refusal, staples and validates;
+  the app and then the .dmg are both notarised and stapled. `make-dmg.sh` makes a
+  compressed .dmg with a link to /Applications (signed when there is an identity);
+  `verify.sh` checks a .dmg as a user's Mac would: signature and entitlements, both
+  architectures, and when signed Developer ID, the hardened runtime, stapled tickets and
+  Gatekeeper's verdict on a quarantined copy. `DAW_RELEASE_SYMBOLS` adds debug symbols to
+  optimised builds (the release workflow keeps them apart: dSYM, PDB, debug files).
+  `--smoke-test=scan` scans every plugin of the computer and lists the failures, to
+  compare a hardened build with a development one. The release checks' runs open no
+  audio device (build machines have none, and an interface with inputs may make macOS
+  ask for the microphone first) and load audio at 48 kHz.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1850,7 +1870,7 @@ Windows code signing until an account exists, ASIO.
       every theme
 - [x] 9. Desktop UI: first launch (output device, theme, consent); `--smoke-test` and
       `--update-test` for the release checks
-- [ ] 10. macOS packaging: hardened runtime, minimal entitlements, signing, notarisation,
+- [x] 10. macOS packaging: hardened runtime, minimal entitlements, signing, notarisation,
       stapling, .dmg; ad-hoc signing without secrets; all of this Mac's plugins scanned by
       the hardened app
 - [ ] 11. Windows packaging: Inno Setup installer (per user or all users, Start menu,

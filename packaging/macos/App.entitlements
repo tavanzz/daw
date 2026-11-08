@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The app's entitlements under the hardened runtime: only what it needs.
+     audio-input: recording (macOS still asks the user, with NSMicrophoneUsageDescription).
+     disable-library-validation: loading plugins signed by other developers (or not at all),
+     in the app as in the scanner.
+     allow-unsigned-executable-memory: plugins protected by PACE/iLok (Soundtoys, SSL and
+     many more) decrypt their code in memory; without it the hardened runtime kills the
+     process (a full scan of 688 plugins: 125 failed without it). Ableton Live and
+     GarageBand carry the same three. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

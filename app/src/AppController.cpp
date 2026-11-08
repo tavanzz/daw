@@ -85,11 +85,23 @@ AppController::AppController(const juce::String& name, Options options)
                                ? controller::Session::InputAccess::denied
                                : controller::Session::InputAccess::unknown);
 
-    const auto savedDevice = settings.getAudioDeviceState();
-    const auto deviceError =
-        deviceHost.initialise(savedDevice.get(), access == MicrophoneAccess::Status::granted);
-    deviceHost.getDeviceManager().addChangeListener(this);
-    deviceChanged();
+    // The release checks' runs open no audio device: build machines have none, and on a
+    // computer whose interface also has inputs macOS may first ask for the microphone,
+    // which nobody answers there. They load audio at 48 kHz instead.
+    const bool releaseCheck = runOptions.smokeTest.has_value() || runOptions.updateTestResult != juce::File();
+    juce::String deviceError;
+    if (releaseCheck)
+    {
+        juce::Logger::writeToLog("Audio device: none (release check), audio loaded at 48 kHz");
+        session.setSampleRate(48000.0);
+    }
+    else
+    {
+        const auto savedDevice = settings.getAudioDeviceState();
+        deviceError = deviceHost.initialise(savedDevice.get(), access == MicrophoneAccess::Status::granted);
+        deviceHost.getDeviceManager().addChangeListener(this);
+        deviceChanged();
+    }
 
     // Every MIDI input is listened to, also those plugged in later, unless the user
     // switched it off in the device settings.
@@ -109,7 +121,6 @@ AppController::AppController(const juce::String& name, Options options)
         settings.save();
     };
 
-    const bool releaseCheck = runOptions.smokeTest.has_value() || runOptions.updateTestResult != juce::File();
     if (runOptions.smokeTest)
         smokeTest = std::make_unique<SmokeTest>(*runOptions.smokeTest, session, plugins,
                                                 settings.getFolder().getChildFile("Smoke"));
@@ -174,7 +185,8 @@ AppController::~AppController()
 {
     *alive = false;
     stopTimer();
-    saveDeviceState();
+    if (!runOptions.smokeTest && runOptions.updateTestResult == juce::File())
+        saveDeviceState();
     deviceHost.getDeviceManager().removeChangeListener(this);
     window.reset();
     juce::Logger::writeToLog(services::AppLog::endOfSessionLine);

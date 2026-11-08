@@ -57,11 +57,18 @@ bool SmokeTest::tick()
         start();
         return false;
     case Stage::scanning:
-        // The plugin is scanned by the app's scanner program, in a process of its own.
-        if (plugins.isScanning() && ++scanTicks < 120 * 60)
-            return false;
+        // Plugins are scanned by the app's scanner program, in processes of their own.
         plugins.update();
+        if (plugins.isScanning() && ++scanTicks < (options.project == "scan" ? 3 * 3600 : 120) * 60)
+            return false;
         session.pluginsChanged();
+        if (options.project == "scan")
+        {
+            describeScan();
+            writeResult();
+            stage = Stage::done;
+            return true;
+        }
         open();
         return false;
     case Stage::waiting:
@@ -86,6 +93,12 @@ void SmokeTest::start()
     result->setProperty("platform", build.platform + " " + build.architecture);
     result->setProperty("settingsVersion", services::currentSettingsVersion);
 
+    if (options.project == "scan")
+    {
+        plugins.scan(true);
+        stage = Stage::scanning;
+        return;
+    }
     if (options.project == "new" && options.plugin.exists())
     {
         // Only this plugin, not every plugin of the computer.
@@ -126,8 +139,14 @@ void SmokeTest::makeProject()
     if (options.plugin.exists())
     {
         for (const auto& info : plugins.getCatalogue().getPlugins())
-            if (juce::File(info.description.fileOrIdentifier) == options.plugin)
+        {
+            // A file plugin (Audio Units have identifiers instead): the bundle or inside it.
+            const auto& identifier = info.description.fileOrIdentifier;
+            if (!juce::File::isAbsolutePath(identifier))
+                continue;
+            if (const juce::File file(identifier); file == options.plugin || file.isAChildOf(options.plugin))
                 plugin = info.description;
+        }
         result->setProperty("pluginScanned", plugin.has_value());
     }
 
@@ -165,6 +184,16 @@ void SmokeTest::describe()
     result->setProperty("unavailablePlugins", session.getUnavailablePlugins().joinIntoString(", "));
     if (pluginEffect != 0)
         result->setProperty("pluginReady", session.getPluginStatus(pluginEffect) == controller::PluginStatus::ready);
+}
+
+void SmokeTest::describeScan()
+{
+    const auto& catalogue = plugins.getCatalogue();
+    result->setProperty("plugins", static_cast<int>(catalogue.getPlugins().size()));
+    juce::Array<juce::var> notLoaded;
+    for (const auto& blocked : catalogue.getBlocked())
+        notLoaded.add(blocked.item.format + " " + blocked.item.item + ": " + blocked.detail);
+    result->setProperty("notLoaded", notLoaded);
 }
 
 void SmokeTest::writeResult()
