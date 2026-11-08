@@ -168,6 +168,7 @@ daw_enable_warnings(daw_plugin_bench)
 # The interface's cost per theme and animation level, in a window of its own (an app,
 # so that the system draws it as it draws the real one). See the source.
 juce_add_gui_app(daw_ui_bench PRODUCT_NAME "DAW UI Bench" VERSION "${PROJECT_VERSION}")
+daw_use_juce_settings(daw_ui_bench)
 target_sources(daw_ui_bench PRIVATE bench/UiBenchmark.cpp)
 target_link_libraries(daw_ui_bench PRIVATE daw::ui_desktop daw::appearance daw::controller
     daw::engine daw::model daw::juce)

@@ -75,3 +75,14 @@ target_compile_definitions(daw_juce
 target_include_directories(daw_juce SYSTEM
     INTERFACE
         $<TARGET_PROPERTY:daw_juce,INCLUDE_DIRECTORIES>)
+
+# juce_add_gui_app() gives an app JUCE_USE_CURL=0 on Linux (it links no curl itself),
+# while daw::juce, which compiles JUCE, opens curl lazily (JUCE_USE_CURL=1) and passes
+# that on: the app's own value goes, or the two clash.
+function(daw_use_juce_settings target)
+    get_target_property(definitions ${target} COMPILE_DEFINITIONS)
+    if(definitions)
+        list(FILTER definitions EXCLUDE REGEX "^JUCE_USE_CURL=")
+        set_target_properties(${target} PROPERTIES COMPILE_DEFINITIONS "${definitions}")
+    endif()
+endfunction()

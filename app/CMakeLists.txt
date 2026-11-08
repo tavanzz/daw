@@ -28,6 +28,8 @@ target_sources(daw_app PRIVATE
 target_compile_definitions(daw_app PRIVATE
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:daw_app,JUCE_PRODUCT_NAME>")
 
+daw_use_juce_settings(daw_app)
+
 target_link_libraries(daw_app PRIVATE daw::ui_desktop daw::appearance daw::services
     daw::controller daw::engine daw::model daw::juce)
 daw_enable_warnings(daw_app)
