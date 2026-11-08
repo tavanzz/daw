@@ -1,5 +1,7 @@
 #pragma once
 
+#include "daw/ui/desktop/AppServices.h"
+
 #include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
@@ -78,6 +80,7 @@ public:
         togglePluginBrowser,
         openWithoutPlugins,
         showPluginManager,
+        openLogFolder,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8
@@ -97,6 +100,9 @@ public:
         of the first track with effects), "browser" (the plugin browser), "plugins" (the
         Plugin Manager). */
     void showForReview(const juce::StringArray& what);
+
+    /** What the app provides for the Help menu (log folder, ...). */
+    void setAppServices(AppServices servicesToUse);
 
     void showError(const juce::String& title, const juce::String& message);
 
@@ -163,6 +169,7 @@ private:
     juce::ApplicationCommandManager& commandManager;
     ThemeManager& themes;
     controller::PluginLibrary* pluginLibrary;
+    AppServices appServices;
 
     TransportBar transportBar;
     HazardBand hazardBand;

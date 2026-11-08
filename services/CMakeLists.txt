@@ -13,6 +13,7 @@ add_custom_target(daw_services_commit
     VERBATIM)
 
 add_library(daw_services STATIC
+    src/AppLog.cpp
     src/BuildInfo.cpp
     src/UserSettings.cpp)
 add_library(daw::services ALIAS daw_services)

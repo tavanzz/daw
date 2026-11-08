@@ -96,7 +96,7 @@ void MainWindow::closeButtonPressed()
 
 juce::StringArray MainWindow::getMenuBarNames()
 {
-    return {"File", "Edit", "Track", "Transport", "View"};
+    return {"File", "Edit", "Track", "Transport", "View", "Help"};
 }
 
 juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
@@ -178,6 +178,9 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         }
         add(MainComponent::showAnimations);
         add(MainComponent::toggleAllAnimations);
+        break;
+    case 5:
+        add(MainComponent::openLogFolder);
         break;
     default:
         break;

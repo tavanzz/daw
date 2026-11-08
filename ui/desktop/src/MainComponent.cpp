@@ -121,8 +121,15 @@ void MainComponent::showForReview(const juce::StringArray& what)
     }
 }
 
+void MainComponent::setAppServices(AppServices servicesToUse)
+{
+    appServices = std::move(servicesToUse);
+    commandManager.commandStatusChanged();
+}
+
 void MainComponent::showError(const juce::String& title, const juce::String& message)
 {
+    juce::Logger::writeToLog("Alert: " + title + ". " + message.replace("\n", " "));
     showAlert(
         juce::MessageBoxOptions::makeOptionsOk(juce::MessageBoxIconType::WarningIcon, title,
                                                message, "OK", this),
@@ -229,7 +236,10 @@ void MainComponent::timerCallback()
     if (const auto problem = session.takeRecordingProblem(); problem.isNotEmpty())
         showError("Recording stopped", problem);
     if (session.takeDropouts() > 0)
+    {
+        juce::Logger::writeToLog("Dropouts: the disk was too slow, some audio was missing");
         statusBar.showWarning("The disk is too slow: some audio was missing");
+    }
 
     // The output peaks can be taken once: both master meters get the same reading.
     auto& engine = session.getEngine();
@@ -624,7 +634,8 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
                        newBus,           toggleAutomation, showThemePreviews, showAnimations,
                        toggleAllAnimations, newMidiTrack, duplicate, togglePianoRoll,
-                       quantiseNotes,    exportMidi,      panic, togglePluginBrowser, openWithoutPlugins, showPluginManager});
+                       quantiseNotes,    exportMidi,      panic, togglePluginBrowser, openWithoutPlugins, showPluginManager,
+                       openLogFolder});
 
     const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
     for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
@@ -826,6 +837,11 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
                        "and the folders searched", "File", 0);
         result.setActive(pluginLibrary != nullptr);
         break;
+    case openLogFolder:
+        result.setInfo("Open Log Folder", "Shows the folder of the app's logs, to send them when "
+                       "something went wrong", "Help", 0);
+        result.setActive(appServices.logFolder != juce::File());
+        break;
     case toggleAllAnimations:
         result.setInfo("All Animations Off", "Switches every animation off, and again back on",
                        "View", 0);
@@ -985,6 +1001,10 @@ bool MainComponent::perform(const InvocationInfo& info)
         if (pluginLibrary != nullptr)
             showPanel(pluginManagerWindow, "Plugin Manager",
                       [this] { return std::make_unique<PluginManagerPanel>(*pluginLibrary); });
+        break;
+    case openLogFolder:
+        if (appServices.logFolder.isDirectory())
+            appServices.logFolder.startAsProcess();
         break;
     case toggleMetronome:
         session.setMetronomeEnabled(!session.getProject().isMetronomeEnabled());

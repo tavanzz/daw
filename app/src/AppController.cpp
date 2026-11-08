@@ -1,6 +1,7 @@
 #include "AppController.h"
 
 #include "daw/engine/io/MicrophoneAccess.h"
+#include "daw/services/BuildInfo.h"
 #include "daw/ui/desktop/Alerts.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -38,15 +39,27 @@ controller::SessionOptions AppController::sessionOptions()
     return options;
 }
 
+services::AppLog::Options AppController::logOptions(const juce::File& settingsFolder) const
+{
+    // A run with settings of its own keeps its logs with them.
+    services::AppLog::Options options;
+    options.applicationName = applicationName;
+    options.folder = settingsFolder != juce::File() ? settingsFolder.getChildFile("Logs")
+                                                    : services::AppLog::defaultFolder(applicationName);
+    return options;
+}
+
 AppController::AppController(const juce::String& name, const juce::File& settingsFolder)
     : applicationName(name)
     , settings(settingsFolder != juce::File() ? settingsFolder : services::UserSettings::defaultFolder(name), name)
+    , log(logOptions(settingsFolder))
     , crashMarker(settings.getFolder().getChildFile("CrashedPlugins.txt"))
     , plugins(libraryOptions(settings.getFolder()))
 {
     // A plugin that crashed the app last time stays off until the user loads it.
     const auto crashed = crashMarker.takeCrashedPlugins();
     session.holdBackPlugins(crashed);
+    logStart(crashed);
 
     // The theme applies before the first window opens, so nothing flashes in another.
     themes = std::make_unique<ui::desktop::ThemeManager>(
@@ -81,6 +94,7 @@ AppController::AppController(const juce::String& name, const juce::File& setting
 
     window = std::make_unique<ui::desktop::MainWindow>(applicationName, session,
                                                        deviceHost.getDeviceManager(), *themes, &plugins);
+    view().setAppServices({log.getFolder()});
 
     auto& positions = view().getPluginWindowPositions();
     positions = ui::desktop::WindowPositions::fromJson(settings.getPluginWindows());
@@ -140,6 +154,58 @@ AppController::~AppController()
     saveDeviceState();
     deviceHost.getDeviceManager().removeChangeListener(this);
     window.reset();
+    juce::Logger::writeToLog(services::AppLog::endOfSessionLine);
+    juce::Logger::setCurrentLogger(nullptr);
+}
+
+void AppController::logStart(const juce::StringArray& crashedPlugins)
+{
+    juce::Logger::setCurrentLogger(&log);
+    const auto& build = services::buildInfo();
+    juce::Logger::writeToLog(build.describe() + ", commit of " + build.commitDate);
+    juce::Logger::writeToLog("System: " + juce::SystemStats::getOperatingSystemName() + ", " +
+                             juce::SystemStats::getCpuModel() + ", " +
+                             juce::String(juce::SystemStats::getNumCpus()) + " cores, " +
+                             juce::String(juce::SystemStats::getMemorySizeInMegabytes()) + " MB");
+    if (settings.getVersionFound() != settings.getVersion())
+        juce::Logger::writeToLog("Settings migrated from version " + juce::String(settings.getVersionFound()) +
+                                 " to " + juce::String(settings.getVersion()));
+    else
+        juce::Logger::writeToLog("Settings version " + juce::String(settings.getVersion()));
+    if (!log.previousSessionEndedNormally())
+        juce::Logger::writeToLog("The previous session did not end normally");
+    if (!crashedPlugins.isEmpty())
+        juce::Logger::writeToLog("Kept off after a crash: " + crashedPlugins.joinIntoString(", "));
+}
+
+void AppController::logPlugins()
+{
+    // A scan is logged once it is over, with the plugins that could not be loaded.
+    const auto scanning = plugins.isScanning();
+    if (scanning || !loggedScanning)
+    {
+        loggedScanning = scanning;
+        return;
+    }
+    loggedScanning = false;
+
+    const auto& catalogue = plugins.getCatalogue();
+    juce::Logger::writeToLog("Plugin scan finished: " + juce::String(catalogue.getPlugins().size()) +
+                             " plugins, " + juce::String(catalogue.getBlocked().size()) + " not loaded");
+    for (const auto& blocked : catalogue.getBlocked())
+        juce::Logger::writeToLog("  not loaded: " + blocked.item.item + " (" + blocked.detail + ")");
+}
+
+void AppController::logProject()
+{
+    const auto file = session.getProjectFile();
+    const auto unsaved = session.hasUnsavedChanges();
+    if (file != shownProject)
+        juce::Logger::writeToLog("Project: " + (file != juce::File() ? file.getFileName()
+                                                                      : juce::String("new, not saved")));
+    else if (shownUnsaved && !unsaved && file != juce::File())
+        juce::Logger::writeToLog("Saved " + file.getFileName());
+    shownUnsaved = unsaved;
 }
 
 void AppController::openFile(const juce::File& file)
@@ -182,6 +248,8 @@ void AppController::saveDeviceState()
 
 void AppController::midiDevicesChanged()
 {
+    if (const auto names = deviceHost.getMidiInputNames().joinIntoString(", "); names != loggedMidiInputs)
+        juce::Logger::writeToLog("MIDI inputs: " + (loggedMidiInputs = names));
     session.setMidiInputDevices(deviceHost.getMidiInputNames(), [this](const juce::String& name) {
         return deviceHost.findMidiInput(name);
     });
@@ -208,6 +276,16 @@ void AppController::deviceChanged()
     noInputsOnDevice = false;
 
     auto* device = deviceHost.getDeviceManager().getCurrentAudioDevice();
+    const auto description =
+        device == nullptr ? juce::String("none")
+                          : device->getTypeName() + ", out \"" + device->getName() + "\", " +
+                                juce::String(device->getCurrentSampleRate()) + " Hz, " +
+                                juce::String(device->getCurrentBufferSizeSamples()) + " samples, latency in " +
+                                juce::String(device->getInputLatencyInSamples()) + " out " +
+                                juce::String(device->getOutputLatencyInSamples()) +
+                                (deviceHost.hasInputs() ? ", inputs open" : "");
+    if (description != loggedDevice)
+        juce::Logger::writeToLog("Audio device: " + (loggedDevice = description));
     session.setDeviceLatency(device != nullptr ? device->getInputLatencyInSamples() : 0,
                              device != nullptr ? device->getOutputLatencyInSamples() : 0);
     session.setInputChannelNames(device != nullptr && deviceHost.hasInputs()
@@ -263,7 +341,10 @@ void AppController::timerCallback()
     // Scan results first: plugins missing until now may be found.
     if (plugins.update())
         session.pluginsChanged();
+    logPlugins();
     session.update();
+
+    logProject();
 
     // The project to offer again if a plugin crashes the app.
     if (const auto project = session.getProjectFile(); project != shownProject)

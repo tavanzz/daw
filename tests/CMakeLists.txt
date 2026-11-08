@@ -77,6 +77,7 @@ add_executable(daw_tests
     model/ProjectFileTests.cpp
     model/ProjectTests.cpp
     model/TimelineTests.cpp
+    services/AppLogTests.cpp
     services/BuildInfoTests.cpp
     services/UserSettingsTests.cpp)
 

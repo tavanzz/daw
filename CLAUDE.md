@@ -84,6 +84,19 @@ Modules with one-way dependencies:
   gives a run settings of its own (the plugin catalogue and the crash marker live next
   to them), and such a run never hands over to a running copy. `Plugins.json` from a
   newer version keeps its folders and favourites and its plugins are scanned again.
+- Local log (Phase 8): `services::AppLog` is JUCE's current logger from the start of
+  `AppController` to its end, so `juce::Logger::writeToLog()` logs from the message
+  thread and worker threads (never the audio thread). One file per session ("DAW
+  <start time>.log", to the millisecond) in `AppLog::defaultFolder()`
+  (`~/Library/Logs/DAW` on macOS, `Logs` next to the settings elsewhere, or under
+  `--settings-dir`), the last 20 kept, at most 4 MB each, flushed line by line; the home
+  folder is written "~". The app logs its build and the system, the settings' version
+  and migration, a previous session that did not end with `AppLog::endOfSessionLine`,
+  plugins kept off after a crash, the audio device and MIDI inputs when they change,
+  each finished plugin scan with what failed, the project's file name when it changes or
+  is saved, and the end of the session; the desktop UI logs every alert it shows
+  (`MainComponent::showError()`), dropouts and exports. Help > Open Log Folder
+  (`ui::desktop::AppServices`, what the app hands the UI for the Help menu).
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1725,7 +1738,7 @@ Windows code signing until an account exists, ASIO.
 - [x] 2. Versioned user settings: `services::UserSettings`, migration from version 0
       (v0.7.0), newer settings read without being downgraded, the plugin catalogue's
       version, `--settings-dir`
-- [ ] 3. Local log: one file per session, rotation, the home folder masked; Help > Open
+- [x] 3. Local log: one file per session, rotation, the home folder masked; Help > Open
       Log Folder
 - [ ] 4. Signed update manifests: Monocypher (Ed25519), SHA-256, `update.json`, semantic
       versions, `daw_update_tool` (keygen, sign, verify)

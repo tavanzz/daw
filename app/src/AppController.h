@@ -6,6 +6,7 @@
 #include "daw/controller/Session.h"
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/AudioDeviceHost.h"
+#include "daw/services/AppLog.h"
 #include "daw/services/UserSettings.h"
 #include "daw/ui/desktop/MainWindow.h"
 #include "daw/ui/desktop/ThemeManager.h"
@@ -77,8 +78,14 @@ private:
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     void timerCallback() override;
 
+    [[nodiscard]] services::AppLog::Options logOptions(const juce::File& settingsFolder) const;
+    void logStart(const juce::StringArray& crashedPlugins);
+    void logPlugins();
+    void logProject();
+
     const juce::String applicationName;
     services::UserSettings settings;
+    services::AppLog log; // installed as JUCE's logger: everything after it may log
     CrashMarker crashMarker;
 
     // Destroyed in reverse order: the window refers to the session, the session to
@@ -94,6 +101,9 @@ private:
 
     juce::String shownTitle;
     juce::File shownProject; // the last one kept in the settings
+    bool shownUnsaved = false;
+    juce::String loggedDevice, loggedMidiInputs;
+    bool loggedScanning = false;
 
     // Inputs: asking the user, or the device has none (until the device changes).
     bool askingForInputs = false;
