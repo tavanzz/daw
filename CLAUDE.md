@@ -1584,8 +1584,9 @@ while playing, MIDI effects, automation writing, mobile UI.
       placeholders, slow-plugin and NaN warnings
 - [x] 14. UI tests in every theme; listening tests for Phase 7 with the plugins
       installed on the Mac; version 0.7.0
-- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 104 to 122): not run yet; the
-      phase was merged before them, 2026-11-08, and they remain to be done on macOS
+- [x] Listening tests (`docs/LISTENING_TESTS.md`, checks 104 to 122): the phase was
+      merged before them on 2026-11-08; the user reported them passed on macOS later
+      that day
 
 Phase 7 decisions (agreed before starting):
 
@@ -1664,3 +1665,142 @@ Phase 7 decisions (agreed before starting):
   process only, never installed; AU scanning is tested with Apple's built-in AUs;
   AUv3 is checked by hand.
 
+
+Phase 8 (in progress, branch `phase-8`): distribution. Friends install and update the
+DAW on macOS, Windows and Linux on their own: a tag `vX.Y.Z` makes GitHub Actions build
+in Release, sign, package and publish a GitHub Release with notes generated from the
+commits; a universal macOS app signed with Developer ID, notarised and stapled, in a
+.dmg; a Windows installer (per user or for all users); a Linux AppImage; automatic
+updates checked at launch (can be switched off), shown with their release notes,
+installed with one click, signed with Ed25519 and verified before installing; crash
+reports only with explicit consent, without personal data or project contents, plus a
+local log and Help > Open Log Folder; an About window (version, commit, third-party
+licences, links); a first launch that asks for the audio device, the theme and the
+crash-report consent, nothing else. Compatibility: a network protocol version apart from
+the project format, newer projects refused in the installed app, versioned user settings
+with migrations. The pipeline works without any secret (unsigned builds, flagged). Out of
+scope: networking and co-op (Phase 9), user accounts, payments, app stores, mobile UI,
+Windows code signing until an account exists, ASIO.
+
+- [x] 0. Plan (this list) and draft pull request
+- [ ] 1. Identity and build information: the `services` module and its architecture
+      rules, `BuildInfo` (version with the tag's suffix, commit, date, signed or not),
+      bundle id, app icon, `.dawproject` document type, `--version`,
+      `model::networkProtocolVersion`, static MSVC runtime, libcurl loaded lazily on Linux
+- [ ] 2. Versioned user settings: `services::UserSettings`, migration from version 0
+      (v0.7.0), newer settings read without being downgraded, the plugin catalogue's
+      version, `--settings-dir`
+- [ ] 3. Local log: one file per session, rotation, the home folder masked; Help > Open
+      Log Folder
+- [ ] 4. Signed update manifests: Monocypher (Ed25519), SHA-256, `update.json`, semantic
+      versions, `daw_update_tool` (keygen, sign, verify)
+- [ ] 5. Update checks and downloads: stable and pre-release channels, check at launch,
+      skipped versions, progress, cancel, verification
+- [ ] 6. Installing updates on each platform and relaunching; postponed while recording
+      or exporting; `--update-test`
+- [ ] 7. Crash reports: sentry-native (inproc), consent, scrubbing, local reports and an
+      upload queue, the crash marker chained; `docs/PRIVACY.md`
+- [ ] 8. Desktop UI: Help menu, About window with the licences, update panel, newer
+      projects offering an update; themed, UI tests in every theme
+- [ ] 9. Desktop UI: first launch (output device, theme, consent); `--smoke-test`
+- [ ] 10. macOS packaging: hardened runtime, minimal entitlements, signing, notarisation,
+      stapling, .dmg; ad-hoc signing without secrets; all of this Mac's plugins scanned by
+      the hardened app
+- [ ] 11. Windows packaging: Inno Setup installer (per user or all users, Start menu,
+      `.dawproject`, uninstaller); signing when the secrets exist
+- [ ] 12. Linux packaging: AppImage (pinned linuxdeploy and appimagetool), desktop file,
+      icon, MIME type
+- [ ] 13. Release workflow: tag to GitHub Release (notes, checksums, signed `update.json`,
+      debug symbols) on the three platforms; unsigned mode
+- [ ] 14. Release checks in the workflow: signatures, notarisation, Gatekeeper,
+      install, launch, test project, newer project refused, clean quit, uninstall;
+      updates end to end (a valid one installed; a bad signature, a tampered file and a
+      downgrade refused)
+- [ ] 15. Licences and documents: LICENSE, README, `docs/THIRD_PARTY.md`,
+      `docs/RELEASING.md` (accounts and secrets), `docs/PRIVACY.md`
+- [ ] 16. Trial release candidates `v0.8.0-rc.1` and `rc.2`; practical tests in
+      `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from one version to
+      the next, a friend on Windows); version 0.8.0
+- [ ] Practical tests (`docs/INSTALL_TESTS.md`)
+
+Phase 8 decisions (agreed before starting):
+
+- Licences: JUCE is used under the commercial JUCE 9 licence, Starter tier (free up to
+  US$20,000 of revenue in 12 months; then Indie or Pro). The project's own code is
+  proprietary with its source visible on GitHub: the binaries are free to install and
+  use; copying, modifying, redistributing or selling code or binaries is not allowed.
+  Nothing under the GPL, AGPL or LGPL is linked into the app (the JUCE 9 EULA, section
+  2.3, forbids what would put JUCE under an open-source licence). Copyright "tavanzz".
+- Identity: product name "DAW" (working title), bundle id `io.github.tavanzz.daw`.
+- New module `services/` (`daw::services`, non-GUI JUCE modules, Monocypher,
+  sentry-native): build information, settings, log, updates, crash reports. Only `app`
+  and `ui/desktop` use it; it uses no other module of ours.
+- macOS: universal, macOS 12+, hardened runtime; entitlements: the app
+  `com.apple.security.device.audio-input` and `com.apple.security.cs.disable-library-
+  validation` (plugins from other developers), the scanner the latter only; more only
+  if real plugins need it. Signed inside out with a secure timestamp; the app and the
+  .dmg are both notarised and stapled. Without the Apple secrets: ad-hoc signatures.
+- Windows: x64, Inno Setup; "only for me" (default, no UAC, updates without elevation)
+  or "for all users"; Start menu, optional desktop icon, `.dawproject` association; the
+  uninstaller keeps settings and projects. Static MSVC runtime. Not signed until an
+  account exists (SSL.com IV + eSigner is prepared: secrets `SSLCOM_*`); SmartScreen
+  asks friends to confirm ("More info", "Run anyway"), and Smart App Control blocks it.
+  No ASIO (it needs Steinberg's agreement): WASAPI.
+- Linux: an x86_64 AppImage built on Ubuntu 24.04 (glibc 2.39), static runtime (no
+  libfuse2), no sandbox; libcurl is loaded lazily (`JUCE_LOAD_CURL_SYMBOLS_LAZILY`), so a
+  system without it starts and only has no network. Not Flatpak (host plugins invisible
+  without overrides, rtkit in the sandbox), not .deb (one distribution family, updates
+  need sudo).
+- Updates: our own updater, not Sparkle or WinSparkle (one mechanism tested in CI on the
+  three platforms, themed). Each release has an `update.json`: a payload (version, date,
+  notes, per platform the file, size and SHA-256) and its Ed25519 signature (Monocypher);
+  the public key is compiled into the app. Stable channel: the latest release's
+  `update.json` (`releases/latest/download/`, no API); "Include Pre-releases" (off) asks
+  the releases API. Tags `vX.Y.Z` are releases, `vX.Y.Z-rc.N` pre-releases. Checked at
+  every launch in the background (Help switch), never offered while recording or
+  exporting; "Update Now" (one click, after offering to save), "Later", "Skip This
+  Version". Refused: a bad signature, another size or hash, a version not newer. macOS:
+  the .dmg is mounted, the new app must carry the running app's Team ID (when signed),
+  the bundle is replaced, the app relaunched; when its folder cannot be written (or it
+  runs from the .dmg) the .dmg is opened with an explanation. Windows: the installer runs
+  silently in the same mode and folder and relaunches the app. Linux: the AppImage
+  replaces itself. Without the update key the workflow signs with a throwaway key: such
+  builds find updates but send the user to the releases page.
+- Crash reports: Sentry, EU region (Frankfurt), free Developer plan; sentry-native with
+  the inproc backend (a stack walk, no memory dump) and a transport of our own. A report
+  is always written locally (into the log folder, scrubbed); it is sent only with the
+  consent given at first launch (Help switch) and only by builds with a DSN. Sent: app
+  version and commit, OS and architecture, the signal, the stack (addresses and modules,
+  the home folder replaced by `~`), the plugin running at the crash. Not sent: user,
+  computer name, breadcrumbs, files or project names, sessions; IP addresses not stored
+  (a Sentry project setting).
+- Local log: macOS `~/Library/Logs/DAW/`, Windows `%APPDATA%\DAW\Logs`, Linux
+  `~/.config/DAW/Logs`; one file per session, the last 20 kept, at most 4 MB each; the
+  home folder masked; written from the message thread and worker threads only.
+- First launch: three pages, only those not decided yet: audio output (device, rate,
+  buffer, Test; no inputs, so no microphone prompt), theme (the three previews, applied
+  live), crash reports (Send / Don't Send, neither preselected; absent without a DSN).
+  Settings migrated from v0.7.0 already have a device and a theme.
+- Settings: `settingsVersion` 1; the migration from 0 gathers the latency offsets into
+  one JSON object and adds the first-launch state, update and crash-report preferences.
+  Settings from a newer version are read as far as understood, unknown keys kept, the
+  version never lowered. A newer `Plugins.json` is rebuilt by a scan (it is a cache).
+- Network protocol: `model::networkProtocolVersion` 1, apart from the project format;
+  for now two apps are compatible only with the same version.
+- About: version, commit, date, platform, project format, protocol and settings
+  versions, signed or not; the licence; the third-party licences shipped in the app;
+  links to the repository, the releases and the privacy notes; Steinberg's VST
+  trademark. On macOS "About DAW" and "Check for Updates..." are in the app menu.
+- Release notes: the subjects of the commits (merges left out) since the previous final
+  tag (for a release candidate, since the previous tag), checksums, and a warning when
+  something is unsigned. The update panel shows the same notes.
+- Without secrets the workflow still publishes (macOS ad-hoc, Windows unsigned,
+  throwaway update key) and says so in the notes and the run summary; CI stays green.
+- Pipeline trials: tags `v0.8.0-rc.N` from the branch make public pre-releases, which
+  the stable channel ignores; tags of failed attempts (no release) are deleted.
+- Accounts and secrets are created by the user (`docs/RELEASING.md`): the update key
+  (`DAW_UPDATE_PRIVATE_KEY`, variable `DAW_UPDATE_PUBLIC_KEY`), Apple
+  (`MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_NOTARY_KEY_P8`,
+  `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER_ID`), Sentry (`SENTRY_AUTH_TOKEN`,
+  variables `SENTRY_ORG`, `SENTRY_PROJECT`, `DAW_SENTRY_DSN`), later SSL.com
+  (`SSLCOM_USERNAME`, `SSLCOM_PASSWORD`, `SSLCOM_CREDENTIAL_ID`, `SSLCOM_TOTP_SECRET`).
