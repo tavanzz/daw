@@ -124,6 +124,23 @@ Modules with one-way dependencies:
   download (`services::http`: JUCE's URL with redirects, a timeout, progress and cancel;
   `file://` for tests; the User-Agent "DAW/<version>") goes to a ".part" file and counts
   only with the manifest's size and SHA-256. Tests run local feeds of signed manifests.
+- Installing updates (Phase 8): `services::UpdateInstaller` puts a verified download in
+  place of the running app in two halves. `describeRunningApp()` says what the app is (a
+  macOS bundle, a Windows installation, which has `unins000.exe` next to it and is for
+  all users under Program Files, an AppImage from `$APPIMAGE`) and why it cannot update
+  itself (run from the disk image or from where macOS translocated it, a folder it cannot
+  write, not installed): the UI then sends the user to the download. `prepare()`, on a
+  worker thread: macOS mounts the .dmg (`hdiutil`), requires the new app to be signed by
+  the running app's team when the running app is signed (`codesign`), and copies it next
+  to the installed one (`ditto`, quarantine removed); Linux copies the AppImage next to
+  the running one, executable; Windows keeps the installer. `finishAfterQuit()`, right
+  before the app quits: macOS and Linux leave a shell script (`finishingScript()`) that
+  waits for the app's process to end, swaps the new version in (the old one back if that
+  fails) and starts it with the given arguments; Windows runs the installer silently for
+  the same users into the same folder (`windowsInstallerArguments()`: Inno Setup's
+  options, and /RELAUNCH for the installer to start the app again). Text files the app
+  writes for other programs (scripts, envelopes) use LF line endings, never JUCE's CRLF
+  default.
 - Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
@@ -1771,12 +1788,12 @@ Windows code signing until an account exists, ASIO.
       versions, `daw_update_tool` (keygen, sign, verify)
 - [x] 5. Update checks and downloads: stable and pre-release channels, check at launch,
       skipped versions, progress, cancel, verification
-- [ ] 6. Installing updates on each platform and relaunching; postponed while recording
-      or exporting; `--update-test`
+- [x] 6. Installing updates on each platform and relaunching
 - [ ] 7. Crash reports: sentry-native (inproc), consent, scrubbing, local reports and an
       upload queue, the crash marker chained; `docs/PRIVACY.md`
-- [ ] 8. Desktop UI: Help menu, About window with the licences, update panel, newer
-      projects offering an update; themed, UI tests in every theme
+- [ ] 8. Desktop UI: Help menu, About window with the licences, update panel (updates
+      postponed while recording or exporting), newer projects offering an update;
+      `--update-test`; themed, UI tests in every theme
 - [ ] 9. Desktop UI: first launch (output device, theme, consent); `--smoke-test`
 - [ ] 10. macOS packaging: hardened runtime, minimal entitlements, signing, notarisation,
       stapling, .dmg; ad-hoc signing without secrets; all of this Mac's plugins scanned by

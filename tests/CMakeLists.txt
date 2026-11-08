@@ -80,6 +80,7 @@ add_executable(daw_tests
     services/AppLogTests.cpp
     services/BuildInfoTests.cpp
     services/UpdateCheckerTests.cpp
+    services/UpdateInstallerTests.cpp
     services/UpdateManifestTests.cpp
     services/UserSettingsTests.cpp)
 

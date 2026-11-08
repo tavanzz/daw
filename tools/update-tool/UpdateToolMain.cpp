@@ -128,7 +128,7 @@ int sign(const juce::File& payloadFile, const juce::File& keyFile, const juce::F
     const auto payload = payloadFile.loadFileAsString();
     if (!juce::JSON::parse(payload).isObject())
         return fail("the payload is not a JSON object: " + payloadFile.getFullPathName());
-    if (!output.replaceWithText(daw::services::manifest::sign(payload, *secret)))
+    if (!output.replaceWithText(daw::services::manifest::sign(payload, *secret), false, false, "\n"))
         return fail("cannot write " + output.getFullPathName());
     return 0;
 }

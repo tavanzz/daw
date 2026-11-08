@@ -52,7 +52,8 @@ struct LocalReleases
         payload->setProperty("assets", assets.release());
 
         const auto file = folder.getChildFile("update.json");
-        file.replaceWithText(manifest::sign(juce::JSON::toString(juce::var(payload.release())), keys.secretKey));
+        file.replaceWithText(manifest::sign(juce::JSON::toString(juce::var(payload.release())), keys.secretKey), false,
+                             false, "\n");
         return file;
     }
 

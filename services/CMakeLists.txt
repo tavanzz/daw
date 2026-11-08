@@ -19,6 +19,7 @@ add_library(daw_services STATIC
     src/Http.cpp
     src/SemanticVersion.cpp
     src/UpdateChecker.cpp
+    src/UpdateInstaller.cpp
     src/UpdateManifest.cpp
     src/UserSettings.cpp)
 add_library(daw::services ALIAS daw_services)
