@@ -25,22 +25,24 @@ Modules with one-way dependencies:
 | `model/`      | project state (tracks, clips, parameters), versioned project files | non-GUI JUCE modules            |
 | `controller/` | maps the model onto the engine: session, undo, loading, export, timeline view math | engine, model, non-GUI JUCE |
 | `appearance/` | theme values (colours, fonts, shapes, meter styles, effects) and animation settings, for every UI | non-GUI JUCE modules |
-| `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, JUCE GUI |
-| `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, JUCE GUI |
+| `services/`   | what the app needs around the audio: build information, user settings, log, updates, crash reports | non-GUI JUCE modules |
+| `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, appearance, services, JUCE GUI |
+| `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, appearance, services, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
-| `tests/`      | unit tests for engine, model, controller and appearance; UI tests for ui/desktop | everything but app (they run the app's plugin scanner program, linking none of its code) |
+| `tests/`      | unit tests for engine, model, controller, appearance and services; UI tests for ui/desktop | everything but app (they run the app's plugin scanner program, linking none of its code) |
 
 - `engine` never depends on any UI. `engine` and `model` don't depend on each other
   nor on `controller`; `controller` maps the model onto the engine. `appearance`
-  depends on no other module, and only the UIs (and `app`) use it.
+  and `services` depend on no other module, and only the UIs (and `app`) use them.
 - Enforced by the CMake target graph and by the `architecture.*` CTest tests
   (`cmake/CheckArchitecture.cmake`): they fail if `engine/`, `model/`, `controller/`
   or `appearance/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, if
-  `engine/` and `model/` include each other or `controller/`, or if `appearance/`
-  includes another module or is included by `engine/`, `model/` or `controller/`.
+  `engine/` and `model/` include each other or `controller/`, or if `appearance/` or
+  `services/` includes another module or is included by `engine/`, `model/`,
+  `controller/` (or each other).
 - Every module has public headers in `include/daw/<module>/` and private code in
   `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`,
-  `daw::appearance`, `daw::ui::desktop`.
+  `daw::appearance`, `daw::services`, `daw::ui::desktop`.
 - JUCE is compiled once into the internal static library `daw::juce`
   (`cmake/JuceLibrary.cmake`), with JUCE's own flags. Include JUCE module headers
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
@@ -53,6 +55,24 @@ Modules with one-way dependencies:
   app (`Licences/`, `docs/THIRD_PARTY.md`).
 - Anything both UIs will need (waveform peaks, meter values, transport state) lives
   in `engine` or `model`, never in a UI module.
+- Build information (Phase 8): `services::buildInfo()` is what this build is: product
+  name, semantic version (`DAW_VERSION` = the project's version plus
+  `DAW_VERSION_SUFFIX`, e.g. "-rc.1", which the release workflow takes from the tag),
+  commit and its date (`cmake/BuildCommit.cmake`, rerun at every build, rewriting the
+  header only when they change; "unknown" without git), build type, platform, the
+  running slice's architecture, bundle id and repository URL. The identity is set once
+  in the top-level `CMakeLists.txt` (bundle id `io.github.tavanzz.daw`, publisher
+  "tavanzz"). `DAW --version` prints `BuildInfo::describe()`; such diagnostic runs never
+  hand over to a running copy of the app. The app icon is drawn by
+  `tools/make_app_icon.py` (`app/resources/AppIcon.png`; JUCE makes the .icns and
+  .ico); macOS opens `.dawproject` files with the app (`app/resources/Info.plist.in`).
+  Windows programs carry their C++ runtime (`CMAKE_MSVC_RUNTIME_LIBRARY`, static, for
+  every target). On Linux JUCE does HTTPS with libcurl, opened only when first used
+  (`JUCE_LOAD_CURL_SYMBOLS_LAZILY`): building needs its header, running does not.
+- Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
+  two copies of the app exchange (Phase 9), apart from the project format: bump it
+  whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
+  same version for now.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -1683,7 +1703,7 @@ scope: networking and co-op (Phase 9), user accounts, payments, app stores, mobi
 Windows code signing until an account exists, ASIO.
 
 - [x] 0. Plan (this list) and draft pull request
-- [ ] 1. Identity and build information: the `services` module and its architecture
+- [x] 1. Identity and build information: the `services` module and its architecture
       rules, `BuildInfo` (version with the tag's suffix, commit, date, signed or not),
       bundle id, app icon, `.dawproject` document type, `--version`,
       `model::networkProtocolVersion`, static MSVC runtime, libcurl loaded lazily on Linux

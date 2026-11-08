@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the Info.plist JUCE generates (app/CMakeLists.txt): the project files the
+     app opens from the Finder. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>@DAW_PRODUCT_NAME@ Project</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Default</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>@DAW_BUNDLE_ID@.project</string>
+      </array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>@DAW_BUNDLE_ID@.project</string>
+      <key>UTTypeDescription</key>
+      <string>@DAW_PRODUCT_NAME@ Project</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.json</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>dawproject</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

@@ -1,11 +1,20 @@
 # Application entry point: creates the engine, the model and the user interface
 # and connects them.
 
+# Project files open from the Finder (macOS); the Windows installer and the Linux desktop
+# file register them too (packaging/).
+configure_file(resources/Info.plist.in "${CMAKE_CURRENT_BINARY_DIR}/Info.plist.merge" @ONLY)
+file(READ "${CMAKE_CURRENT_BINARY_DIR}/Info.plist.merge" plist_to_merge)
+
+# The icon is drawn by tools/make_app_icon.py; JUCE makes the .icns and the .ico from it.
 juce_add_gui_app(daw_app
     PRODUCT_NAME "${DAW_PRODUCT_NAME}"
     VERSION "${PROJECT_VERSION}"
     COMPANY_NAME "${DAW_COMPANY_NAME}"
+    COMPANY_COPYRIGHT "Copyright (c) 2026 ${DAW_COMPANY_NAME}"
     BUNDLE_ID "${DAW_BUNDLE_ID}"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon.png"
+    PLIST_TO_MERGE "${plist_to_merge}"
     # macOS and iOS ask the user before an app records; this is the reason shown.
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "${DAW_PRODUCT_NAME} records from your microphone and audio interface inputs.")
@@ -15,12 +24,12 @@ target_sources(daw_app PRIVATE
     src/CrashMarker.cpp
     src/Main.cpp)
 
+# The version (with a release candidate's suffix) comes from services::buildInfo().
 target_compile_definitions(daw_app PRIVATE
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:daw_app,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:daw_app,JUCE_VERSION>")
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:daw_app,JUCE_PRODUCT_NAME>")
 
-target_link_libraries(daw_app PRIVATE daw::ui_desktop daw::appearance daw::controller daw::engine
-    daw::model daw::juce)
+target_link_libraries(daw_app PRIVATE daw::ui_desktop daw::appearance daw::services
+    daw::controller daw::engine daw::model daw::juce)
 daw_enable_warnings(daw_app)
 
 # The plugin scanner, a program of its own next to the app's executable (inside the

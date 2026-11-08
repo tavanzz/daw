@@ -74,7 +74,7 @@ format version 6. See [CLAUDE.md](CLAUDE.md#status) for the steps.
 
   ```bash
   sudo apt install build-essential cmake ninja-build pkg-config \
-      libasound2-dev libfreetype-dev libfontconfig1-dev \
+      libasound2-dev libcurl4-openssl-dev libfreetype-dev libfontconfig1-dev \
       libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
       libxinerama-dev libxrandr-dev libxrender-dev libxi-dev \
       xvfb

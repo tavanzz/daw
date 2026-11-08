@@ -73,13 +73,15 @@ add_executable(daw_tests
     engine/WavRepairTests.cpp
     engine/WaveformPeaksTests.cpp
     model/FormatVersionTests.cpp
+    model/NetworkProtocolTests.cpp
     model/ProjectFileTests.cpp
     model/ProjectTests.cpp
-    model/TimelineTests.cpp)
+    model/TimelineTests.cpp
+    services/BuildInfoTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::engine daw::model
-    Catch2::Catch2)
+    daw::services Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 # The test plugins are built with the tests, which find them here.
 add_dependencies(daw_tests daw_test_plugins)
@@ -205,6 +207,16 @@ add_test(NAME architecture.detects_appearance_include_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_appearance_include_in_engine PROPERTIES
     PASS_REGULAR_EXPRESSION "engine/src/UsesAppearance\\.cpp: <daw/appearance/Theme\\.h>")
+
+add_test(NAME architecture.detects_controller_include_in_services
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_controller_include_in_services PROPERTIES
+    PASS_REGULAR_EXPRESSION "services/src/UsesController\\.cpp: <daw/controller/Session\\.h>")
+
+add_test(NAME architecture.detects_services_include_in_controller
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_services_include_in_controller PROPERTIES
+    PASS_REGULAR_EXPRESSION "controller/src/UsesServices\\.cpp: <daw/services/BuildInfo\\.h>")
 
 add_test(NAME architecture.detects_plugin_editors_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")

@@ -1,21 +1,62 @@
 #include "AppController.h"
+#include "daw/services/BuildInfo.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <cstdio>
 #include <memory>
+
+#if JUCE_WINDOWS
+ #define NOMINMAX
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+#endif
 
 namespace
 {
+
+// Options that make a run of its own (they never hand over to a running copy of the app):
+// printing the version, and the diagnostic runs that the release checks make.
+bool isSeparateRun(const juce::String& commandLine)
+{
+    return commandLine.contains("--version");
+}
+
+// "DAW 0.8.0 (3f2a9c1b7e04, Release, macOS arm64)" on the console that started the app.
+void printVersion()
+{
+#if JUCE_WINDOWS
+    // A Windows GUI program has no console of its own: borrow the parent's, if any.
+    if (AttachConsole(ATTACH_PARENT_PROCESS) != 0)
+    {
+        FILE* stream = nullptr;
+        freopen_s(&stream, "CONOUT$", "w", stdout);
+    }
+#endif
+    std::fputs((daw::services::buildInfo().describe() + "\n").toRawUTF8(), stdout);
+    std::fflush(stdout);
+}
 
 class Application final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return JUCE_APPLICATION_NAME_STRING; }
-    const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
-    bool moreThanOneInstanceAllowed() override { return false; }
+    const juce::String getApplicationVersion() override { return daw::services::buildInfo().version; }
+
+    bool moreThanOneInstanceAllowed() override
+    {
+        return isSeparateRun(getCommandLineParameters());
+    }
 
     void initialise(const juce::String& commandLine) override
     {
+        if (commandLine.contains("--version"))
+        {
+            printVersion();
+            quit();
+            return;
+        }
+
         controller = std::make_unique<daw::app::AppController>(getApplicationName());
         openFromCommandLine(commandLine);
     }
