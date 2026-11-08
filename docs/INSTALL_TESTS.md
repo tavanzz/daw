@@ -6,8 +6,9 @@ already checks signatures, installation, a project and updates on every platform
 (docs/RELEASING.md); these checks are about what only a person sees: the system's
 dialogs, the first launch, the update panel.
 
-They use two pre-releases, `v0.8.0-rc.1` and `v0.8.0-rc.2`, from
-https://github.com/tavanzz/daw/releases. Before starting on a Mac where DAW ran before,
+They use two pre-releases built with the update key (docs/RELEASING.md, step 1), from
+https://github.com/tavanzz/daw/releases: `v0.8.0-rc.2` and `v0.8.0-rc.3`. (`v0.8.0-rc.1`
+was the pipeline's first trial, signed with a throwaway key: it cannot update itself.) Before starting on a Mac where DAW ran before,
 keep your settings aside, so that you see what a new user sees:
 
 ```bash
@@ -18,7 +19,7 @@ mv ~/Library/Application\ Support/DAW ~/Library/Application\ Support/DAW.before-
 
 ## Mac, from nothing
 
-1. Download `DAW-0.8.0-rc.1-macOS.dmg` with Safari. Open it: a window shows DAW and a
+1. Download `DAW-0.8.0-rc.2-macOS.dmg` with Safari. Open it: a window shows DAW and a
    link to Applications. Drag DAW onto Applications, eject the disk image.
 2. Open DAW from Applications (or Launchpad).
    - With the Apple account set up: it opens after macOS's usual "downloaded from the
@@ -33,7 +34,7 @@ mv ~/Library/Application\ Support/DAW ~/Library/Application\ Support/DAW.before-
    "Crash reports": Start is greyed until you choose Send or Don't send. Choose one,
    Start. The window closes; nothing else is asked.
 4. Quit and open DAW again: no welcome window.
-5. Help > About DAW: version 0.8.0-rc.1, a commit, "macOS, arm64" (or x86_64 on an Intel
+5. Help > About DAW: version 0.8.0-rc.2, a commit, "macOS, arm64" (or x86_64 on an Intel
    Mac), format 6, protocol 1, settings 1, and whether it is signed. The Licences menu
    lists DAW, Third-party components, the fonts, JUCE's VST3 SDK, Monocypher,
    sentry-native, mpack, jsmn; each shows its text. The three links open the repository,
@@ -51,16 +52,16 @@ mv ~/Library/Application\ Support/DAW ~/Library/Application\ Support/DAW.before-
 
 ## Mac, an update from one version to the next
 
-9. In rc.1: Help > Include Pre-releases (ticked), then Help > Check for Updates...: the
-   update panel says "DAW 0.8.0-rc.2 is available" (you have 0.8.0-rc.1) with the notes
-   of rc.2, and three buttons.
+9. In rc.2: Help > Include Pre-releases (ticked), then Help > Check for Updates...: the
+   update panel says "DAW 0.8.0-rc.3 is available" (you have 0.8.0-rc.2) with the notes
+   of rc.3, and three buttons.
 10. Make an unsaved change (add a track), then Update Now: a progress bar, then DAW asks
     whether to save; save the project. DAW quits and, a few seconds later, starts again
     by itself.
-11. Help > About: 0.8.0-rc.2. Your theme, device, plugin list and the project's recent
+11. Help > About: 0.8.0-rc.3. Your theme, device, plugin list and the project's recent
     file are as before; no welcome window; the project opens as saved.
 12. Quit, open again: at launch, after five seconds, nothing is offered (you are up to
-    date). Help > Check for Updates...: "DAW 0.8.0-rc.2 is up to date."
+    date). Help > Check for Updates...: "DAW 0.8.0-rc.3 is up to date."
 13. Optional: with "Include Pre-releases" off and Check for Updates at Launch off, launch:
     no network request is made (the log shows no "Updates:" line).
 
@@ -72,9 +73,9 @@ rm -rf ~/Library/Application\ Support/DAW && mv ~/Library/Application\ Support/D
 
 ## What to ask a friend on Windows
 
-Send them the link to the release (rc.1, then rc.2) and this list.
+Send them the link to the release (rc.2, then rc.3) and this list.
 
-14. Download `DAW-0.8.0-rc.1-Windows-x64-Setup.exe` and run it. If Windows says
+14. Download `DAW-0.8.0-rc.2-Windows-x64-Setup.exe` and run it. If Windows says
     "Windows protected your PC": More info > Run anyway. (If Windows says the app was
     blocked by Smart App Control, it cannot be installed while that is on: tell me.)
 15. The installer asks "Install for me only" or "for all users": choose "for me only".
@@ -83,9 +84,9 @@ Send them the link to the release (rc.1, then rc.2) and this list.
     interface), Test, a theme, an answer about crash reports, Start.
 17. Start menu > DAW opens it again with no welcome window. Double-click a `.dawproject`
     file (send them one): it opens in DAW.
-18. In DAW: Help > Include Pre-releases, Help > Check for Updates...: rc.2 is offered.
+18. In DAW: Help > Include Pre-releases, Help > Check for Updates...: rc.3 is offered.
     Update Now: DAW closes, the installer runs by itself (no questions, for "only for me"),
-    DAW starts again: Help > About says 0.8.0-rc.2.
+    DAW starts again: Help > About says 0.8.0-rc.3.
 19. Settings > Apps > Installed apps > DAW > Uninstall: it goes; the Start menu entry too.
 20. If anything goes wrong: Help > Open Log Folder (or `%APPDATA%\DAW\Logs`), and send the
     newest log, which shows the version and nothing personal but file names; and Help >

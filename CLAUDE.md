@@ -1914,19 +1914,21 @@ Windows code signing until an account exists, ASIO.
 - [x] 10. macOS packaging: hardened runtime, minimal entitlements, signing, notarisation,
       stapling, .dmg; ad-hoc signing without secrets; all of this Mac's plugins scanned by
       the hardened app
-- [ ] 11. Windows packaging: Inno Setup installer (per user or all users, Start menu,
+- [x] 11. Windows packaging: Inno Setup installer (per user or all users, Start menu,
       `.dawproject`, uninstaller); signing when the secrets exist
-- [ ] 12. Linux packaging: AppImage (pinned linuxdeploy and appimagetool), desktop file,
+- [x] 12. Linux packaging: AppImage (pinned linuxdeploy and appimagetool), desktop file,
       icon, MIME type
-- [ ] 13. Release workflow: tag to GitHub Release (notes, checksums, signed `update.json`,
+- [x] 13. Release workflow: tag to GitHub Release (notes, checksums, signed `update.json`,
       debug symbols) on the three platforms; unsigned mode
-- [ ] 14. Release checks in the workflow: signatures, notarisation, Gatekeeper,
+- [x] 14. Release checks in the workflow: signatures, notarisation, Gatekeeper,
       install, launch, test project, newer project refused, clean quit, uninstall;
       updates end to end (a valid one installed; a bad signature, a tampered file and a
       downgrade refused)
 - [x] 15. Licences and documents: LICENSE, README, `docs/THIRD_PARTY.md`,
       `docs/RELEASING.md` (accounts and secrets), `docs/PRIVACY.md`
-- [ ] 16. Trial release candidates `v0.8.0-rc.1` and `rc.2`; practical tests in
+- [ ] 16. Trial release candidates (`v0.8.0-rc.1`, published 2026-11-08 by the workflow
+      with every check green on the three platforms, unsigned, with a throwaway update
+      key; `rc.2` and `rc.3` once the update key is set); practical tests in
       `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from one version to
       the next, a friend on Windows); version 0.8.0
 - [ ] Practical tests (`docs/INSTALL_TESTS.md`)
