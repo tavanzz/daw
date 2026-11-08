@@ -10,7 +10,7 @@ shows them all. The app's own code is not open source (`LICENSE.txt`).
 
 | Component | Version | Licence | Used for |
 |-----------|---------|---------|----------|
-| [JUCE](https://juce.com) | 9.0.4 | used under the commercial [JUCE 9 licence](https://juce.com/legal/juce-9-licence/), Starter tier (it is also available under the AGPLv3, which this project does not use) | audio, graphics, the whole app |
+| [JUCE](https://juce.com) | 9.0.4 | used under the commercial [JUCE 9 licence](https://juce.com/legal/juce-9-licence/), Starter tier (it is also available under the AGPLv3, which this project does not use) | audio, graphics, the whole app; on macOS with one change of ours to its CoreAudio code (`cmake/patches/`) |
 | [Monocypher](https://monocypher.org) | 4.0.2 | CC0-1.0 or BSD 2-Clause (either) | checking the Ed25519 signatures of updates |
 | [sentry-native](https://github.com/getsentry/sentry-native) | 0.17.4 | MIT | crash reports (its in-process backend; nothing is sent without consent) |
 | ↳ [mpack](https://github.com/ludocode/mpack) | as sentry-native ships it | MIT | inside sentry-native |

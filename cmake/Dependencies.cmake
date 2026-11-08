@@ -8,11 +8,24 @@ include(FetchContent)
 set(DAW_DEPENDENCY_CACHE_DIR "${PROJECT_SOURCE_DIR}/.cache/deps"
     CACHE PATH "Where downloaded dependency archives are kept")
 
+# One change to JUCE, macOS only (where the file is compiled): an output used without inputs
+# goes into a stacked aggregate device, which has no input streams, so that playing to an
+# interface that also has inputs never makes macOS ask for the microphone before a track
+# needs an input (cmake/patches/juce-coreaudio-output-only.patch).
+if(APPLE)
+    set(juce_patch PATCH_COMMAND "${CMAKE_COMMAND}"
+        "-DPATCH_FILE=${CMAKE_CURRENT_LIST_DIR}/patches/juce-coreaudio-output-only.patch"
+        -P "${CMAKE_CURRENT_LIST_DIR}/ApplyPatch.cmake")
+else()
+    set(juce_patch "")
+endif()
+
 FetchContent_Declare(JUCE
     URL https://github.com/juce-framework/JUCE/archive/refs/tags/9.0.4.tar.gz
     URL_HASH SHA256=e2bee25d5c776118aea550ad168a3dc9520c0669a79bd9f5a72b9f404ee1c40a
     DOWNLOAD_DIR "${DAW_DEPENDENCY_CACHE_DIR}"
     DOWNLOAD_NAME JUCE-9.0.4.tar.gz
+    ${juce_patch}
     SYSTEM)
 
 FetchContent_Declare(Catch2

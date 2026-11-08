@@ -28,8 +28,9 @@ mv ~/Library/Application\ Support/DAW ~/Library/Application\ Support/DAW.before-
    - Without it (the release notes say "not signed with an Apple Developer ID"): macOS
      refuses. Open System Settings > Privacy & Security, scroll to "DAW was blocked",
      choose Open Anyway and confirm. Only the first time.
-   - If your audio interface has inputs, macOS may ask now whether DAW may use the
-     microphone: allow it (recording needs it).
+   - In rc.2 and rc.3, if your audio interface has inputs, macOS may ask now whether DAW
+     may use the microphone: allow it (recording needs it). Later builds ask only when a
+     track needs an input (checks 21 to 23).
 3. The welcome window, "1 of 3": your interface is preselected; press Test, you hear a
    tone in it. Next: click each theme, the whole app changes at once; keep one. Next:
    "Crash reports": Start is greyed until you choose Send or Don't send. Choose one,
@@ -95,3 +96,21 @@ Send them the link to the release (rc.2, then rc.3) and this list.
 
 Linux friends: the AppImage, `chmod +x`, run; the same welcome window and updates (the
 AppImage replaces itself).
+
+## Mac, the microphone (the first build after rc.3)
+
+macOS used to ask for the microphone at the first launch whenever the audio interface also
+has inputs (your Komplete Audio 6). Now it must ask only when a track needs an input.
+
+21. Make macOS forget DAW's answer, so that it can ask again:
+
+    ```bash
+    tccutil reset Microphone io.github.tavanzz.daw
+    ```
+
+22. Open DAW with the interface as its output and play a project: you hear it, and macOS
+    asks nothing (no microphone question, no orange dot in the menu bar).
+23. Arm an audio track (or switch its monitoring to On): now macOS asks whether DAW may use
+    the microphone. Allow: the track's input meter moves when you play into the
+    interface. (Don't Allow instead: arming refuses with a message saying how to allow it in
+    System Settings.)

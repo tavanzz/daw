@@ -10,7 +10,8 @@ A cross-platform digital audio workstation (DAW). Final targets: Windows, macOS,
 Linux, iOS/iPadOS and Android. A personal project today, built so it can become a
 commercial product.
 
-- C++20, JUCE 9.0.4 (CMake FetchContent, no Projucer), Catch2 3.16.1 for tests.
+- C++20, JUCE 9.0.4 (CMake FetchContent, no Projucer; one patch of ours on macOS, see
+  Microphone permission), Catch2 3.16.1 for tests.
 - CMake ≥ 3.25 with Ninja, driven by `CMakePresets.json`.
 - Development happens locally on macOS (Apple Silicon), the primary test platform:
   build and run the app there. Windows and Linux are verified through GitHub Actions.
@@ -883,6 +884,16 @@ Modules with one-way dependencies:
   `NSMicrophoneUsageDescription` (JUCE's `MICROPHONE_PERMISSION_*`). The app also
   passes the device's reported latencies to the session and keeps the manual offset
   in the user settings per input/output device pair and sample rate.
+  macOS asks for the microphone as soon as an IOProc is created on a device that has
+  input streams, in an app with the audio-input entitlement, even for output only (the
+  device itself, JUCE's private aggregate of it and Apple's output units alike): an
+  interface with inputs made it ask at the first launch. So JUCE is patched on macOS
+  (`cmake/patches/juce-coreaudio-output-only.patch`, applied once by
+  `cmake/ApplyPatch.cmake`, CRLF kept by `.gitattributes`): an output opened without an
+  input device goes into a stacked private aggregate (as a Multi-Output Device), which
+  has no input streams; with an input device JUCE builds its usual aggregate. Checked
+  in the TCC log (`log show --predicate 'process == "tccd"'`): a real request has
+  `preflight=no`; opening the output makes none, opening the inputs does.
 - Themes (Phase 5): `appearance::Theme` holds everything a UI needs to draw in one
   theme: a colour per `ColourRole` (components ask for roles, never literal colours),
   a font per `FontRole` (family, style, size, tracking, capitals), the shape (corner
@@ -1932,6 +1943,9 @@ Windows code signing until an account exists, ASIO.
       `update.json` checked against `DAW_UPDATE_PUBLIC_KEY`); practical tests in
       `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from rc.2 to rc.3, a
       friend on Windows); version 0.8.0
+- [x] 17. Microphone permission: playing to an interface with inputs no longer makes macOS
+      ask at launch (a JUCE patch: output-only devices in a stacked aggregate); macOS asks
+      when a track first needs an input
 - [ ] Practical tests (`docs/INSTALL_TESTS.md`)
 
 Phase 8 decisions (agreed before starting):
