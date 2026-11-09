@@ -41,7 +41,7 @@ public:
     struct Options
     {
         juce::String currentVersion;      ///< the running app's (BuildInfo, or pretended)
-        juce::String bundleId;            ///< manifests for another app are refused
+        juce::String updateId;            ///< BuildInfo::updateId: manifests for another app are refused
         juce::MemoryBlock publicKey;      ///< empty: nothing is installed
         juce::String repositoryUrl;       ///< "https://github.com/owner/repo"
         juce::String feedOverride;        ///< a manifest URL used instead of both channels

@@ -31,3 +31,17 @@ TEST_CASE("The commit link points at the repository", "[services]")
     info.commit = "unknown";
     CHECK(info.commitUrl() == "https://github.com/someone/daw");
 }
+
+TEST_CASE("Updates keep naming the app by its first bundle id", "[services]")
+{
+    const auto& info = daw::services::buildInfo();
+
+    // Copies of the app from before it was renamed accept only manifests naming this.
+    CHECK(info.updateId == "io.github.tavanzz.daw");
+    CHECK(info.previousProductName == "DAW");
+    CHECK(info.bundleId != info.updateId);
+
+    // The logo shows the name itself, in words.
+    CHECK(info.logoText.removeCharacters(" ") == info.productName);
+    CHECK(info.logoText.contains(" "));
+}

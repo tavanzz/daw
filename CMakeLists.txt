@@ -8,12 +8,19 @@ project(daw
     DESCRIPTION "Cross-platform digital audio workstation"
     LANGUAGES C CXX)
 
-# User-visible identity. "DAW" is a working title: change these here only, nothing else
-# in the code depends on their values. The bundle id stays once friends have the app
-# (macOS ties permissions such as the microphone's to it).
-set(DAW_PRODUCT_NAME "DAW" CACHE STRING "User-visible product name")
+# User-visible identity, set here only: nothing else in the code depends on its values.
+# The logo text is the name as the themes' logos lay it out, word by word. macOS ties
+# permissions such as the microphone's to the bundle id.
+set(DAW_PRODUCT_NAME "MICINSTATION")
+set(DAW_LOGO_TEXT "MIC IN STATION")
 set(DAW_COMPANY_NAME "tavanzz" CACHE STRING "Publisher shown in app metadata and installers")
-set(DAW_BUNDLE_ID "io.github.tavanzz.daw" CACHE STRING "Bundle identifier")
+set(DAW_BUNDLE_ID "io.github.tavanzz.micinstation")
+
+# The app's first name, up to v0.8.0-rc.4. Never change these: copies of that app accept
+# only update manifests that name its bundle id (the update id), and update themselves to
+# this one, which takes over the settings and logs kept under the old name.
+set(DAW_PREVIOUS_PRODUCT_NAME "DAW")
+set(DAW_UPDATE_ID "io.github.tavanzz.daw")
 set(DAW_REPOSITORY_URL "https://github.com/tavanzz/daw" CACHE STRING
     "GitHub repository: links in the app, and where updates come from")
 

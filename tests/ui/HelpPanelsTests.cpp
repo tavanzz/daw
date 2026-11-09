@@ -46,7 +46,7 @@ struct LocalRelease
 
         const auto asset = directory.file("DAW-installer.bin");
         REQUIRE(asset.replaceWithText("new version"));
-        const auto payload = R"({"bundleId": ")" + services::buildInfo().bundleId + R"(", "version": ")" + version +
+        const auto payload = R"({"bundleId": ")" + services::buildInfo().updateId + R"(", "version": ")" + version +
                              R"(", "notes": "- Faster mixer\n- Fewer bugs", "assets": {")" +
                              services::manifest::platformKey() + R"(": {"url": ")" + juce::URL(asset).toString(false) +
                              R"(", "size": 11, "sha256": ")" + services::sha256Of(asset) + R"("}}})";
@@ -58,7 +58,7 @@ struct LocalRelease
     {
         UpdateChecker::Options options;
         options.currentVersion = "0.0.1";
-        options.bundleId = services::buildInfo().bundleId;
+        options.updateId = services::buildInfo().updateId;
         options.publicKey = keys.publicKey;
         options.repositoryUrl = "https://github.com/tavanzz/daw";
         options.feedOverride = juce::URL(feed).toString(false);
@@ -164,7 +164,7 @@ TEST_CASE("A copy that cannot update itself offers the download page instead", "
     // Nothing newer: up to date; nothing reachable: the reason and a second try.
     UpdateChecker::Options options;
     options.currentVersion = "0.0.1";
-    options.bundleId = services::buildInfo().bundleId;
+    options.updateId = services::buildInfo().updateId;
     options.feedOverride = juce::URL(release.directory.file("missing.json")).toString(false);
     UpdateChecker failing(options);
     services.updates = &failing;

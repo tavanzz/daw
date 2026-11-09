@@ -18,6 +18,7 @@ add_library(daw_services STATIC
     src/CrashReporting.cpp
     src/Ed25519.cpp
     src/Http.cpp
+    src/NameMigration.cpp
     src/SemanticVersion.cpp
     src/UpdateChecker.cpp
     src/UpdateInstaller.cpp
@@ -35,6 +36,9 @@ target_compile_definitions(daw_services PRIVATE
     "DAW_PRODUCT_NAME=\"${DAW_PRODUCT_NAME}\""
     "DAW_VERSION=\"${DAW_VERSION}\""
     "DAW_BUNDLE_ID=\"${DAW_BUNDLE_ID}\""
+    "DAW_LOGO_TEXT=\"${DAW_LOGO_TEXT}\""
+    "DAW_PREVIOUS_PRODUCT_NAME=\"${DAW_PREVIOUS_PRODUCT_NAME}\""
+    "DAW_UPDATE_ID=\"${DAW_UPDATE_ID}\""
     "DAW_REPOSITORY_URL=\"${DAW_REPOSITORY_URL}\""
     "DAW_BUILD_TYPE=\"$<CONFIG>\""
     "DAW_UPDATE_PUBLIC_KEY=\"${DAW_UPDATE_PUBLIC_KEY}\""

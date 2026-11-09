@@ -35,7 +35,7 @@ bool isSeparateRun(const juce::String& commandLine)
     return commandLine.contains("--version") || optionValue(commandLine, "--settings-dir").isNotEmpty();
 }
 
-// "DAW 0.8.0 (3f2a9c1b7e04, Release, macOS arm64)" on the console that started the app.
+// "MICINSTATION 0.8.0 (3f2a9c1b7e04, Release, macOS arm64)" on the console that started the app.
 void printVersion()
 {
 #if JUCE_WINDOWS

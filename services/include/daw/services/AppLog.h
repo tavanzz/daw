@@ -22,12 +22,12 @@ public:
         juce::File folder;
         int sessionsKept = 20;
         juce::int64 maxBytesPerSession = 4 * 1024 * 1024;
-        juce::String applicationName = "DAW";
+        juce::String applicationName = "MICINSTATION";
         /** The folder written as "~" (the user's home; tests choose their own). */
         juce::File home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
     };
 
-    /** The log folder for this user: ~/Library/Logs/DAW on macOS, Logs next to the user
+    /** The log folder for this user: ~/Library/Logs/<name> on macOS, Logs next to the user
         settings elsewhere. */
     [[nodiscard]] static juce::File defaultFolder(const juce::String& applicationName);
 

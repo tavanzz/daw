@@ -61,15 +61,28 @@ Modules with one-way dependencies:
   `DAW_VERSION_SUFFIX`, e.g. "-rc.1", which the release workflow takes from the tag),
   commit and its date (`cmake/BuildCommit.cmake`, rerun at every build, rewriting the
   header only when they change; "unknown" without git), build type, platform, the
-  running slice's architecture, bundle id and repository URL. The identity is set once
-  in the top-level `CMakeLists.txt` (bundle id `io.github.tavanzz.daw`, publisher
-  "tavanzz"). `DAW --version` prints `BuildInfo::describe()`; such diagnostic runs never
+  running slice's architecture, bundle id, update id and repository URL. The identity is
+  set once in the top-level `CMakeLists.txt` (product name "MICINSTATION", logo text "MIC
+  IN STATION", bundle id `io.github.tavanzz.micinstation`, publisher "tavanzz").
+  `MICINSTATION --version` prints `BuildInfo::describe()`; such diagnostic runs never
   hand over to a running copy of the app. The app icon is drawn by
   `tools/make_app_icon.py` (`app/resources/AppIcon.png`; JUCE makes the .icns and
   .ico); macOS opens `.dawproject` files with the app (`app/resources/Info.plist.in`).
   Windows programs carry their C++ runtime (`CMAKE_MSVC_RUNTIME_LIBRARY`, static, for
   every target). On Linux JUCE does HTTPS with libcurl, opened only when first used
   (`JUCE_LOAD_CURL_SYMBOLS_LAZILY`): building needs its header, running does not.
+- The rename (Phase 8): up to v0.8.0-rc.4 the app was called "DAW" (bundle id
+  `io.github.tavanzz.daw`). Two values keep that name for ever (`DAW_PREVIOUS_PRODUCT_NAME`,
+  `DAW_UPDATE_ID`): update manifests name the app by `BuildInfo::updateId`, the old bundle
+  id, since copies of the old app accept nothing else (as Windows knows the installation by
+  its AppId), and `services::NameMigration` takes over the old name's data once, before the
+  settings and the log open (`AppController`): when the new name has no settings file and
+  the old one has, the settings folder is copied (the settings file renamed, so an old copy
+  still finds its own; files already there are kept), the session logs move (renamed, so
+  rotation counts them) with the crash reports, kept and waiting; a run with
+  `--settings-dir=` renames them in place; the log says what was taken over. In the code,
+  targets, namespaces, CMake and environment variables, secrets and the repository the
+  name stays "daw".
 - User settings (Phase 8): `services::UserSettings` is the one place that reads and
   writes `DAW.settings` (JUCE's PropertiesFile XML, in `UserSettings::defaultFolder()`:
   `~/Library/Application Support/DAW` on macOS, `%APPDATA%\DAW`, `~/.config/DAW`), with
@@ -1952,6 +1965,10 @@ Windows code signing until an account exists, ASIO.
       ask at launch (a JUCE patch: output-only devices in a stacked aggregate); macOS asks
       when a track first needs an input. The patch applies exactly or stops the configure;
       a report for JUCE is ready in `cmake/patches/README.md`; `v0.8.0-rc.4` carries it
+- [ ] 18. Renamed MICINSTATION: identity and the old name's data taken over; projects
+      `.micin` (`.dawproject` still opens); copies of the old app update themselves to the
+      new one on every platform; the logos MIC IN STATION; release workflow and documents;
+      `v0.8.0-rc.5`, updated to from rc.4 for real
 - [ ] Practical tests (`docs/INSTALL_TESTS.md`)
 
 Phase 8 decisions (agreed before starting):
@@ -2029,6 +2046,16 @@ Phase 8 decisions (agreed before starting):
   throwaway update key) and says so in the notes and the run summary; CI stays green.
 - Pipeline trials: tags `v0.8.0-rc.N` from the branch make public pre-releases, which
   the stable channel ignores; tags of failed attempts (no release) are deleted.
+- The rename (agreed 2026-11-09, before v0.8.0): "MICINSTATION" in capitals wherever the
+  name shows (menus, windows, About, installers, folders, files, notes), lowercase in
+  identifiers (`io.github.tavanzz.micinstation`); the logos split it MIC IN STATION. The
+  update id, the key pair, the secrets, the repository, namespaces and targets keep "daw".
+  Windows keeps its AppId (one entry in Installed apps); copies updated from the old name
+  stay in their folder (`Programs\DAW`), new installations go to `Programs\MICINSTATION`.
+  Projects: `.micin` (`.dawproject` is also the extension of Bitwig's DAWproject format);
+  `.dawproject` files still open everywhere, Save keeps a file where it is, new projects and
+  Save As use `.micin`. Settings are copied (the old copy stays), logs and crash reports
+  moved. macOS asks for the microphone once more (a new bundle id).
 - Accounts and secrets are created by the user (`docs/RELEASING.md`): the update key
   (`DAW_UPDATE_PRIVATE_KEY`, variable `DAW_UPDATE_PUBLIC_KEY`), Apple
   (`MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_NOTARY_KEY_P8`,

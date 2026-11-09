@@ -21,7 +21,7 @@ struct UpdateAsset
 /** What a signed update manifest says about a release. */
 struct UpdateRelease
 {
-    juce::String bundleId; ///< the app it is for
+    juce::String bundleId; ///< the app it is for: BuildInfo::updateId, the first bundle id
     SemanticVersion version; ///< 0.0.0 until read
     juce::String date;       ///< ISO 8601 day
     juce::String notes;      ///< Markdown, generated from the commits

@@ -9,6 +9,7 @@
 #include "daw/engine/io/AudioDeviceHost.h"
 #include "daw/services/AppLog.h"
 #include "daw/services/CrashReporting.h"
+#include "daw/services/NameMigration.h"
 #include "daw/services/UpdateChecker.h"
 #include "daw/services/UpdateInstaller.h"
 #include "daw/services/UserSettings.h"
@@ -90,7 +91,9 @@ private:
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     void timerCallback() override;
 
-    [[nodiscard]] services::AppLog::Options logOptions(const juce::File& settingsFolder) const;
+    [[nodiscard]] static services::NameMigration::Folders foldersFor(const juce::String& name,
+                                                                     const juce::File& settingsFolder);
+    [[nodiscard]] services::AppLog::Options logOptions() const;
     void logStart(const juce::StringArray& crashedPlugins);
     void startCrashReports(const juce::StringArray& crashedPlugins);
     [[nodiscard]] std::unique_ptr<services::UpdateChecker> makeUpdateChecker() const;
@@ -104,6 +107,9 @@ private:
 
     const juce::String applicationName;
     const Options runOptions;
+    // Before the settings and the log open: the user's data under the app's previous name.
+    const services::NameMigration::Folders previousFolders;
+    const services::NameMigration::Result nameMigration;
     services::UserSettings settings;
     services::AppLog log; // installed as JUCE's logger: everything after it may log
     CrashMarker crashMarker;

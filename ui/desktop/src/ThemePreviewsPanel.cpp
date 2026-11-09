@@ -1,5 +1,7 @@
 #include "daw/ui/desktop/ThemePreviewsPanel.h"
 
+#include "daw/services/BuildInfo.h"
+
 #include <cmath>
 
 namespace daw::ui::desktop
@@ -195,7 +197,7 @@ void ThemePreviewsPanel::paintMiniature(juce::Graphics& g, const ThemedLookAndFe
     auto transport = area.removeFromTop(26.0f);
     look.drawPanel(g, transport, ColourRole::panel, true);
     transport.reduce(6.0f, 4.0f);
-    look.drawLogo(g, transport.removeFromLeft(46.0f), "DAW", 0.0, false);
+    look.drawLogo(g, transport.removeFromLeft(46.0f), services::buildInfo().logoText, 0.0, false);
     transport.removeFromLeft(8.0f);
     for (int index = 0; index < 2; ++index)
     {

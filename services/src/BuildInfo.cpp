@@ -36,6 +36,8 @@ BuildInfo makeBuildInfo()
 {
     BuildInfo info;
     info.productName = DAW_PRODUCT_NAME;
+    info.logoText = DAW_LOGO_TEXT;
+    info.previousProductName = DAW_PREVIOUS_PRODUCT_NAME;
     info.version = DAW_VERSION;
     info.commit = DAW_BUILD_COMMIT;
     info.modified = DAW_BUILD_COMMIT_MODIFIED;
@@ -44,6 +46,7 @@ BuildInfo makeBuildInfo()
     info.platform = platformName();
     info.architecture = architectureName();
     info.bundleId = DAW_BUNDLE_ID;
+    info.updateId = DAW_UPDATE_ID;
     info.repositoryUrl = DAW_REPOSITORY_URL;
     info.crashReportsDsn = DAW_SENTRY_DSN;
     return info;

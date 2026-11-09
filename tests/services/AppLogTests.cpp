@@ -19,7 +19,7 @@ AppLog::Options optionsFor(const juce::File& folder)
 
 juce::Array<juce::File> logsIn(const juce::File& folder)
 {
-    return folder.findChildFiles(juce::File::findFiles, false, "DAW *.log");
+    return folder.findChildFiles(juce::File::findFiles, false, "MICINSTATION *.log");
 }
 
 } // namespace
@@ -75,7 +75,7 @@ TEST_CASE("Old sessions are removed and a session's log has a size limit", "[ser
     const auto folder = directory.file("Logs");
     REQUIRE(folder.createDirectory());
     for (int index = 0; index < 25; ++index)
-        REQUIRE(folder.getChildFile("DAW 2020-01-01 00-00-" + juce::String(index).paddedLeft('0', 2) + ".000.log")
+        REQUIRE(folder.getChildFile("MICINSTATION 2020-01-01 00-00-" + juce::String(index).paddedLeft('0', 2) + ".000.log")
                     .replaceWithText("old\n"));
     REQUIRE(folder.getChildFile("Other file.txt").replaceWithText("kept"));
 
@@ -87,8 +87,8 @@ TEST_CASE("Old sessions are removed and a session's log has a size limit", "[ser
     const auto logs = logsIn(folder);
     CHECK(logs.size() == 5);
     CHECK(logs.contains(log.getFile()));
-    CHECK_FALSE(folder.getChildFile("DAW 2020-01-01 00-00-00.000.log").exists());
-    CHECK(folder.getChildFile("DAW 2020-01-01 00-00-24.000.log").exists());
+    CHECK_FALSE(folder.getChildFile("MICINSTATION 2020-01-01 00-00-00.000.log").exists());
+    CHECK(folder.getChildFile("MICINSTATION 2020-01-01 00-00-24.000.log").exists());
     CHECK(folder.getChildFile("Other file.txt").exists());
 
     for (int index = 0; index < 50; ++index)

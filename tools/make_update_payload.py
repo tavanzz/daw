@@ -14,7 +14,9 @@ import pathlib
 import sys
 
 REPOSITORY = "https://github.com/tavanzz/daw"
-BUNDLE_ID = "io.github.tavanzz.daw"
+# The app the manifest is for (BuildInfo::updateId): the app's first bundle id, never changed,
+# since copies from before it was renamed MICINSTATION accept nothing else.
+UPDATE_ID = "io.github.tavanzz.daw"
 PLATFORMS = {"macos": "-macOS.dmg", "windows-x86_64": "-Windows-x64-Setup.exe", "linux-x86_64": "-Linux-x86_64.AppImage"}
 
 
@@ -36,7 +38,7 @@ def main():
         file = files[0]
         assets[platform] = {"url": f"{REPOSITORY}/releases/download/{tag}/{file.name}",
                             "size": file.stat().st_size, "sha256": sha256(file)}
-    payload = {"bundleId": BUNDLE_ID, "version": version, "date": datetime.date.today().isoformat(),
+    payload = {"bundleId": UPDATE_ID, "version": version, "date": datetime.date.today().isoformat(),
                "notes": notes.read_text(encoding="utf-8").strip(),
                "releaseUrl": f"{REPOSITORY}/releases/tag/{tag}", "assets": assets}
     print(json.dumps(payload, indent=2))

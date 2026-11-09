@@ -17,7 +17,7 @@ struct Response
     juce::String error;  ///< why not ok, for the user
 };
 
-/** The User-Agent the app sends ("DAW/0.8.0"), which GitHub's API requires. */
+/** The User-Agent the app sends ("MICINSTATION/0.8.0"), which GitHub's API requires. */
 [[nodiscard]] juce::String userAgent();
 
 /** Fetches a small text (a manifest, an API answer), following redirects. Blocks: call it

@@ -192,7 +192,7 @@ void UpdateChecker::finishCheck(manifest::ReadResult read, const UpdatePreferenc
 
     const auto& release = *read.release;
     const auto current = SemanticVersion::parse(options.currentVersion);
-    if (release.bundleId != options.bundleId)
+    if (release.bundleId != options.updateId)
     {
         result.state = State::failed;
         result.problem = "the update information is for another app (" + release.bundleId + ")";

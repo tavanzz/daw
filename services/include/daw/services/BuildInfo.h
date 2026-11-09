@@ -9,7 +9,9 @@ namespace daw::services
     log and into crash reports, compared by the updater. */
 struct BuildInfo
 {
-    juce::String productName;   ///< e.g. "DAW"
+    juce::String productName;   ///< e.g. "MICINSTATION"
+    juce::String logoText;      ///< the name as logos lay it out, words apart: "MIC IN STATION"
+    juce::String previousProductName; ///< the app's first name ("DAW"), whose data it takes over
     juce::String version;       ///< semantic version, with the tag's suffix: "0.8.0-rc.1"
     juce::String commit;        ///< 12 hex digits, or "unknown" (built without git)
     bool modified = false;      ///< the working tree had uncommitted changes
@@ -17,11 +19,15 @@ struct BuildInfo
     juce::String buildType;     ///< "Debug" or "Release"
     juce::String platform;      ///< "macOS", "Windows" or "Linux"
     juce::String architecture;  ///< "arm64" or "x86_64": the slice running now
-    juce::String bundleId;      ///< e.g. "io.github.tavanzz.daw"
+    juce::String bundleId;      ///< e.g. "io.github.tavanzz.micinstation"
+    /** What update manifests name as their app ("bundleId" in update.json): the first
+        bundle id, never changed, since copies of the app from before the rename accept
+        nothing else. */
+    juce::String updateId;
     juce::String repositoryUrl; ///< the GitHub repository, for links and updates
     juce::String crashReportsDsn; ///< where crash reports may go (Sentry); empty: nowhere
 
-    /** One line, e.g. "DAW 0.8.0 (3f2a9c1b7e04, Release, macOS arm64)". */
+    /** One line, e.g. "MICINSTATION 0.8.0 (3f2a9c1b7e04, Release, macOS arm64)". */
     [[nodiscard]] juce::String describe() const;
 
     /** The repository's page for this commit, or for the repository without one. */

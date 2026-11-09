@@ -61,7 +61,7 @@ struct LocalReleases
     {
         UpdateChecker::Options result;
         result.currentVersion = currentVersion;
-        result.bundleId = "io.github.tavanzz.daw";
+        result.updateId = "io.github.tavanzz.daw";
         result.publicKey = keys.publicKey;
         result.repositoryUrl = "https://github.com/tavanzz/daw";
         result.feedOverride = feed != juce::File() ? juce::URL(feed).toString(false) : juce::String();

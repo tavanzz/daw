@@ -40,23 +40,30 @@ controller::SessionOptions AppController::sessionOptions()
     return options;
 }
 
-services::AppLog::Options AppController::logOptions(const juce::File& settingsFolder) const
+services::NameMigration::Folders AppController::foldersFor(const juce::String& name, const juce::File& settingsFolder)
 {
-    // A run with settings of its own keeps its logs with them.
+    // A run with settings of its own keeps everything there, logs included, whatever the
+    // app is called.
+    if (settingsFolder != juce::File())
+        return {name, settingsFolder, settingsFolder.getChildFile("Logs")};
+    return {name, services::UserSettings::defaultFolder(name), services::AppLog::defaultFolder(name)};
+}
+
+services::AppLog::Options AppController::logOptions() const
+{
     services::AppLog::Options options;
     options.applicationName = applicationName;
-    options.folder = settingsFolder != juce::File() ? settingsFolder.getChildFile("Logs")
-                                                    : services::AppLog::defaultFolder(applicationName);
+    options.folder = foldersFor(applicationName, runOptions.settingsFolder).logs;
     return options;
 }
 
 AppController::AppController(const juce::String& name, Options options)
     : applicationName(name)
     , runOptions(std::move(options))
-    , settings(runOptions.settingsFolder != juce::File() ? runOptions.settingsFolder
-                                                         : services::UserSettings::defaultFolder(name),
-               name)
-    , log(logOptions(runOptions.settingsFolder))
+    , previousFolders(foldersFor(services::buildInfo().previousProductName, runOptions.settingsFolder))
+    , nameMigration(services::NameMigration::run(previousFolders, foldersFor(name, runOptions.settingsFolder)))
+    , settings(foldersFor(name, runOptions.settingsFolder).settings, name)
+    , log(logOptions())
     , crashMarker(settings.getFolder().getChildFile("CrashedPlugins.txt"))
     , plugins(libraryOptions(settings.getFolder()))
 {
@@ -207,6 +214,8 @@ void AppController::logStart(const juce::StringArray& crashedPlugins)
                                  " to " + juce::String(settings.getVersion()));
     else
         juce::Logger::writeToLog("Settings version " + juce::String(settings.getVersion()));
+    if (const auto migration = nameMigration.describe(previousFolders); migration.isNotEmpty())
+        juce::Logger::writeToLog(migration);
     if (!log.previousSessionEndedNormally())
         juce::Logger::writeToLog("The previous session did not end normally");
     if (!crashedPlugins.isEmpty())
@@ -260,7 +269,7 @@ std::unique_ptr<services::UpdateChecker> AppController::makeUpdateChecker() cons
     // signature by the key built into the app.
     options.currentVersion = juce::SystemStats::getEnvironmentVariable("DAW_PRETEND_VERSION", build.version);
     options.feedOverride = juce::SystemStats::getEnvironmentVariable("DAW_UPDATE_FEED", {});
-    options.bundleId = build.bundleId;
+    options.updateId = build.updateId;
     options.publicKey = services::updatePublicKey();
     options.repositoryUrl = build.repositoryUrl;
     options.downloadFolder = juce::File::getSpecialLocation(juce::File::tempDirectory)
