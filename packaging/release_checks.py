@@ -325,6 +325,16 @@ def install_previous(installer: pathlib.Path, work: pathlib.Path):
     return installed, folder
 
 
+def semantic_order(version):
+    """A key that sorts versions as Semantic Versioning 2.0.0 does (services::SemanticVersion)."""
+    core, _, pre = version.partition("-")
+    numbers = tuple(int(part) for part in core.split("."))
+    if not pre:
+        return numbers, (1,)
+    identifiers = tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in pre.split("."))
+    return numbers, (0, identifiers)
+
+
 def previous(installer, version, tool, key, work: pathlib.Path):
     old_installer, old_version = download_previous_release(work)
     runnable, location = install_previous(old_installer, work)
@@ -332,11 +342,17 @@ def previous(installer, version, tool, key, work: pathlib.Path):
     settings = work / "settings"
     shutil.rmtree(settings, ignore_errors=True)
 
-    manifest = write_manifest(tool, key, work, version, installer, "update")
+    # A run by hand builds 0.8.0-dev.N, which comes before a release candidate: the
+    # manifest then offers a version just above the old one, and the build is installed.
+    offered = version
+    if semantic_order(version) <= semantic_order(old_version):
+        offered = old_version + ".1"
+        print(f"{version} is not newer than {old_version}: offered as {offered}", flush=True)
+    manifest = write_manifest(tool, key, work, offered, installer, "update")
     smoke_result = work / "after-update.json"
     smoke_result.unlink(missing_ok=True)
     outcome = run_update(runnable, manifest, settings, work / "update-result.json", smoke_result, pretend=None)
-    if outcome.get("outcome") != "installing" or outcome.get("found") != version:
+    if outcome.get("outcome") != "installing" or outcome.get("found") != offered:
         fail(f"{old_version} did not install the update: {outcome}")
     if not wait_for(smoke_result, 300):
         fail("the new version did not start (no smoke test result)")
