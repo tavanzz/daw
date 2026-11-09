@@ -11,7 +11,7 @@ Linux, iOS/iPadOS and Android. A personal project today, built so it can become 
 commercial product.
 
 - C++20, JUCE 9.0.4 (CMake FetchContent, no Projucer; one patch of ours on macOS, see
-  Microphone permission), Catch2 3.16.1 for tests.
+  Microphone permission and `cmake/patches/README.md`), Catch2 3.16.1 for tests.
 - CMake ≥ 3.25 with Ninja, driven by `CMakePresets.json`.
 - Development happens locally on macOS (Apple Silicon), the primary test platform:
   build and run the app there. Windows and Linux are verified through GitHub Actions.
@@ -888,8 +888,9 @@ Modules with one-way dependencies:
   input streams, in an app with the audio-input entitlement, even for output only (the
   device itself, JUCE's private aggregate of it and Apple's output units alike): an
   interface with inputs made it ask at the first launch. So JUCE is patched on macOS
-  (`cmake/patches/juce-coreaudio-output-only.patch`, applied once by
-  `cmake/ApplyPatch.cmake`, CRLF kept by `.gitattributes`): an output opened without an
+  (`cmake/patches/juce-coreaudio-output-only.patch`, applied exactly, once, by
+  `cmake/ApplyPatch.cmake`; the configure stops if it no longer applies or a build's JUCE
+  lacks it; CRLF kept by `.gitattributes`): an output opened without an
   input device goes into a stacked private aggregate (as a Multi-Output Device), which
   has no input streams; with an input device JUCE builds its usual aggregate. Checked
   in the TCC log (`log show --predicate 'process == "tccd"'`): a real request has
@@ -1241,6 +1242,10 @@ apt.llvm.org.
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
 - Phase work happens on a branch (`phase-N`) with a draft pull request into `main`;
   CI must be green on Windows, macOS and Linux.
+- Updating JUCE (or any dependency with a patch in `cmake/patches/`): go through
+  `cmake/patches/README.md` in the same commit. Delete a patch the new version makes
+  useless; otherwise make it again if it no longer applies (the configure says so), and
+  check again what it is for (the JUCE patch: no microphone request at launch).
 - Don't implement later phases (multiple takes and comping, CLAP, plugin sandboxing,
   sidechain, presets, MPE, MIDI clock, mobile) beyond keeping the architecture ready
   for them.
@@ -1941,11 +1946,12 @@ Windows code signing until an account exists, ASIO.
       with every check green on the three platforms, unsigned, with a throwaway update
       key; `rc.2` and `rc.3` the same day, signed with the project's update key, their
       `update.json` checked against `DAW_UPDATE_PUBLIC_KEY`); practical tests in
-      `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from rc.2 to rc.3, a
-      friend on Windows); version 0.8.0
+      `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from rc.3 to rc.4, a
+      friend on Windows, the microphone); version 0.8.0
 - [x] 17. Microphone permission: playing to an interface with inputs no longer makes macOS
       ask at launch (a JUCE patch: output-only devices in a stacked aggregate); macOS asks
-      when a track first needs an input
+      when a track first needs an input. The patch applies exactly or stops the configure;
+      a report for JUCE is ready in `cmake/patches/README.md`; `v0.8.0-rc.4` carries it
 - [ ] Practical tests (`docs/INSTALL_TESTS.md`)
 
 Phase 8 decisions (agreed before starting):

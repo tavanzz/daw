@@ -11,10 +11,11 @@ set(DAW_DEPENDENCY_CACHE_DIR "${PROJECT_SOURCE_DIR}/.cache/deps"
 # One change to JUCE, macOS only (where the file is compiled): an output used without inputs
 # goes into a stacked aggregate device, which has no input streams, so that playing to an
 # interface that also has inputs never makes macOS ask for the microphone before a track
-# needs an input (cmake/patches/juce-coreaudio-output-only.patch).
+# needs an input. The patch file says why; cmake/patches/README.md what to do at every JUCE
+# update. It is applied exactly or the configure stops, and checked after FetchContent.
+set(DAW_JUCE_PATCH "${CMAKE_CURRENT_LIST_DIR}/patches/juce-coreaudio-output-only.patch")
 if(APPLE)
-    set(juce_patch PATCH_COMMAND "${CMAKE_COMMAND}"
-        "-DPATCH_FILE=${CMAKE_CURRENT_LIST_DIR}/patches/juce-coreaudio-output-only.patch"
+    set(juce_patch PATCH_COMMAND "${CMAKE_COMMAND}" "-DPATCH_FILE=${DAW_JUCE_PATCH}"
         -P "${CMAKE_CURRENT_LIST_DIR}/ApplyPatch.cmake")
 else()
     set(juce_patch "")
@@ -62,6 +63,30 @@ set(SENTRY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SENTRY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(JUCE Monocypher sentry)
+
+# FetchContent runs the patch step only when it extracts the sources, and never on sources
+# given with FETCHCONTENT_SOURCE_DIR_JUCE: this makes sure every macOS build has the patch.
+if(APPLE)
+    execute_process(
+        COMMAND patch -p1 --reverse --dry-run --force --silent --fuzz=0
+                --input "${DAW_JUCE_PATCH}"
+        WORKING_DIRECTORY "${juce_SOURCE_DIR}"
+        RESULT_VARIABLE juce_patched
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT juce_patched EQUAL 0)
+        if(FETCHCONTENT_SOURCE_DIR_JUCE)
+            set(juce_remedy "Apply it in that folder (patch -p1 < the patch).")
+        else()
+            string(CONCAT juce_remedy "Delete ${FETCHCONTENT_BASE_DIR}/juce-src and"
+                " juce-subbuild next to it, then configure again: JUCE is extracted and"
+                " patched anew.")
+        endif()
+        message(FATAL_ERROR
+            "JUCE's sources in ${juce_SOURCE_DIR} lack ${DAW_JUCE_PATCH} (or have an older"
+            " version of it), so the app would make macOS ask for the microphone at launch."
+            " ${juce_remedy} cmake/patches/README.md says more.")
+    endif()
+endif()
 
 add_library(daw_monocypher STATIC
     "${monocypher_SOURCE_DIR}/src/monocypher.c"
