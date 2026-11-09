@@ -382,11 +382,12 @@ def previous(installer, version, tool, key, work: pathlib.Path):
     if not described.startswith(f"{NAME} {version} "):
         fail(f"the installed app says: {described!r}")
 
-    # The old copy's settings, taken over.
+    # The old copy's settings, taken over when it had the previous name (a release up to
+    # v0.8.0-rc.4); later ones have the current name already.
     if not (settings / f"{NAME}.settings").exists():
-        fail("the old copy's settings were not taken over")
+        fail(f"there are no {NAME}.settings after the update")
     log = "".join(path.read_text(encoding="utf-8") for path in (settings / "Logs").glob(f"{NAME} *.log"))
-    if PREVIOUS_NAME != NAME and "Took over the settings of" not in log:
+    if old_installer.name.startswith(PREVIOUS_NAME + "-") and "Took over the settings of" not in log:
         fail("the log does not say what was taken over")
 
     if SYSTEM == "Windows":

@@ -56,6 +56,9 @@ cd ~/Library/Application\ Support && mv DAW DAW.before-tests; [ -d MICINSTATION 
 
 ## Mac, the update that renames the app (rc.4 to rc.5)
 
+(Done on 2026-11-09. Since v0.8.0 was published, rc.4 is offered 0.8.0 instead of rc.5,
+also without Include Pre-releases; the steps are the same.)
+
 9. In DAW (rc.4): Help > Include Pre-releases (ticked), then Help > Check for Updates...:
    the update panel says "DAW 0.8.0-rc.5 is available" (it is still the old app talking;
    you have 0.8.0-rc.4) with the notes of rc.5, and three buttons.
@@ -97,7 +100,9 @@ cd ~/Library/Application\ Support && rm -rf DAW MICINSTATION && mv DAW.before-te
 
 ## What to ask a friend on Windows
 
-Send them the link to the releases (rc.4, then rc.5) and this list.
+Send them the link to rc.4's installer
+(https://github.com/tavanzz/daw/releases/tag/v0.8.0-rc.4) and this list: they start from
+the last DAW and update to v0.8.0, the first final MICINSTATION.
 
 17. Download `DAW-0.8.0-rc.4-Windows-x64-Setup.exe` and run it. If Windows says
     "Windows protected your PC": More info > Run anyway. (If Windows says the app was
@@ -106,10 +111,10 @@ Send them the link to the releases (rc.4, then rc.5) and this list.
     Italian or English as Windows is set. Finish with "Launch DAW" ticked.
 19. The welcome window: choose the audio output (Windows Audio, their speakers or
     interface), Test, a theme, an answer about crash reports, Start.
-20. In DAW: Help > Include Pre-releases, Help > Check for Updates...: rc.5 is offered.
-    Update Now: DAW closes, the installer runs by itself (no questions, for "only for me"),
-    and MICINSTATION starts: Help > About says 0.8.0-rc.5, the theme and device are as
-    chosen in step 19, no welcome window.
+20. In DAW: Help > Check for Updates...: "DAW 0.8.0 is available". Update Now: DAW
+    closes, the installer runs by itself (no questions, for "only for me"), and
+    MICINSTATION starts: Help > About says 0.8.0, the theme and device are as chosen in
+    step 19, no welcome window.
 21. The Start menu has MICINSTATION and no DAW; Settings > Apps > Installed apps has one
     entry, MICINSTATION. Double-click a `.micin` and a `.dawproject` file (send them one of
     each): MICINSTATION opens both.
@@ -119,8 +124,9 @@ Send them the link to the releases (rc.4, then rc.5) and this list.
     `%APPDATA%\DAW\Logs` before the update), and send the newest log, which shows the
     version and nothing personal but file names; and Help > About's version line.
 
-A friend who installs rc.5 from nothing (`MICINSTATION-0.8.0-rc.5-Windows-x64-Setup.exe`)
-sees the same, with MICINSTATION from the start.
+A friend who installs v0.8.0 from nothing (`MICINSTATION-0.8.0-Windows-x64-Setup.exe`,
+https://github.com/tavanzz/daw/releases/latest) sees the same, with MICINSTATION from
+the start.
 
 Linux friends: the AppImage, `chmod +x`, run; the same welcome window and updates (the
 AppImage replaces itself, keeping its file name; the settings move from `~/.config/DAW`

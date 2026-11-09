@@ -89,8 +89,9 @@ notarised when the Apple account is set up), Windows (per user or for everyone) 
 (an AppImage), built, checked and published by GitHub Actions from a tag; automatic
 updates signed with Ed25519 and verified before installing; crash reports only with
 consent, a local log, Help > About with every licence, and a first launch that asks only
-for the audio output, the theme and the consent. See [CLAUDE.md](CLAUDE.md#status) for the
-steps.
+for the audio output, the theme and the consent. The app took its name, MICINSTATION, before
+v0.8.0 (it was DAW up to v0.8.0-rc.4: those copies update themselves to it). See
+[CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 

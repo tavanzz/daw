@@ -1932,7 +1932,7 @@ Phase 7 decisions (agreed before starting):
   AUv3 is checked by hand.
 
 
-Phase 8 (in progress, branch `phase-8`): distribution. Friends install and update the
+Phase 8 (done, released as v0.8.0): distribution. Friends install and update the
 DAW on macOS, Windows and Linux on their own: a tag `vX.Y.Z` makes GitHub Actions build
 in Release, sign, package and publish a GitHub Release with notes generated from the
 commits; a universal macOS app signed with Developer ID, notarised and stapled, in a
@@ -2003,8 +2003,9 @@ Windows code signing until an account exists, ASIO.
       it on the pre-release channel, installed it, and rc.5 renamed itself, took over the
       settings and passed the smoke test
 - [ ] Practical tests (`docs/INSTALL_TESTS.md`): on the Mac (checks 1 to 16, rc.4 to
-      rc.5) done by the user on 2026-11-09; on Windows (17 to 23) waiting for a friend to
-      try the app
+      rc.5) done by the user on 2026-11-09; on Windows (17 to 23, now rc.4 to v0.8.0)
+      waiting for a friend to try the app. The phase was merged before them, at the
+      user's request (the release workflow checks Windows installs and updates itself)
 
 Phase 8 decisions (agreed before starting):
 
