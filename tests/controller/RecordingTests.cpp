@@ -486,7 +486,13 @@ TEST_CASE("A recording interrupted by a crash is recovered when the project is o
     const auto recordingStart = studio.device.getStreamPosition();
     REQUIRE(session.record().wasOk());
     studio.run(48000);
-    juce::Thread::sleep(100); // the writer catches up
+
+    // The writer catches up on a thread of its own: wait until most of the second is on
+    // disk (the checks below want more than 40,000 frames), however slow the machine;
+    // a fixed wait was too short for a busy Windows runner.
+    const auto writing = studio.directory.file("Audio").getChildFile("Vocals 1.wav");
+    for (int i = 0; i < 1000 && writing.getSize() < 44 + 3 * 41000; ++i)
+        juce::Thread::sleep(10);
 
     // The crash: the project folder as it is on disk right now. The header of the file
     // being written says nothing yet, and its last frame is cut short.
