@@ -1,7 +1,7 @@
 # Third-party components
 
 What the app and its build use that this project did not write, and under which
-licence. This file is copied into the app (macOS: `DAW.app/Contents/Resources/Licences`;
+licence. This file is copied into the app (macOS: `MICINSTATION.app/Contents/Resources/Licences`;
 Windows and Linux: the `Licences` folder next to the executable), together with the
 app's own licence (`LICENSE.txt`) and the licence text of each component; Help > About
 shows them all. The app's own code is not open source (`LICENSE.txt`).

@@ -1,11 +1,13 @@
-# DAW
+# MICINSTATION
 
 A cross-platform digital audio workstation written in C++20 with
-[JUCE](https://juce.com). "DAW" is a working title.
+[JUCE](https://juce.com). Up to v0.8.0-rc.4 it was called DAW, its working title: those
+copies update themselves to MICINSTATION and keep their settings, and projects saved as
+`.dawproject` still open.
 
 Targets: Windows, macOS and Linux now; iOS/iPadOS and Android later.
 
-> **Licensing.** DAW is not open source: its code is published to be read, and the
+> **Licensing.** MICINSTATION is not open source: its code is published to be read, and the
 > released versions are free to install and use ([LICENSE.txt](LICENSE.txt)). It uses
 > JUCE under the commercial [JUCE 9 licence](https://juce.com/legal/juce-9-licence/),
 > Starter tier, free under US$20,000 of revenue in twelve months. See [Licence](#licence).
@@ -15,22 +17,22 @@ Targets: Windows, macOS and Linux now; iOS/iPadOS and Android later.
 Download the latest version from the
 [releases page](https://github.com/tavanzz/daw/releases/latest):
 
-- **macOS 12 or later** (Apple Silicon and Intel): `DAW-x.y.z-macOS.dmg`. Open it and
-  drag DAW onto Applications. If macOS says it cannot check the app (a build without an
+- **macOS 12 or later** (Apple Silicon and Intel): `MICINSTATION-x.y.z-macOS.dmg`. Open
+  it and drag MICINSTATION onto Applications. If macOS says it cannot check the app (a build without an
   Apple signature, as the release notes say), open System Settings > Privacy & Security
   and choose Open Anyway, once.
-- **Windows 10 or 11** (64-bit): `DAW-x.y.z-Windows-x64-Setup.exe`. Choose "only for me"
+- **Windows 10 or 11** (64-bit): `MICINSTATION-x.y.z-Windows-x64-Setup.exe`. Choose "only for me"
   (no administrator rights) or "for all users". While the installer is not signed,
   SmartScreen warns: More info > Run anyway. With Smart App Control on, Windows refuses
   unsigned installers altogether.
 - **Linux** (x86_64; Ubuntu 24.04, Debian 13, Fedora 40 or newer): the AppImage. Make it
-  executable (`chmod +x DAW-*.AppImage`) and run it. Plugins in `~/.vst3`, `/usr/lib/vst3`
+  executable (`chmod +x MICINSTATION-*.AppImage`) and run it. Plugins in `~/.vst3`, `/usr/lib/vst3`
   and the LV2 folders are found as usual.
 
 The first launch asks where to play (your audio interface), which theme you like, and
-whether crash reports may be sent; nothing else. At every launch DAW checks GitHub for a
+whether crash reports may be sent; nothing else. At every launch MICINSTATION checks GitHub for a
 newer version (Help > Check for Updates at Launch switches it off) and offers it with its
-release notes; Update Now downloads it, checks its signature and installs it. What DAW
+release notes; Update Now downloads it, checks its signature and installs it. What it
 sends and keeps: [docs/PRIVACY.md](docs/PRIVACY.md). Releasing: [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Status
@@ -125,7 +127,7 @@ ctest --preset debug
 Use the `release` preset for an optimised build. On macOS, the `macos-universal`
 preset builds a universal binary for Apple Silicon and Intel Macs.
 
-The macOS app bundle ends up in `build/<preset>/app/daw_app_artefacts/<Config>/DAW.app`.
+The macOS app bundle ends up in `build/<preset>/app/daw_app_artefacts/<Config>/MICINSTATION.app`.
 
 ## Using the app
 
@@ -149,7 +151,7 @@ Recording:
   every armed track from the playhead; press R, Space or Return to stop. Each take
   becomes a clip (one undo step) and a WAV file in the `Audio` folder next to the
   project, which is why a new project is saved first.
-- The first time a track needs an input, macOS asks whether DAW may use the
+- The first time a track needs an input, macOS asks whether MICINSTATION may use the
   microphone. If you refuse, allow it later in System Settings > Privacy & Security
   > Microphone.
 - Input monitoring per track: Auto plays the input while the track is armed and
@@ -272,7 +274,7 @@ Help:
 - Help > Send Crash Reports switches crash reports on or off; Privacy... says what they
   contain. Help > Open Log Folder shows the logs (one per session) and the crash reports
   kept on the computer, to send them if something goes wrong.
-- About DAW (in the DAW menu on macOS, in Help elsewhere) shows the version, the commit it
+- About MICINSTATION (in the MICINSTATION menu on macOS, in Help elsewhere) shows the version, the commit it
   was built from and every licence.
 
 Appearance: View > Theme chooses one of three themes (Neon Grid, the default; Acid
@@ -282,9 +284,10 @@ backgrounds, glitches or panel transitions) or Off, and each effect on its own; 
 default the app follows the system's "Reduce motion". Both are kept in the user
 settings, not in projects.
 
-Projects (`.dawproject`) are small JSON files that refer to the audio files; keep the
+Projects (`.micin`) are small JSON files that refer to the audio files; keep the
 audio next to the project (or in a subfolder) and the folder can be moved as a whole.
-Projects saved by earlier phases open too. Manual checks with reference files:
+Projects saved by earlier phases open too, also those saved as `.dawproject` before the
+rename (saving one keeps its name). Manual checks with reference files:
 [docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md). How many tracks fit in an audio
 callback, stream from disk and record, what each effect costs and what each
 instrument's voice costs:

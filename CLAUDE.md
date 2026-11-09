@@ -1989,8 +1989,8 @@ Windows code signing until an account exists, ASIO.
       with every check green on the three platforms, unsigned, with a throwaway update
       key; `rc.2` and `rc.3` the same day, signed with the project's update key, their
       `update.json` checked against `DAW_UPDATE_PUBLIC_KEY`); practical tests in
-      `docs/INSTALL_TESTS.md` (a fresh install on a Mac, an update from rc.3 to rc.4, a
-      friend on Windows, the microphone); version 0.8.0
+      `docs/INSTALL_TESTS.md` (a fresh install on a Mac, the update from rc.4 to rc.5 that
+      renames the app, the microphone, a friend on Windows); version 0.8.0
 - [x] 17. Microphone permission: playing to an interface with inputs no longer makes macOS
       ask at launch (a JUCE patch: output-only devices in a stacked aggregate); macOS asks
       when a track first needs an input. The patch applies exactly or stops the configure;

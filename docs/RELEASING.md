@@ -1,6 +1,6 @@
 # Releasing
 
-How a version of DAW reaches friends: a tag makes GitHub Actions build, sign, package,
+How a version of MICINSTATION reaches friends: a tag makes GitHub Actions build, sign, package,
 check and publish it (`.github/workflows/release.yml`). Every account below is optional:
 without one, its part is skipped, the builds say so in their notes, and the workflow
 stays green.
@@ -21,8 +21,9 @@ stays green.
 3. The workflow takes about an hour. It refuses a tag that disagrees with
    `CMakeLists.txt`. When it is green the release is on
    https://github.com/tavanzz/daw/releases with:
-   - `DAW-X.Y.Z-macOS.dmg` (Apple Silicon and Intel), `DAW-X.Y.Z-Windows-x64-Setup.exe`,
-     `DAW-X.Y.Z-Linux-x86_64.AppImage`;
+   - `MICINSTATION-X.Y.Z-macOS.dmg` (Apple Silicon and Intel),
+     `MICINSTATION-X.Y.Z-Windows-x64-Setup.exe`, `MICINSTATION-X.Y.Z-Linux-x86_64.AppImage`
+     (up to v0.8.0-rc.4, when the app was called DAW: `DAW-...`);
    - `update.json`, the signed update information every installed copy reads;
    - `SHA256SUMS.txt`, and the debug symbols of each platform (`*-symbols.zip`).
 4. The notes are the subjects of the commits since the previous release (merges and
@@ -36,12 +37,17 @@ run).
 
 On each platform, before publishing: the tests; the signatures (and on macOS
 notarisation, stapled tickets and Gatekeeper on a quarantined copy); the installed app
-starts, makes a project with the test plugin through its own scanner, opens it again,
-refuses a project from a newer version and quits cleanly; on Windows for one user and
-for everyone, then uninstalls; and an update end to end: an installed copy pretending to
-be older takes the new version from a local feed, starts it and passes the same check,
-while a bad signature, a tampered file and an older version are refused. After
-publishing, it reads `update.json` from GitHub as the app does and checks its signature.
+starts, makes a project with the test plugin through its own scanner, opens it again
+(also as a `.dawproject`), refuses a project from a newer version and quits cleanly; on
+Windows for one user and for everyone, then uninstalls; an update end to end: an
+installed copy pretending to be older takes the new version from a local feed, starts it
+and passes the same check, while a bad signature, a tampered file and an older version
+are refused; and, when the update key is there (the copies already published trust no
+other), an update from the previous release: the newest one published is downloaded,
+installed as a user would, and updates itself to the new build, which must start under
+its own name (also from a copy still called DAW), take over the old copy's settings and
+pass the check. After publishing, it reads `update.json` from GitHub as the app does and
+checks its signature.
 
 ## Accounts and secrets
 
@@ -141,7 +147,7 @@ open to individuals only in the United States and Canada; to companies in the EU
 ## Locally
 
 The same steps run on a Mac without any account: `cmake --preset macos-universal`, build,
-`packaging/macos/sign.sh <DAW.app> -`, `packaging/macos/make-dmg.sh`,
+`packaging/macos/sign.sh <MICINSTATION.app> -`, `packaging/macos/make-dmg.sh`,
 `packaging/macos/verify.sh <dmg> unsigned`, then `packaging/release_checks.py smoke` and
 `packaging/release_checks.py update` (with a key made by `daw_update_tool keygen` and
 passed to CMake as `DAW_UPDATE_PUBLIC_KEY`).

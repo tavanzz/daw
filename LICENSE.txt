@@ -1,23 +1,24 @@
-DAW
+MICINSTATION (called DAW up to v0.8.0-rc.4)
 Copyright (c) 2026 tavanzz. All rights reserved.
 
-The source code of DAW is published so that it can be read. It is not open source.
+The source code of MICINSTATION is published so that it can be read. It is not open
+source.
 
-You may download, install and use the released versions of DAW, free of charge, on
-your own computers, for any music you make, including music you sell.
+You may download, install and use the released versions of MICINSTATION, free of
+charge, on your own computers, for any music you make, including music you sell.
 
 Without written permission you may not:
 - copy, modify or redistribute the source code, in whole or in part;
 - redistribute the released programs or installers, or sell them;
 - remove or change this notice or the notices of the components below.
 
-DAW includes third-party components under their own licences (JUCE, used under the
-JUCE 9 licence; the VST 3 SDK; Monocypher; sentry-native; fonts under the SIL Open
+MICINSTATION includes third-party components under their own licences (JUCE, used under
+the JUCE 9 licence; the VST 3 SDK; Monocypher; sentry-native; fonts under the SIL Open
 Font License; and others). They are listed, with their licences, in THIRD_PARTY.md,
 which ships with the app (Help > About).
 
-DAW is provided "as is", without warranty of any kind, express or implied. In no event
-shall the author be liable for any claim, damages or other liability arising from the
-use of DAW. Keep backups of your work.
+MICINSTATION is provided "as is", without warranty of any kind, express or implied. In
+no event shall the author be liable for any claim, damages or other liability arising from the
+use of MICINSTATION. Keep backups of your work.
 
 "VST" is a registered trademark of Steinberg Media Technologies GmbH.
