@@ -2,7 +2,7 @@
 # Puts the app in a compressed disk image with a link to /Applications, so that
 # installing is a drag; signs the image when an identity is given.
 #
-#   packaging/macos/make-dmg.sh <DAW.app> <output.dmg> <volume name> [identity]
+#   packaging/macos/make-dmg.sh <MICINSTATION.app> <output.dmg> <volume name> [identity]
 set -euo pipefail
 
 app="$1"

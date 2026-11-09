@@ -259,6 +259,89 @@ juce::String UpdateInstaller::windowsFinishingScript(int processId, const juce::
     return script;
 }
 
+UpdateInstaller::Handover UpdateInstaller::handoverFromPreviousName(const juce::File& executable,
+                                                                    const juce::String& productName,
+                                                                    const juce::String& previousName)
+{
+    Handover handover;
+    if (previousName.isEmpty() || previousName == productName)
+        return handover;
+
+    // A bundle: .../DAW.app/Contents/MacOS/<executable>.
+    const auto bundle = executable.getParentDirectory().getParentDirectory().getParentDirectory();
+    if (bundle.hasFileExtension(".app"))
+    {
+        const auto renamed = bundle.getSiblingFile(productName + ".app");
+        const auto path = bundle.getFullPathName();
+        if (bundle.getFileName() == previousName + ".app" && !renamed.exists() &&
+            bundle.getParentDirectory().hasWriteAccess() && !path.contains("/AppTranslocation/") &&
+            !path.startsWith("/Volumes/"))
+            handover = {Handover::Action::renameBundle, bundle, renamed};
+        return handover;
+    }
+
+    // A program in a folder (Windows).
+    const auto program = executable.getSiblingFile(productName + executable.getFileExtension());
+    if (executable.getFileNameWithoutExtension() == previousName && program.existsAsFile())
+        handover = {Handover::Action::startProgram, executable, program};
+    return handover;
+}
+
+juce::String UpdateInstaller::renamingScript(int processId, const juce::File& from, const juce::File& to,
+                                             const juce::String& launchRenamed, const juce::String& launchKept)
+{
+    const auto target = shellQuoted(to.getFullPathName());
+    juce::String script;
+    script << "#!/bin/sh\n"
+           << "# Renames the app after an update from its previous name (services/UpdateInstaller.cpp).\n"
+           << "while kill -0 " << processId << " 2>/dev/null; do sleep 0.2; done\n"
+           << "if [ ! -e " << target << " ] && mv " << shellQuoted(from.getFullPathName()) << " " << target
+           << "; then\n"
+           << "  " << launchRenamed << "\n"
+           << "else\n"
+           << "  " << launchKept << "\n"
+           << "fi\n";
+    return script;
+}
+
+bool UpdateInstaller::handOver(const Handover& handover, const juce::StringArray& arguments)
+{
+    switch (handover.action)
+    {
+    case Handover::Action::renameBundle:
+    {
+        const auto open = [&arguments](const juce::File& bundle, const juce::String& extra)
+        {
+            juce::StringArray quoted;
+            for (const auto& argument : arguments)
+                quoted.add(shellQuoted(argument));
+            if (extra.isNotEmpty())
+                quoted.add(extra);
+            return "/usr/bin/open -n " + shellQuoted(bundle.getFullPathName()) +
+                   (quoted.isEmpty() ? juce::String() : " --args " + quoted.joinIntoString(" "));
+        };
+        const auto script = juce::File::createTempFile(".sh");
+        if (!script.replaceWithText(renamingScript(currentProcessId(), handover.from, handover.to,
+                                                   open(handover.to, {}), open(handover.from, keepNameOption)),
+                                    false, false, "\n"))
+            return false;
+        juce::ChildProcess helper;
+        return helper.start(juce::StringArray{"/bin/sh", script.getFullPathName()}, 0);
+    }
+    case Handover::Action::startProgram:
+    {
+        // Arguments are quoted for the command line; they never hold double quotes.
+        juce::StringArray quoted;
+        for (const auto& argument : arguments)
+            quoted.add("\"" + argument.removeCharacters("\"") + "\"");
+        return handover.to.startAsProcess(quoted.joinIntoString(" "));
+    }
+    case Handover::Action::none:
+    default:
+        return false;
+    }
+}
+
 bool UpdateInstaller::finishAfterQuit(int processId, const juce::StringArray& relaunchArguments)
 {
     if (installation.kind == Kind::windowsInstall)

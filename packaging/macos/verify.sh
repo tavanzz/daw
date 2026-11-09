@@ -3,7 +3,7 @@
 # is signed, Developer ID, notarisation and stapled tickets, and Gatekeeper's verdict on
 # a copy of the image downloaded from the internet (quarantined).
 #
-#   packaging/macos/verify.sh <DAW.dmg> signed|unsigned
+#   packaging/macos/verify.sh <MICINSTATION.dmg> signed|unsigned
 set -euo pipefail
 # (No "grep -q" after a pipe: it stops reading early, and pipefail then fails the pipe.)
 

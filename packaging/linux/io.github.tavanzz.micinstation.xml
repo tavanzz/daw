@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- The project file type, for desktops that read the AppImage's MIME information. -->
+<!-- The project file types, for desktops that read the AppImage's MIME information: the
+     app's own, and ".dawproject", as it saved them under its previous name (DAW). -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-micinstation-project">
+    <comment>MICINSTATION project</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.micin"/>
+  </mime-type>
   <mime-type type="application/x-dawproject">
     <comment>DAW project</comment>
-    <sub-class-of type="application/json"/>
     <glob pattern="*.dawproject"/>
   </mime-type>
 </mime-info>

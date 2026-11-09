@@ -153,9 +153,16 @@ Modules with one-way dependencies:
   waits for the app's process to end, swaps the new version in (the old one back if that
   fails) and starts it with the given arguments; Windows runs the installer silently for
   the same users into the same folder (`windowsInstallerArguments()`: Inno Setup's
-  options, and /RELAUNCH for the installer to start the app again). Text files the app
+  options), then starts the program of the running app's name. Text files the app
   writes for other programs (scripts, envelopes) use LF line endings, never JUCE's CRLF
-  default.
+  default. A copy of the app from before the rename (DAW) installs the new one under its
+  own name and starts that: the new app then hands over at launch
+  (`handoverFromPreviousName()`, `Main.cpp`, before anything opens): on macOS the bundle
+  `DAW.app` asks a helper (`renamingScript()`) to rename it once the app has quit and to
+  open it again with the same arguments (with `--keep-previous-name` if that fails); on
+  Windows the program run as `DAW.exe` (a copy the installer leaves for that one time)
+  starts `MICINSTATION.exe` with the same arguments; both quit at once, never in the way
+  of the copy they start (`moreThanOneInstanceAllowed()`).
 - Crash reports (Phase 8): `services::CrashReporting` runs sentry-native 0.17.4 (pinned
   by SHA-256) with the inproc backend (at a crash the crashing thread's stack is walked
   and written to the crash database: addresses and modules, no memory) and no transport
@@ -232,16 +239,21 @@ Modules with one-way dependencies:
   ask for the microphone first) and load audio at 48 kHz.
 - Windows packaging (Phase 8, `packaging/windows/DAW.iss`): an Inno Setup 6 installer,
   x64, English or Italian. Its AppId never changes (Windows knows the installed app and
-  replaces it by it). `PrivilegesRequired=lowest` with the override dialog: "only for me"
-  (`%LOCALAPPDATA%\Programs\DAW`, no administrator, updates without elevation) or "for
-  all users" (Program Files); `/CURRENTUSER` and `/ALLUSERS` choose it silently. Start
-  menu entry, optional desktop icon, `.dawproject` opened by the app (registered for the
-  same users), the licences beside the program; uninstalling leaves settings, logs and
-  projects. Programs and installer are signed with SSL.com eSigner when its secrets
+  replaces it by it, also under its previous name). `PrivilegesRequired=lowest` with the
+  override dialog: "only for me" (`%LOCALAPPDATA%\Programs\MICINSTATION`, no
+  administrator, updates without elevation) or "for all users" (Program Files);
+  `/CURRENTUSER` and `/ALLUSERS` choose it silently. Start menu entry, optional desktop
+  icon, `.micin` owned and `.dawproject` opened by the app (registered for the same
+  users), the licences beside the program; uninstalling leaves settings, logs and
+  projects. Replacing an installation of DAW (decided at `ssInstall`: `DAW.exe` there,
+  `MICINSTATION.exe` not), it stays in that folder, takes away the old shortcuts,
+  scanner and file types, and leaves a copy of the program as `DAW.exe`, which the old
+  app starts after updating; the next update removes it. Programs and installer are signed with SSL.com eSigner when its secrets
   exist (not yet: the Inno uninstaller is never signed).
 - Linux packaging (Phase 8, `packaging/linux/`): `make-appimage.sh` puts the app, its
   scanner and licences (`usr/bin/Licences`, where the app looks), the desktop file
-  (`io.github.tavanzz.daw.desktop`), a 512 px icon and the `.dawproject` MIME type in an
+  (`io.github.tavanzz.micinstation.desktop`), a 512 px icon and the `.micin` and
+  `.dawproject` MIME types in an
   AppDir, lets linuxdeploy bundle the libraries not every distribution has (ALSA, X11,
   fonts and libcurl stay the system's) and packs it with appimagetool and the static
   type-2 runtime (no libfuse2). Tools at pinned versions, checked by SHA-256. Built on
@@ -254,10 +266,17 @@ Modules with one-way dependencies:
   artifact; `.github/actions/update-key`). Then on each platform: Release build with
   symbols, every test (macOS: both slices, Intel under Rosetta), symbols kept apart,
   signing and packaging, the signature checks, and `packaging/release_checks.py`: the
-  installed app's smoke test with the VST3 test plugin and a newer project, on Windows
+  installed app's smoke test with the VST3 test plugin, a `.dawproject` copy of its
+  project and a newer project, on Windows
   for one user and for everyone then uninstalled; and the update end to end (an
   installed copy pretending to be 0.0.1 refuses a bad signature, a tampered file and an
-  older version, then installs the new one, which starts and passes the smoke test).
+  older version, then installs the new one, which starts and passes the smoke test);
+  and, with the update key, the update from the previous release (`previous`: the newest
+  published one, downloaded with `gh`, installed as a user would, updates itself to this
+  build from a local feed; the new version must start under its own name, also when the
+  old one was DAW, take over the old copy's settings and pass the smoke test; on
+  Windows, then uninstalled with nothing left). Files are named after `APP`, the
+  workflow's product name.
   `publish` (tags only) writes `update.json` (`tools/make_update_payload.py`, signed by
   `daw_update_tool`), `SHA256SUMS.txt`, uploads symbols to Sentry when configured and
   makes the GitHub Release; `check-feed` reads the published `update.json` as the app does

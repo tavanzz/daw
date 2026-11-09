@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=DAW
+Name=MICINSTATION
 GenericName=Digital Audio Workstation
 Comment=Record, arrange and mix music
-Exec=DAW %f
-Icon=io.github.tavanzz.daw
+Exec=MICINSTATION %f
+Icon=io.github.tavanzz.micinstation
 Categories=AudioVideo;Audio;Music;
-MimeType=application/x-dawproject;
+MimeType=application/x-micinstation-project;application/x-dawproject;
 Terminal=false

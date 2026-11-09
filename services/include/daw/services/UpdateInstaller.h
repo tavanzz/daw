@@ -75,6 +75,42 @@ public:
                                                              const Installation& installation,
                                                              const juce::StringArray& arguments);
 
+    /** What the app does when it starts under its previous name (BuildInfo::
+        previousProductName). A copy of the old app puts an update in its own place, under
+        its own name, and starts it there: on macOS the bundle (DAW.app) is renamed after
+        the app quits and opened again; on Windows the installer leaves the old program
+        name (DAW.exe) as a copy of the new program, which starts that one. */
+    struct Handover
+    {
+        enum class Action
+        {
+            none,
+            renameBundle, ///< `from`: the bundle, `to`: its new name next to it
+            startProgram  ///< `from`: this program, `to`: the one to start instead
+        };
+        Action action = Action::none;
+        juce::File from;
+        juce::File to;
+    };
+
+    /** An option the app is given after a rename failed, so that it does not try again. */
+    static constexpr const char* keepNameOption = "--keep-previous-name";
+
+    /** The handover for an app whose executable is `executable`. Testable. */
+    [[nodiscard]] static Handover handoverFromPreviousName(const juce::File& executable, const juce::String& productName,
+                                                           const juce::String& previousName);
+
+    /** Carries a handover out with the app's arguments: starts the helper that renames the
+        bundle once the app has quit, or the program to run instead. True when the app must
+        now quit. */
+    static bool handOver(const Handover& handover, const juce::StringArray& arguments);
+
+    /** The helper's script for a rename (macOS): waits for the process, renames the bundle
+        unless something has its new name already, then runs `launchRenamed`, or
+        `launchKept` if the bundle kept its name. */
+    [[nodiscard]] static juce::String renamingScript(int processId, const juce::File& from, const juce::File& to,
+                                                     const juce::String& launchRenamed, const juce::String& launchKept);
+
     /** This process's id, for finishAfterQuit(). */
     [[nodiscard]] static int currentProcessId();
 

@@ -44,7 +44,7 @@ def main():
     date = git("log", "-1", "--format=%cs", tag)
 
     version = tag[1:] if tag.startswith("v") else tag
-    lines = [f"DAW {version}, {date}."]
+    lines = [f"MICINSTATION {version}, {date}."]
     if "-" in version:
         lines.append("A release candidate: a version to try before everyone gets it.")
     lines.append("")

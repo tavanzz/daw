@@ -2,7 +2,7 @@
 # Signs the app bundle from the inside out, with the hardened runtime and the minimal
 # entitlements (packaging/macos/*.entitlements).
 #
-#   packaging/macos/sign.sh <DAW.app> <identity>
+#   packaging/macos/sign.sh <MICINSTATION.app> <identity>
 #
 # identity: a "Developer ID Application: ..." identity in the keychain, or "-" for an
 # ad-hoc signature (builds without the Apple secrets: they run, but Gatekeeper asks).

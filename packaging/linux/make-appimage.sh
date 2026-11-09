@@ -4,7 +4,7 @@
 # system's ALSA, X11, fonts and libcurl stay the system's), packed by appimagetool with
 # the static type-2 runtime (no libfuse2 needed).
 #
-#   packaging/linux/make-appimage.sh <folder with DAW, its scanner and Licences> <version> <output folder>
+#   packaging/linux/make-appimage.sh <folder with MICINSTATION, its scanner and Licences> <version> <output folder>
 #
 # Tools are downloaded at pinned versions and checked by SHA-256 into $TOOLS (default
 # ~/.cache/daw-appimage).
@@ -16,6 +16,8 @@ output="$3"
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 tools="${TOOLS:-$HOME/.cache/daw-appimage}"
+name=MICINSTATION
+id=io.github.tavanzz.micinstation
 mkdir -p "$tools" "$output"
 
 fetch() { # <url> <sha256> <name>
@@ -33,14 +35,14 @@ fetch https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimaget
 fetch https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 \
     2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d runtime-x86_64
 
-appdir="$(mktemp -d)/DAW.AppDir"
+appdir="$(mktemp -d)/$name.AppDir"
 mkdir -p "$appdir/usr/bin" "$appdir/usr/share/applications" "$appdir/usr/share/mime/packages" \
     "$appdir/usr/share/icons/hicolor/512x512/apps"
-cp "$source_dir/DAW" "$source_dir/DAW Plugin Scanner" "$appdir/usr/bin/"
+cp "$source_dir/$name" "$source_dir/$name Plugin Scanner" "$appdir/usr/bin/"
 cp -R "$source_dir/Licences" "$appdir/usr/bin/Licences"
-cp "$here/io.github.tavanzz.daw.desktop" "$appdir/usr/share/applications/"
-cp "$here/io.github.tavanzz.daw.xml" "$appdir/usr/share/mime/packages/"
-python3 - "$root/app/resources/AppIcon.png" "$appdir/usr/share/icons/hicolor/512x512/apps/io.github.tavanzz.daw.png" <<'PY'
+cp "$here/$id.desktop" "$appdir/usr/share/applications/"
+cp "$here/$id.xml" "$appdir/usr/share/mime/packages/"
+python3 - "$root/app/resources/AppIcon.png" "$appdir/usr/share/icons/hicolor/512x512/apps/$id.png" <<'PY'
 # A 512 px copy of the icon, by halving the 1024 px one (no imaging library needed).
 import struct, sys, zlib
 data = open(sys.argv[1], "rb").read()
@@ -71,11 +73,11 @@ PY
 
 # Libraries: linuxdeploy copies what ldd finds, minus its list of system libraries.
 APPIMAGE_EXTRACT_AND_RUN=1 "$tools/linuxdeploy-x86_64.AppImage" --appdir "$appdir" \
-    --executable "$appdir/usr/bin/DAW" --executable "$appdir/usr/bin/DAW Plugin Scanner" \
-    --desktop-file "$appdir/usr/share/applications/io.github.tavanzz.daw.desktop" \
-    --icon-file "$appdir/usr/share/icons/hicolor/512x512/apps/io.github.tavanzz.daw.png"
+    --executable "$appdir/usr/bin/$name" --executable "$appdir/usr/bin/$name Plugin Scanner" \
+    --desktop-file "$appdir/usr/share/applications/$id.desktop" \
+    --icon-file "$appdir/usr/share/icons/hicolor/512x512/apps/$id.png"
 
-image="$output/DAW-$version-Linux-x86_64.AppImage"
+image="$output/$name-$version-Linux-x86_64.AppImage"
 rm -f "$image"
 ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$tools/appimagetool-x86_64.AppImage" --no-appstream \
     --runtime-file "$tools/runtime-x86_64" "$appdir" "$image"

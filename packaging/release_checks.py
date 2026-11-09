@@ -14,8 +14,14 @@
         - a manifest whose signature is not valid, a file that is not the one the
           manifest describes, and an older version are all refused, the copy untouched.
 
-<app> is what runs the app: the .app bundle (macOS), DAW.exe (Windows) or the AppImage
-(Linux). <tool> is daw_update_tool, <key file> the private key the build trusts.
+    release_checks.py previous <installer> <version> <tool> <key file> <work folder>
+        Installs the newest release published before this one (from GitHub, with gh), lets
+        it update itself to this build from a local feed as a user's copy would, and checks
+        that the new version starts under its own name (also when the old one had another),
+        takes over the old copy's settings and passes the smoke test.
+
+<app> is what runs the app: the .app bundle (macOS), MICINSTATION.exe (Windows) or the
+AppImage (Linux). <tool> is daw_update_tool, <key file> the private key the build trusts.
 """
 
 import argparse
@@ -24,6 +30,7 @@ import json
 import os
 import pathlib
 import platform
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -33,7 +40,11 @@ import urllib.request
 
 SYSTEM = platform.system()
 PLATFORM_KEY = {"Darwin": "macos", "Windows": "windows-x86_64", "Linux": "linux-x86_64"}[SYSTEM]
-BUNDLE_ID = "io.github.tavanzz.daw"
+NAME = "MICINSTATION"
+PREVIOUS_NAME = "DAW"  # the app's name up to v0.8.0-rc.4
+# The app update manifests name (BuildInfo::updateId): its first bundle id, for ever.
+UPDATE_ID = "io.github.tavanzz.daw"
+SUFFIX = {"Darwin": "-macOS.dmg", "Windows": "-Windows-x64-Setup.exe", "Linux": "-Linux-x86_64.AppImage"}[SYSTEM]
 
 
 def fail(message):
@@ -43,7 +54,8 @@ def fail(message):
 
 def executable_of(app: pathlib.Path) -> pathlib.Path:
     if SYSTEM == "Darwin":
-        return app / "Contents" / "MacOS" / "DAW"
+        with open(app / "Contents" / "Info.plist", "rb") as file:
+            return app / "Contents" / "MacOS" / plistlib.load(file)["CFBundleExecutable"]
     return app
 
 
@@ -64,7 +76,7 @@ def read_json(path):
 
 
 def check_log_ended(settings: pathlib.Path):
-    logs = sorted((settings / "Logs").glob("DAW *.log"))
+    logs = sorted((settings / "Logs").glob(f"{NAME} *.log"))
     if not logs:
         fail("the app wrote no log")
     last = logs[-1].read_text(encoding="utf-8").strip().splitlines()[-1]
@@ -95,10 +107,20 @@ def smoke(app, work: pathlib.Path, plugin=None, expected_version=None):
         fail(f"the app is version {found.get('version')}, expected {expected_version}")
     check_log_ended(settings)
 
+    # A project saved before the app was renamed, with the old extension: it opens.
+    saved = settings / "Smoke" / "Smoke.micin"
+    old = settings / "Smoke" / "Old.dawproject"
+    shutil.copy2(saved, old)
+    old_result = work / "old-extension.json"
+    code = run_app(app, [f"--settings-dir={settings}", f"--smoke-test={old}", f"--smoke-result={old_result}"])
+    opened = read_json(old_result)
+    if code != 0 or not opened.get("opened") or opened.get("tracks") != 2:
+        fail(f"a .dawproject project did not open: {opened}")
+
     # A project saved by a newer version: refused with a clear message, left as it was.
-    project = json.loads((settings / "Smoke" / "Smoke.dawproject").read_text(encoding="utf-8"))
+    project = json.loads(saved.read_text(encoding="utf-8"))
     project["formatVersion"] = 999
-    newer = work / "Newer.dawproject"
+    newer = work / "Newer.micin"
     newer.write_text(json.dumps(project), encoding="utf-8")
     before = newer.read_bytes()
     newer_result = work / "newer.json"
@@ -123,7 +145,7 @@ def sha256(path):
 def write_manifest(tool, key, work, version, asset: pathlib.Path, name):
     """A signed update.json naming one file for this platform; returns its path."""
     payload = {
-        "bundleId": BUNDLE_ID,
+        "bundleId": UPDATE_ID,
         "version": version,
         "date": time.strftime("%Y-%m-%d"),
         "notes": "A test of the updater.",
@@ -141,7 +163,7 @@ def write_manifest(tool, key, work, version, asset: pathlib.Path, name):
 def fingerprint(installed: pathlib.Path):
     """What an update must change in the installed copy."""
     if SYSTEM == "Darwin":
-        return sha256(installed / "Contents" / "MacOS" / "DAW") + str((installed / "Contents" / "old-copy").exists())
+        return sha256(executable_of(installed)) + str((installed / "Contents" / "old-copy").exists())
     return sha256(installed)
 
 
@@ -151,20 +173,20 @@ def install_old_copy(app, installer, work: pathlib.Path):
     shutil.rmtree(old, ignore_errors=True)
     old.mkdir(parents=True)
     if SYSTEM == "Darwin":
-        installed = old / "Applications" / "DAW.app"
+        installed = old / "Applications" / f"{NAME}.app"
         installed.parent.mkdir(parents=True)
         subprocess.run(["ditto", str(app), str(installed)], check=True)
         (installed / "Contents" / "old-copy").write_text("old")
         return installed, installed
     if SYSTEM == "Windows":
-        folder = old / "DAW"
+        folder = old / NAME
         subprocess.run([str(installer), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
                         f"/DIR={folder}"], check=True)
-        installed = folder / "DAW.exe"
+        installed = folder / f"{NAME}.exe"
         with open(installed, "ab") as file:  # different bytes, still a program
             file.write(b"old copy")
         return installed, installed
-    installed = old / "DAW-x86_64.AppImage"
+    installed = old / f"{NAME}-x86_64.AppImage"
     shutil.copy2(app, installed)
     with open(installed, "ab") as file:
         file.write(b"old copy")
@@ -253,6 +275,113 @@ def update(app, installer, version, tool, key, work: pathlib.Path):
     print("Update installed and started", flush=True)
 
 
+def download_previous_release(work: pathlib.Path):
+    """The newest published release's file for this platform, and its version."""
+    listed = json.loads(subprocess.run(["gh", "release", "list", "--limit", "30", "--json",
+                                        "tagName,isDraft,publishedAt"], check=True, capture_output=True,
+                                       text=True).stdout)
+    releases = sorted((release for release in listed if not release["isDraft"] and release["publishedAt"]),
+                      key=lambda release: release["publishedAt"], reverse=True)
+    if not releases:
+        fail("no release was published before this one")
+    tag = releases[0]["tagName"]
+    folder = work / "download"
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    subprocess.run(["gh", "release", "download", tag, "--pattern", f"*{SUFFIX}", "--dir", str(folder)], check=True)
+    files = list(folder.glob(f"*{SUFFIX}"))
+    if len(files) != 1:
+        fail(f"{tag} has no single file *{SUFFIX}")
+    print(f"Previous release: {tag}, {files[0].name}", flush=True)
+    return files[0], tag[1:]
+
+
+def install_previous(installer: pathlib.Path, work: pathlib.Path):
+    """Installs a release as a user would; returns what runs it and where it is installed."""
+    folder = work / "installed"
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    if SYSTEM == "Darwin":
+        mount = work / "mount"
+        mount.mkdir(exist_ok=True)
+        subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount), str(installer)],
+                       check=True)
+        apps = list(mount.glob("*.app"))
+        installed = folder / "Applications" / apps[0].name
+        installed.parent.mkdir()
+        subprocess.run(["ditto", str(apps[0]), str(installed)], check=True)
+        subprocess.run(["hdiutil", "detach", str(mount)], check=True)
+        return installed, folder / "Applications"
+    if SYSTEM == "Windows":
+        target = folder / PREVIOUS_NAME
+        subprocess.run([str(installer), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
+                        f"/DIR={target}"], check=True)
+        programs = [program for program in target.glob("*.exe")
+                    if not program.name.startswith("unins") and "Plugin Scanner" not in program.name]
+        return programs[0], target
+    installed = folder / installer.name
+    shutil.copy2(installer, installed)
+    installed.chmod(0o755)
+    return installed, folder
+
+
+def previous(installer, version, tool, key, work: pathlib.Path):
+    old_installer, old_version = download_previous_release(work)
+    runnable, location = install_previous(old_installer, work)
+    print(f"Installed {old_version}: {runnable}", flush=True)
+    settings = work / "settings"
+    shutil.rmtree(settings, ignore_errors=True)
+
+    manifest = write_manifest(tool, key, work, version, installer, "update")
+    smoke_result = work / "after-update.json"
+    smoke_result.unlink(missing_ok=True)
+    outcome = run_update(runnable, manifest, settings, work / "update-result.json", smoke_result, pretend=None)
+    if outcome.get("outcome") != "installing" or outcome.get("found") != version:
+        fail(f"{old_version} did not install the update: {outcome}")
+    if not wait_for(smoke_result, 300):
+        fail("the new version did not start (no smoke test result)")
+    after = read_json(smoke_result)
+    print(json.dumps(after, indent=2))
+    if not after.get("opened") or after.get("version") != version:
+        fail(f"the updated app did not pass its smoke test: {after}")
+    time.sleep(5)
+
+    # Under its own name, wherever the old copy was.
+    if SYSTEM == "Darwin":
+        names = sorted(path.name for path in location.iterdir())
+        if names != [f"{NAME}.app"]:
+            fail(f"the Applications folder holds {names}, expected only {NAME}.app")
+        app = location / f"{NAME}.app"
+    elif SYSTEM == "Windows":
+        app = location / f"{NAME}.exe"
+        if not app.exists() or (location / f"{PREVIOUS_NAME} Plugin Scanner.exe").exists():
+            fail(f"the installation holds {sorted(path.name for path in location.iterdir())}")
+        shortcuts = pathlib.Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        if not (shortcuts / f"{NAME}.lnk").exists() or (shortcuts / f"{PREVIOUS_NAME}.lnk").exists():
+            fail(f"the Start menu holds {sorted(path.name for path in shortcuts.glob('*.lnk'))}")
+    else:
+        app = runnable
+    described = subprocess.run([str(executable_of(app)), "--version"], capture_output=True, text=True,
+                               env=dict(os.environ, APPIMAGE_EXTRACT_AND_RUN="1"), timeout=120).stdout
+    if not described.startswith(f"{NAME} {version} "):
+        fail(f"the installed app says: {described!r}")
+
+    # The old copy's settings, taken over.
+    if not (settings / f"{NAME}.settings").exists():
+        fail("the old copy's settings were not taken over")
+    log = "".join(path.read_text(encoding="utf-8") for path in (settings / "Logs").glob(f"{NAME} *.log"))
+    if PREVIOUS_NAME != NAME and "Took over the settings of" not in log:
+        fail("the log does not say what was taken over")
+
+    if SYSTEM == "Windows":
+        subprocess.run([str(location / "unins000.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], check=True)
+        time.sleep(5)
+        left = sorted(path.name for path in location.glob("*.exe"))
+        if left:
+            fail(f"the uninstaller left {left}")
+    print(f"{old_version} updated itself to {version}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -267,11 +396,19 @@ def main():
     update_parser.add_argument("version")
     for name in ("tool", "key", "work"):
         update_parser.add_argument(name, type=pathlib.Path)
+    previous_parser = commands.add_parser("previous")
+    previous_parser.add_argument("installer", type=pathlib.Path)
+    previous_parser.add_argument("version")
+    for name in ("tool", "key", "work"):
+        previous_parser.add_argument(name, type=pathlib.Path)
     arguments = parser.parse_args()
 
     arguments.work.mkdir(parents=True, exist_ok=True)
     if arguments.command == "smoke":
         smoke(arguments.app, arguments.work.resolve(), arguments.plugin, arguments.version)
+    elif arguments.command == "previous":
+        previous(arguments.installer.resolve(), arguments.version, arguments.tool, arguments.key,
+                 arguments.work.resolve())
     else:
         update(arguments.app, arguments.installer.resolve(), arguments.version, arguments.tool, arguments.key,
                arguments.work.resolve())

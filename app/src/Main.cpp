@@ -1,5 +1,6 @@
 #include "AppController.h"
 #include "daw/services/BuildInfo.h"
+#include "daw/services/UpdateInstaller.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -33,6 +34,21 @@ juce::String optionValue(const juce::String& commandLine, const juce::String& na
 bool isSeparateRun(const juce::String& commandLine)
 {
     return commandLine.contains("--version") || optionValue(commandLine, "--settings-dir").isNotEmpty();
+}
+
+// After an update from a copy of the app under its previous name, the new app runs where
+// that copy was, under its name: it renames its bundle (macOS) or starts the program of
+// the current name (Windows) first, and quits.
+const daw::services::UpdateInstaller::Handover& handoverFromPreviousName()
+{
+    using daw::services::UpdateInstaller;
+    static const auto handover =
+        juce::JUCEApplicationBase::getCommandLineParameters().contains(UpdateInstaller::keepNameOption)
+            ? UpdateInstaller::Handover{}
+            : UpdateInstaller::handoverFromPreviousName(
+                  juce::File::getSpecialLocation(juce::File::currentExecutableFile),
+                  daw::services::buildInfo().productName, daw::services::buildInfo().previousProductName);
+    return handover;
 }
 
 // "MICINSTATION 0.8.0 (3f2a9c1b7e04, Release, macOS arm64)" on the console that started the app.
@@ -94,7 +110,9 @@ public:
 
     bool moreThanOneInstanceAllowed() override
     {
-        return isSeparateRun(getCommandLineParameters());
+        // A handover leaves the app at once, never in the way of the copy it starts.
+        return isSeparateRun(getCommandLineParameters()) ||
+               handoverFromPreviousName().action != daw::services::UpdateInstaller::Handover::Action::none;
     }
 
     void initialise(const juce::String& commandLine) override
@@ -102,6 +120,12 @@ public:
         if (commandLine.contains("--version"))
         {
             printVersion();
+            quit();
+            return;
+        }
+
+        if (daw::services::UpdateInstaller::handOver(handoverFromPreviousName(), getCommandLineParameterArray()))
+        {
             quit();
             return;
         }

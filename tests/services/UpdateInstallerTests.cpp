@@ -177,3 +177,73 @@ TEST_CASE("A new AppImage is put next to the running one, executable", "[service
     CHECK(access(staged.getFullPathName().toRawUTF8(), X_OK) == 0);
 }
 #endif
+
+TEST_CASE("An app started under its previous name hands over to its new one", "[services][updates]")
+{
+    using Action = UpdateInstaller::Handover::Action;
+    daw::test::TemporaryDirectory directory;
+    const auto handover = [](const juce::File& executable)
+    { return UpdateInstaller::handoverFromPreviousName(executable, "MICINSTATION", "DAW"); };
+    const auto write = [](const juce::File& file)
+    {
+        REQUIRE(file.getParentDirectory().createDirectory());
+        REQUIRE(file.replaceWithText("program"));
+        return file;
+    };
+
+    SECTION("macOS: the old app's bundle, where an update put the new app, is renamed")
+    {
+        const auto executable = write(directory.file("Applications/DAW.app/Contents/MacOS/MICINSTATION"));
+        const auto found = handover(executable);
+        CHECK(found.action == Action::renameBundle);
+        CHECK(found.from == directory.file("Applications/DAW.app"));
+        CHECK(found.to == directory.file("Applications/MICINSTATION.app"));
+
+        // Not over another copy, not on the disk image, not when it has its name already.
+        write(directory.file("Applications/MICINSTATION.app/Contents/MacOS/MICINSTATION"));
+        CHECK(handover(executable).action == Action::none);
+        CHECK(handover(directory.file("Applications/MICINSTATION.app/Contents/MacOS/MICINSTATION")).action ==
+              Action::none);
+        CHECK(handover(juce::File("/Volumes/DAW/DAW.app/Contents/MacOS/MICINSTATION")).action == Action::none);
+        CHECK(handover(directory.file("Applications/Mine.app/Contents/MacOS/MICINSTATION")).action == Action::none);
+    }
+
+    SECTION("Windows: the old program name starts the new program")
+    {
+        const auto old = write(directory.file("Programs/DAW/DAW.exe"));
+        CHECK(handover(old).action == Action::none); // the old app itself, alone
+
+        const auto program = write(directory.file("Programs/DAW/MICINSTATION.exe"));
+        const auto found = handover(old);
+        CHECK(found.action == Action::startProgram);
+        CHECK(found.to == program);
+        CHECK(handover(program).action == Action::none);
+    }
+
+    CHECK(UpdateInstaller::handoverFromPreviousName(directory.file("x/DAW"), "DAW", "DAW").action == Action::none);
+}
+
+#if !JUCE_WINDOWS
+TEST_CASE("The renaming script renames the bundle once the app has quit, then opens it", "[services][updates]")
+{
+    daw::test::TemporaryDirectory directory;
+    const auto from = directory.file("Apps/DAW.app");
+    const auto to = directory.file("Apps/MICINSTATION 'new'.app");
+    makeBundle(from, "new app");
+    const auto renamed = directory.file("renamed");
+    const auto kept = directory.file("kept");
+    const auto launch = [](const juce::File& marker) { return "touch '" + marker.getFullPathName() + "'"; };
+
+    runScript(UpdateInstaller::renamingScript(finishedProcessId(), from, to, launch(renamed), launch(kept)));
+    CHECK(to.getChildFile("Contents/MacOS/DAW").loadFileAsString() == "new app");
+    CHECK_FALSE(from.exists());
+    CHECK(renamed.existsAsFile());
+    CHECK_FALSE(kept.exists());
+
+    // Something has the new name already: the app keeps its own and starts as it is.
+    makeBundle(from, "another");
+    runScript(UpdateInstaller::renamingScript(finishedProcessId(), from, to, launch(renamed), launch(kept)));
+    CHECK(from.getChildFile("Contents/MacOS/DAW").loadFileAsString() == "another");
+    CHECK(kept.existsAsFile());
+}
+#endif
