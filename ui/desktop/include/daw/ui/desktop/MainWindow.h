@@ -29,6 +29,10 @@ public:
                controller::PluginLibrary* pluginLibrary = nullptr);
     ~MainWindow() override;
 
+    /** The narrowest the window gets: the transport bar's controls side by side, with the
+        widest theme's logo. */
+    static constexpr int minimumWidth = 1220;
+
     [[nodiscard]] MainComponent& getMainComponent() noexcept { return *mainComponent; }
 
     void closeButtonPressed() override;

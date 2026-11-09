@@ -27,7 +27,7 @@ MainWindow::MainWindow(const juce::String& windowTitle, controller::Session& ses
     setUsingNativeTitleBar(true);
     setContentOwned(content.release(), true);
     setResizable(true, true);
-    setResizeLimits(1100, 560, 10000, 10000);
+    setResizeLimits(minimumWidth, 560, 10000, 10000);
 
 #if JUCE_MAC
     // The macOS menu bar belongs to the application (none in the UI tests).

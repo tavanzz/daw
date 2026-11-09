@@ -333,6 +333,11 @@ void MainComponent::lookAndFeelChanged()
 void MainComponent::themeChanged()
 {
     commandManager.commandStatusChanged(); // the menu's tick moves
+
+    // JUCE tells the components of windows on screen about the new look; a view in no
+    // window (the UI tests') is told here, so that it lays itself out for it too.
+    if (getPeer() == nullptr)
+        sendLookAndFeelChange();
 }
 
 void MainComponent::themeAboutToChange()

@@ -197,7 +197,8 @@ void ThemePreviewsPanel::paintMiniature(juce::Graphics& g, const ThemedLookAndFe
     auto transport = area.removeFromTop(26.0f);
     look.drawPanel(g, transport, ColourRole::panel, true);
     transport.reduce(6.0f, 4.0f);
-    look.drawLogo(g, transport.removeFromLeft(46.0f), services::buildInfo().logoText, 0.0, false);
+    const auto& logo = services::buildInfo().logoText;
+    look.drawLogo(g, transport.removeFromLeft(look.logoWidth(logo, transport.getHeight())), logo, 0.0, false);
     transport.removeFromLeft(8.0f);
     for (int index = 0; index < 2; ++index)
     {

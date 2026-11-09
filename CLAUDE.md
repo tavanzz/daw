@@ -1010,6 +1010,14 @@ Modules with one-way dependencies:
   active; each theme's look and feel draws the effect (`drawTimelineBackground()`,
   `drawPlayhead()` with a `PlayheadLook`, `drawLogo()` with the clock's time,
   `drawHazardBand()`, `drawRecordPulse()`, `drawMeterBar()` with a `MeterAnimation`).
+  The logo is `BuildInfo::logoText` word by word (Phase 8): Neon Grid one line of tubes
+  (first word in the accent, last in the second accent, those between smaller in the
+  third), Acid Terminal every word but the last cut out of the accent block and the last
+  after it, Synth Chrome stacked (the first word in chrome, the middle ones on the
+  accent horizon line, the last spaced out to the same width in the second accent);
+  `logoWidth()` sizes the transport's logo, and `MainWindow::minimumWidth` fits the
+  transport bar with the widest (a UI test checks it in every theme). A view in no window
+  (the UI tests') is told of a new theme by `MainComponent::themeChanged()`.
   `TrackLanes` paints its content (lanes, grid, loop, clips, automation) into an image
   of the visible area, redrawn only on `contentChanged()` (edits, view, selection,
   theme, size); frames put the image back and draw the background (under translucent
@@ -1629,7 +1637,7 @@ Phase 5 decisions (agreed before starting):
   file choosers and the title bar.
 - Layout: a status bar at the bottom in every theme (the transport's status line
   moves there; a prompt in Acid Terminal); a "DAW" logo at the left of the transport
-  in the theme's title font.
+  in the theme's title font (MIC IN STATION since the rename, Phase 8).
 - Fonts: static TTF files in the repository (at most two weights per family), from
   google/fonts and the upstream releases of JetBrains Mono and Space Grotesk; OFL
   texts next to them, in `docs/THIRD_PARTY.md` and in the app bundle.

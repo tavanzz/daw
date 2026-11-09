@@ -27,6 +27,7 @@ public:
 
     void resized() override;
     void paint(juce::Graphics& g) override;
+    void lookAndFeelChanged() override; // the logo's width depends on the theme
 
     static constexpr int height = 44;
 

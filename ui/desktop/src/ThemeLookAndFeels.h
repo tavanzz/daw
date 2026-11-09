@@ -18,6 +18,7 @@ public:
                          double progress, const juce::String& textToShow) override;
     void drawLogo(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text,
                   double seconds, bool glitching) const override;
+    [[nodiscard]] float logoWidth(const juce::String& text, float height) const override;
     [[nodiscard]] bool hasTimelineBackground() const override { return true; }
     void drawTimelineBackground(juce::Graphics& g, juce::Rectangle<float> area,
                                 double seconds) const override;
@@ -37,6 +38,7 @@ public:
                          double progress, const juce::String& textToShow) override;
     void drawLogo(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text,
                   double seconds, bool glitching) const override;
+    [[nodiscard]] float logoWidth(const juce::String& text, float height) const override;
     [[nodiscard]] int hazardBandHeight() const override { return 6; }
     void drawHazardBand(juce::Graphics& g, juce::Rectangle<float> area, double seconds,
                         bool recording) const override;
@@ -61,6 +63,7 @@ public:
                          double progress, const juce::String& textToShow) override;
     void drawLogo(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text,
                   double seconds, bool glitching) const override;
+    [[nodiscard]] float logoWidth(const juce::String& text, float height) const override;
     [[nodiscard]] bool hasTimelineBackground() const override { return true; }
     [[nodiscard]] bool timelineBackgroundIsUnder() const override { return true; }
     void drawTimelineBackground(juce::Graphics& g, juce::Rectangle<float> area,
