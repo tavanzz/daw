@@ -112,8 +112,11 @@ void SmokeTest::start()
 
 void SmokeTest::open()
 {
-    juce::File project(options.project);
-    if (options.project == "new")
+    // "new" is not a path: a juce::File of it would be a relative one.
+    juce::File project;
+    if (options.project != "new")
+        project = juce::File(options.project);
+    else
     {
         makeProject();
         project = folder.getChildFile(juce::String("Smoke") + model::projectFileExtension);
