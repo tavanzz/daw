@@ -1,6 +1,7 @@
 #include "SmokeTest.h"
 
 #include "daw/model/MidiClip.h"
+#include "daw/model/ProjectFile.h"
 #include "daw/services/BuildInfo.h"
 #include "daw/services/UserSettings.h"
 
@@ -115,7 +116,7 @@ void SmokeTest::open()
     if (options.project == "new")
     {
         makeProject();
-        project = folder.getChildFile("Smoke.dawproject");
+        project = folder.getChildFile(juce::String("Smoke") + model::projectFileExtension);
         const auto saved = session.saveProject(project);
         result->setProperty("saved", saved.wasOk());
         // From the disk again, as a user opens it.

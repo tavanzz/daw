@@ -5,6 +5,10 @@
 # file register them too (packaging/).
 configure_file(resources/Info.plist.in "${CMAKE_CURRENT_BINARY_DIR}/Info.plist.merge" @ONLY)
 file(READ "${CMAKE_CURRENT_BINARY_DIR}/Info.plist.merge" plist_to_merge)
+# CMake would split the text at semicolons, and JUCE then drops the whole merge silently.
+if(plist_to_merge MATCHES ";")
+    message(FATAL_ERROR "app/resources/Info.plist.in must not contain semicolons")
+endif()
 
 # The icon is drawn by tools/make_app_icon.py; JUCE makes the .icns and the .ico from it.
 juce_add_gui_app(daw_app

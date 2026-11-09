@@ -67,7 +67,8 @@ Modules with one-way dependencies:
   `MICINSTATION --version` prints `BuildInfo::describe()`; such diagnostic runs never
   hand over to a running copy of the app. The app icon is drawn by
   `tools/make_app_icon.py` (`app/resources/AppIcon.png`; JUCE makes the .icns and
-  .ico); macOS opens `.dawproject` files with the app (`app/resources/Info.plist.in`).
+  .ico); macOS opens `.micin` files with the app, and `.dawproject` ones without claiming
+  them (`app/resources/Info.plist.in`, which must hold no semicolon).
   Windows programs carry their C++ runtime (`CMAKE_MSVC_RUNTIME_LIBRARY`, static, for
   every target). On Linux JUCE does HTTPS with libcurl, opened only when first used
   (`JUCE_LOAD_CURL_SYMBOLS_LAZILY`): building needs its header, running does not.
@@ -559,8 +560,10 @@ Modules with one-way dependencies:
   readings into what a meter shows (time-based, so refresh-rate independent);
   `dsp::WaveformPeaks` keeps min/max per 256-sample bucket. All three are UI-agnostic.
 - Project model: `model::Project` / `Track` / `Clip` are typed handles onto a
-  `juce::ValueTree`. `model::ProjectFile` maps it explicitly to JSON (`.dawproject`,
-  LF, UTF-8) with `"formatVersion"`.
+  `juce::ValueTree`. `model::ProjectFile` maps it explicitly to JSON (`.micin`; projects
+  saved before the rename have `.dawproject`, which `model::isProjectFile()` accepts and
+  `withProjectFileExtension()` keeps when they are saved again; LF, UTF-8) with
+  `"formatVersion"`.
   - Tracks hold mixer settings (volume as linear gain 0 to +6 dB, pan -1 to 1, mute,
     solo) and clips in stacking order (last = on top). `Project::isTrackAudible()`
     is the one place with the mute/solo rule. A clip is a file, a timeline position,

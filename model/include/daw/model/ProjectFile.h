@@ -46,8 +46,20 @@ namespace daw::model
     Message thread or any background thread; never the audio thread.
 */
 
-inline constexpr const char* projectFileExtension = ".dawproject";
+/** Projects are saved as ".micin". Those saved before the app was renamed MICINSTATION
+    have ".dawproject" (also the extension of Bitwig's DAWproject format, which this is not):
+    they still open, and saving one keeps its name. The file format is the same. */
+inline constexpr const char* projectFileExtension = ".micin";
+inline constexpr const char* previousProjectFileExtension = ".dawproject";
+inline constexpr const char* projectFilePatterns = "*.micin;*.dawproject";
 inline constexpr const char* projectFormatMarker = "daw-project";
+
+/** Whether the file's name is a project's, with either extension. */
+[[nodiscard]] bool isProjectFile(const juce::File& file);
+
+/** The file a project chosen as `file` is saved to: as it is if its extension is a
+    project's, else with projectFileExtension. */
+[[nodiscard]] juce::File withProjectFileExtension(const juce::File& file);
 
 /** Outcome of loading a project. */
 struct LoadedProject

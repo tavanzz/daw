@@ -250,7 +250,7 @@ void Session::discardRecoverableRecordings()
 
 juce::Result Session::saveProject(const juce::File& file)
 {
-    const auto target = file.withFileExtension(model::projectFileExtension);
+    const auto target = model::withProjectFileExtension(file);
     storePluginStates();
 
     // Saved somewhere else, the project takes its recordings along.

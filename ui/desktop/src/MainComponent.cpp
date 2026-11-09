@@ -25,12 +25,6 @@ namespace
 {
 constexpr int refreshRateHz = 60;
 constexpr const char* audioFilePatterns = "*.wav;*.wave;*.aif;*.aiff;*.aifc;*.mid;*.midi";
-constexpr const char* projectFilePattern = "*.dawproject";
-
-bool isProjectFile(const juce::File& file)
-{
-    return file.hasFileExtension("dawproject");
-}
 } // namespace
 
 MainComponent::MainComponent(controller::Session& sessionToShow,
@@ -93,7 +87,7 @@ MainComponent::~MainComponent()
 
 void MainComponent::openFile(const juce::File& file)
 {
-    if (isProjectFile(file))
+    if (model::isProjectFile(file))
         askToSaveChanges([this, file] { openProjectFile(file); });
     else if (file.hasFileExtension("mid;midi;smf"))
         session.importMidi(file, arrangeView.getInsertPosition());
@@ -606,7 +600,7 @@ void MainComponent::chooseMidiExport()
 void MainComponent::chooseProjectToOpen(bool withPlugins)
 {
     fileChooser = std::make_unique<juce::FileChooser>(
-        withPlugins ? "Open a project" : "Open a project without its plugins", juce::File(), projectFilePattern);
+        withPlugins ? "Open a project" : "Open a project without its plugins", juce::File(), model::projectFilePatterns);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
                                  juce::FileBrowserComponent::canSelectFiles,
                              [this, withPlugins](const juce::FileChooser& chooser) {
@@ -661,8 +655,11 @@ void MainComponent::confirmDiscardRecording()
 void MainComponent::chooseProjectToSave(std::function<void()> afterSaving,
                                         const juce::String& title)
 {
-    fileChooser =
-        std::make_unique<juce::FileChooser>(title, session.getProjectFile(), projectFilePattern);
+    // Save As proposes the current extension, also for a project saved under the old one.
+    const auto current = session.getProjectFile();
+    fileChooser = std::make_unique<juce::FileChooser>(
+        title, current != juce::File() ? current.withFileExtension(model::projectFileExtension) : current,
+        juce::String("*") + model::projectFileExtension);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode |
                                  juce::FileBrowserComponent::canSelectFiles |
                                  juce::FileBrowserComponent::warnAboutOverwriting,
@@ -1212,7 +1209,7 @@ void MainComponent::showPanel(std::unique_ptr<PanelWindow>& window, const juce::
 
 bool MainComponent::isInterestedInFileDrag(const juce::StringArray& files)
 {
-    return files.size() == 1 && isProjectFile(juce::File(files[0]));
+    return files.size() == 1 && model::isProjectFile(juce::File(files[0]));
 }
 
 void MainComponent::filesDropped(const juce::StringArray& files, int, int)

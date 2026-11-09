@@ -1267,6 +1267,16 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
     return result;
 }
 
+bool isProjectFile(const juce::File& file)
+{
+    return file.hasFileExtension(projectFileExtension) || file.hasFileExtension(previousProjectFileExtension);
+}
+
+juce::File withProjectFileExtension(const juce::File& file)
+{
+    return isProjectFile(file) ? file : file.withFileExtension(projectFileExtension);
+}
+
 juce::Result saveProject(const Project& project, const juce::File& file)
 {
     const auto failed = [&file](const juce::String& reason) {

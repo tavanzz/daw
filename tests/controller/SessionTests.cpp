@@ -328,7 +328,7 @@ TEST_CASE("Changes are tracked until the project is saved", "[controller][sessio
     session.addTrack();
     CHECK(session.hasUnsavedChanges());
 
-    const auto file = directory.file("song.dawproject");
+    const auto file = directory.file("song.micin");
     REQUIRE(session.saveProject(directory.file("song")).wasOk()); // extension added
     CHECK(session.getProjectFile() == file);
     CHECK_FALSE(session.hasUnsavedChanges());
@@ -352,6 +352,30 @@ TEST_CASE("Changes are tracked until the project is saved", "[controller][sessio
     CHECK(failed.failed());
     CHECK_THAT(failed.getErrorMessage().toStdString(), ContainsSubstring("does not exist"));
     CHECK(session.getProject().getNumTracks() == 1); // still the open one
+}
+
+TEST_CASE("A project saved before the rename keeps its name when saved again", "[controller][session]")
+{
+    TemporaryDirectory directory;
+    Fixture fixture;
+    auto& session = fixture.session;
+
+    session.addTrack();
+    const auto old = directory.file("song.dawproject");
+    REQUIRE(session.saveProject(old).wasOk());
+    session.newProject();
+
+    REQUIRE(session.openProject(old).wasOk());
+    session.addTrack();
+    REQUIRE(session.saveProject(session.getProjectFile()).wasOk());
+    CHECK(session.getProjectFile() == old);
+    CHECK_FALSE(directory.file("song.micin").exists());
+
+    // Saved as something else, it takes the current extension.
+    REQUIRE(session.saveProject(directory.file("copy")).wasOk());
+    CHECK(session.getProjectFile() == directory.file("copy.micin"));
+    REQUIRE(session.openProject(directory.file("copy.micin")).wasOk());
+    CHECK(session.getProject().getNumTracks() == 2);
 }
 
 TEST_CASE("A Phase 1 project opens and plays", "[controller][session]")
