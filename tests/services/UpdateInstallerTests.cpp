@@ -204,7 +204,9 @@ TEST_CASE("An app started under its previous name hands over to its new one", "[
         CHECK(handover(executable).action == Action::none);
         CHECK(handover(directory.file("Applications/MICINSTATION.app/Contents/MacOS/MICINSTATION")).action ==
               Action::none);
+#if JUCE_MAC // a mounted disk image: a path of macOS's own
         CHECK(handover(juce::File("/Volumes/DAW/DAW.app/Contents/MacOS/MICINSTATION")).action == Action::none);
+#endif
         CHECK(handover(directory.file("Applications/Mine.app/Contents/MacOS/MICINSTATION")).action == Action::none);
     }
 
