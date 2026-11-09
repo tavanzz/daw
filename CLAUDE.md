@@ -1995,10 +1995,13 @@ Windows code signing until an account exists, ASIO.
       ask at launch (a JUCE patch: output-only devices in a stacked aggregate); macOS asks
       when a track first needs an input. The patch applies exactly or stops the configure;
       a report for JUCE is ready in `cmake/patches/README.md`; `v0.8.0-rc.4` carries it
-- [ ] 18. Renamed MICINSTATION: identity and the old name's data taken over; projects
+- [x] 18. Renamed MICINSTATION: identity and the old name's data taken over; projects
       `.micin` (`.dawproject` still opens); copies of the old app update themselves to the
-      new one on every platform; the logos MIC IN STATION; release workflow and documents;
-      `v0.8.0-rc.5`, updated to from rc.4 for real
+      new one on every platform; the logos MIC IN STATION; release workflow and documents.
+      `v0.8.0-rc.5` published 2026-11-09 with every check green, the update from rc.4
+      (DAW) included on the three platforms; on this Mac a copy of rc.4 from GitHub found
+      it on the pre-release channel, installed it, and rc.5 renamed itself, took over the
+      settings and passed the smoke test
 - [ ] Practical tests (`docs/INSTALL_TESTS.md`)
 
 Phase 8 decisions (agreed before starting):
