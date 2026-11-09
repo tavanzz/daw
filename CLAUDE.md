@@ -2002,7 +2002,9 @@ Windows code signing until an account exists, ASIO.
       (DAW) included on the three platforms; on this Mac a copy of rc.4 from GitHub found
       it on the pre-release channel, installed it, and rc.5 renamed itself, took over the
       settings and passed the smoke test
-- [ ] Practical tests (`docs/INSTALL_TESTS.md`)
+- [ ] Practical tests (`docs/INSTALL_TESTS.md`): on the Mac (checks 1 to 16, rc.4 to
+      rc.5) done by the user on 2026-11-09; on Windows (17 to 23) waiting for a friend to
+      try the app
 
 Phase 8 decisions (agreed before starting):
 
