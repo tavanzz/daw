@@ -73,13 +73,22 @@ add_executable(daw_tests
     engine/WavRepairTests.cpp
     engine/WaveformPeaksTests.cpp
     model/FormatVersionTests.cpp
+    model/NetworkProtocolTests.cpp
     model/ProjectFileTests.cpp
     model/ProjectTests.cpp
-    model/TimelineTests.cpp)
+    model/TimelineTests.cpp
+    services/AppLogTests.cpp
+    services/BuildInfoTests.cpp
+    services/NameMigrationTests.cpp
+    services/CrashReportingTests.cpp
+    services/UpdateCheckerTests.cpp
+    services/UpdateInstallerTests.cpp
+    services/UpdateManifestTests.cpp
+    services/UserSettingsTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::engine daw::model
-    Catch2::Catch2)
+    daw::services Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 # The test plugins are built with the tests, which find them here.
 add_dependencies(daw_tests daw_test_plugins)
@@ -93,6 +102,13 @@ add_dependencies(daw_tests daw_plugin_scanner)
 target_compile_definitions(daw_tests PRIVATE
     "DAW_PLUGIN_SCANNER=\"$<TARGET_FILE:daw_plugin_scanner>\"")
 
+# A program that crashes on purpose, for the crash report tests.
+add_executable(daw_crash_probe support/CrashProbe.cpp)
+target_link_libraries(daw_crash_probe PRIVATE daw::services daw::juce)
+daw_enable_warnings(daw_crash_probe)
+add_dependencies(daw_tests daw_crash_probe)
+target_compile_definitions(daw_tests PRIVATE "DAW_CRASH_PROBE=\"$<TARGET_FILE:daw_crash_probe>\"")
+
 # UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
 # Linux CI, on a virtual display).
 add_executable(daw_ui_tests
@@ -101,6 +117,7 @@ add_executable(daw_ui_tests
     support/WindowManagerAtoms.cpp
     ui/AlertsTests.cpp
     ui/AnimationClockTests.cpp
+    ui/HelpPanelsTests.cpp
     ui/MidiUiTests.cpp
     ui/PanelsTests.cpp
     ui/PluginUiTests.cpp
@@ -153,6 +170,7 @@ daw_enable_warnings(daw_plugin_bench)
 # The interface's cost per theme and animation level, in a window of its own (an app,
 # so that the system draws it as it draws the real one). See the source.
 juce_add_gui_app(daw_ui_bench PRODUCT_NAME "DAW UI Bench" VERSION "${PROJECT_VERSION}")
+daw_use_juce_settings(daw_ui_bench)
 target_sources(daw_ui_bench PRIVATE bench/UiBenchmark.cpp)
 target_link_libraries(daw_ui_bench PRIVATE daw::ui_desktop daw::appearance daw::controller
     daw::engine daw::model daw::juce)
@@ -205,6 +223,16 @@ add_test(NAME architecture.detects_appearance_include_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_appearance_include_in_engine PROPERTIES
     PASS_REGULAR_EXPRESSION "engine/src/UsesAppearance\\.cpp: <daw/appearance/Theme\\.h>")
+
+add_test(NAME architecture.detects_controller_include_in_services
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_controller_include_in_services PROPERTIES
+    PASS_REGULAR_EXPRESSION "services/src/UsesController\\.cpp: <daw/controller/Session\\.h>")
+
+add_test(NAME architecture.detects_services_include_in_controller
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_services_include_in_controller PROPERTIES
+    PASS_REGULAR_EXPRESSION "controller/src/UsesServices\\.cpp: <daw/services/BuildInfo\\.h>")
 
 add_test(NAME architecture.detects_plugin_editors_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")

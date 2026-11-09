@@ -1,0 +1,2 @@
+# Patches to third-party sources keep those sources' line endings (JUCE's are CRLF).
+cmake/patches/*.patch -text

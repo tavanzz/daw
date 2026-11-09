@@ -294,3 +294,35 @@ TEST_CASE("The animation clock stops when animations are off or the window is hi
     themes.setAnimationSettings(settings);
     CHECK_FALSE(clock.isRunning());
 }
+
+TEST_CASE("The transport bar's controls fit the narrowest window in every theme", "[ui]")
+{
+    test::TemporaryDirectory directory;
+    Studio studio(directory);
+    Desktop desktop(studio.session);
+    desktop.view.setSize(daw::ui::desktop::MainWindow::minimumWidth, 700);
+
+    for (int index = 0; index < 3; ++index)
+    {
+        REQUIRE(desktop.invoke(MainComponent::firstTheme + index));
+        INFO(desktop.themes.getTheme().id);
+
+        daw::ui::desktop::TransportBar* bar = nullptr;
+        for (auto* child : desktop.view.getChildren())
+            if (auto* found = dynamic_cast<daw::ui::desktop::TransportBar*>(child))
+                bar = found;
+        REQUIRE(bar != nullptr);
+
+        // Every control has its own room, the logo included, at its full width.
+        juce::Array<juce::Rectangle<int>> placed;
+        for (auto* control : bar->getChildren())
+        {
+            const auto bounds = control->getBounds();
+            CHECK_FALSE(bounds.isEmpty());
+            CHECK(bar->getLocalBounds().contains(bounds));
+            for (const auto& other : placed)
+                CHECK_FALSE(bounds.intersects(other));
+            placed.add(bounds);
+        }
+    }
+}

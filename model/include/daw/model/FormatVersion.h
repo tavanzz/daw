@@ -13,4 +13,8 @@ inline constexpr int currentFormatVersion = 6;
     Files written by newer builds are rejected rather than half-read. */
 [[nodiscard]] bool canReadFormatVersion(int version) noexcept;
 
+/** Part of the message a project from a newer version is refused with, so that a UI can
+    offer to update the app. */
+inline constexpr const char* newerFormatMessage = "saved by a newer version of the app";
+
 } // namespace daw::model

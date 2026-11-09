@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
+#include <vector>
 
 namespace daw::ui::desktop
 {
@@ -59,18 +61,188 @@ float logoHeight(juce::Rectangle<float> area)
     return std::min(26.0f, area.getHeight() * 0.62f);
 }
 
-// The logo's letters as a path, centred in the area.
-juce::Path logoPath(const ThemedLookAndFeel& lookAndFeel, juce::Rectangle<float> area,
-                    const juce::String& text)
+// The logo's words: the product's name as CMakeLists.txt splits it ("MIC IN STATION").
+juce::StringArray logoWords(const juce::String& text)
+{
+    auto words = juce::StringArray::fromTokens(text, " ", "");
+    words.removeEmptyStrings();
+    if (words.isEmpty())
+        words.add(text);
+    return words;
+}
+
+// Words in the title font, `height` high, their baseline at y = 0 and their left edge at
+// x = 0; `tracking` spaces the letters apart.
+juce::Path wordPath(const ThemedLookAndFeel& lookAndFeel, const juce::String& words, float height,
+                    float tracking = 0.0f)
 {
     const auto& spec = lookAndFeel.getTheme().font(FontRole::title);
     juce::GlyphArrangement glyphs;
-    glyphs.addFittedText(lookAndFeel.font(FontRole::title, logoHeight(area)),
-                         ThemeFonts::textFor(spec, text), area.getX(), area.getY(), area.getWidth(),
-                         area.getHeight(), juce::Justification::centred, 1);
+    glyphs.addLineOfText(lookAndFeel.font(FontRole::title, height), ThemeFonts::textFor(spec, words), 0.0f, 0.0f);
+    for (int index = 1; index < glyphs.getNumGlyphs(); ++index)
+        glyphs.moveRangeOfGlyphs(index, 1, tracking * static_cast<float>(index), 0.0f);
     juce::Path path;
     glyphs.createPath(path);
     return path;
+}
+
+// Moves paths and rectangles together so that what they cover is centred in the area;
+// returns what they cover.
+juce::Rectangle<float> centreIn(juce::Rectangle<float> area, const std::vector<juce::Path*>& paths,
+                                const std::vector<juce::Rectangle<float>*>& rectangles = {})
+{
+    std::optional<juce::Rectangle<float>> covered;
+    const auto add = [&covered](juce::Rectangle<float> part)
+    {
+        if (!part.isEmpty())
+            covered = covered ? covered->getUnion(part) : part;
+    };
+    for (const auto* path : paths)
+        add(path->getBounds());
+    for (const auto* rectangle : rectangles)
+        add(*rectangle);
+    if (!covered)
+        return {};
+
+    const auto shift = area.getCentre() - covered->getCentre();
+    for (auto* path : paths)
+        path->applyTransform(juce::AffineTransform::translation(shift.x, shift.y));
+    for (auto* rectangle : rectangles)
+        *rectangle += shift;
+    return *covered + shift;
+}
+
+// Neon Grid: one line of neon tubes, the first word in the accent, the last in the second
+// accent, those between smaller in the third.
+struct NeonLogo
+{
+    std::vector<juce::Path> words;
+    std::vector<ColourRole> colours;
+    juce::Rectangle<float> bounds;
+};
+
+NeonLogo neonLogo(const ThemedLookAndFeel& lookAndFeel, juce::Rectangle<float> area, const juce::String& text)
+{
+    NeonLogo logo;
+    const auto words = logoWords(text);
+    const auto height = logoHeight(area);
+    float x = 0.0f;
+    for (int index = 0; index < words.size(); ++index)
+    {
+        const bool first = index == 0;
+        const bool last = index == words.size() - 1;
+        auto path = wordPath(lookAndFeel, words[index], first || last ? height : height * 0.7f);
+        path.applyTransform(juce::AffineTransform::translation(x - path.getBounds().getX(), 0.0f));
+        x = path.getBounds().getRight() + height * 0.22f;
+        logo.words.push_back(std::move(path));
+        logo.colours.push_back(first ? ColourRole::accent : last ? ColourRole::accentAlt : ColourRole::highlight);
+    }
+    std::vector<juce::Path*> paths;
+    for (auto& word : logo.words)
+        paths.push_back(&word);
+    logo.bounds = centreIn(area, paths);
+    return logo;
+}
+
+// Acid Terminal: a block in the accent with every word but the last cut out of it, like a
+// terminal's banner or a jack's label, then the last word in the accent.
+struct AcidLogo
+{
+    juce::Path banner;
+    juce::Rectangle<float> block;
+    juce::Path tail;
+    juce::Rectangle<float> bounds;
+};
+
+AcidLogo acidLogo(const ThemedLookAndFeel& lookAndFeel, juce::Rectangle<float> area, const juce::String& text)
+{
+    AcidLogo logo;
+    const auto words = logoWords(text);
+    const auto height = logoHeight(area);
+    const auto bannerWords = words.size() > 1 ? words.joinIntoString(" ", 0, words.size() - 1) : words[0];
+    logo.banner = wordPath(lookAndFeel, bannerWords, height);
+    logo.block = logo.banner.getBounds().expanded(8.0f, 4.0f);
+    if (words.size() > 1)
+    {
+        logo.tail = wordPath(lookAndFeel, words[words.size() - 1], height);
+        const auto left = logo.block.getRight() + height * 0.3f;
+        logo.tail.applyTransform(juce::AffineTransform::translation(left - logo.tail.getBounds().getX(), 0.0f));
+    }
+    logo.bounds = centreIn(area, {&logo.banner, &logo.tail}, {&logo.block});
+    return logo;
+}
+
+// Synth Chrome: stacked, the first word large in chrome, the last below it spaced out to
+// the same width, and those between on the horizon line that separates them.
+struct SynthLogo
+{
+    juce::Path top;
+    juce::Path middle;
+    juce::Path bottom;
+    std::vector<juce::Rectangle<float>> horizon;
+    juce::Rectangle<float> bounds;
+};
+
+SynthLogo synthLogo(const ThemedLookAndFeel& lookAndFeel, juce::Rectangle<float> area, const juce::String& text)
+{
+    // Laid out at a nominal size, then scaled to the area's height.
+    constexpr float large = 20.0f;
+    constexpr float small = 8.5f;
+    constexpr float gap = 3.0f;
+    constexpr float line = 1.6f;
+
+    SynthLogo logo;
+    const auto words = logoWords(text);
+    logo.top = wordPath(lookAndFeel, words[0], large);
+    const auto topBounds = logo.top.getBounds();
+    logo.top.applyTransform(juce::AffineTransform::translation(-topBounds.getX(), -topBounds.getY()));
+    const auto width = topBounds.getWidth();
+    const auto lineY = topBounds.getHeight() + gap;
+
+    if (words.size() > 2)
+    {
+        logo.middle = wordPath(lookAndFeel, words.joinIntoString(" ", 1, words.size() - 2), small);
+        const auto bounds = logo.middle.getBounds();
+        logo.middle.applyTransform(juce::AffineTransform::translation(
+            (width - bounds.getWidth()) / 2.0f - bounds.getX(), lineY + line / 2.0f - bounds.getCentreY()));
+        const auto placed = logo.middle.getBounds();
+        logo.horizon.push_back({0.0f, lineY, std::max(0.0f, placed.getX() - gap), line});
+        logo.horizon.push_back({placed.getRight() + gap, lineY, std::max(0.0f, width - placed.getRight() - gap), line});
+    }
+    else
+        logo.horizon.push_back({0.0f, lineY, width, line});
+
+    if (words.size() > 1)
+    {
+        // Spaced out to the top word's width.
+        const auto& last = words[words.size() - 1];
+        const auto letters = ThemeFonts::textFor(lookAndFeel.getTheme().font(FontRole::title), last).length();
+        const auto plain = wordPath(lookAndFeel, last, small).getBounds().getWidth();
+        const auto tracking = letters > 1 ? std::max(0.0f, (width - plain) / static_cast<float>(letters - 1)) : 0.0f;
+        logo.bottom = wordPath(lookAndFeel, last, small, tracking);
+        const auto bounds = logo.bottom.getBounds();
+        const auto top = lineY + std::max(line, logo.middle.isEmpty() ? 0.0f : logo.middle.getBounds().getHeight() / 2.0f) + gap;
+        logo.bottom.applyTransform(
+            juce::AffineTransform::translation((width - bounds.getWidth()) / 2.0f - bounds.getX(), top - bounds.getY()));
+    }
+
+    // Scaled to the area's height (a little less), then centred.
+    auto height = lineY + line;
+    for (const auto* path : {&logo.middle, &logo.bottom})
+        if (!path->isEmpty())
+            height = std::max(height, path->getBounds().getBottom());
+    const auto scale = area.getHeight() * 0.86f / height;
+    const auto scaling = juce::AffineTransform::scale(scale);
+    for (auto* path : {&logo.top, &logo.middle, &logo.bottom})
+        path->applyTransform(scaling);
+    std::vector<juce::Rectangle<float>*> lines;
+    for (auto& segment : logo.horizon)
+    {
+        segment = segment.transformedBy(scaling);
+        lines.push_back(&segment);
+    }
+    logo.bounds = centreIn(area, {&logo.top, &logo.middle, &logo.bottom}, lines);
+    return logo;
 }
 } // namespace
 
@@ -96,10 +268,19 @@ void NeonGridLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> are
             brightness = 0.55f;
     }
 
-    const auto letters = logoPath(*this, area, text);
-    drawGlow(g, letters, colour(ColourRole::accent), brightness);
-    g.setColour(colour(ColourRole::accent).withMultipliedAlpha(0.35f + 0.65f * brightness));
-    g.fillPath(letters);
+    const auto logo = neonLogo(*this, area, text);
+    for (std::size_t index = 0; index < logo.words.size(); ++index)
+    {
+        const auto tube = colour(logo.colours[index]);
+        drawGlow(g, logo.words[index], tube, brightness);
+        g.setColour(tube.withMultipliedAlpha(0.35f + 0.65f * brightness));
+        g.fillPath(logo.words[index]);
+    }
+}
+
+float NeonGridLookAndFeel::logoWidth(const juce::String& text, float height) const
+{
+    return neonLogo(*this, {0.0f, 0.0f, 1000.0f, height}, text).bounds.getWidth() + 6.0f;
 }
 
 void NeonGridLookAndFeel::drawTimelineBackground(juce::Graphics& g, juce::Rectangle<float> area,
@@ -205,41 +386,48 @@ void AcidTerminalLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float>
                                        const juce::String& text, double seconds,
                                        bool glitching) const
 {
-    // A block in the accent with the name cut out of it, like a terminal's banner.
-    const auto letters = logoPath(*this, area, text);
-    const auto block = letters.getBounds().expanded(8.0f, 4.0f);
+    const auto logo = acidLogo(*this, area, text);
     const auto ink = textColourOn(colour(ColourRole::accent));
+    const auto draw = [this, &logo, ink](juce::Graphics& graphics, bool ghost)
+    {
+        graphics.setColour(colour(ColourRole::accent));
+        graphics.fillRect(logo.block);
+        graphics.fillPath(logo.tail);
+        if (ghost)
+        {
+            graphics.setColour(colour(ColourRole::accentAlt).withAlpha(0.8f));
+            graphics.fillPath(logo.banner, juce::AffineTransform::translation(2.0f, 0.0f));
+        }
+        graphics.setColour(ink);
+        graphics.fillPath(logo.banner);
+    };
 
-    // For a moment every few seconds the banner glitches: slices of it jump sideways
-    // and a ghost of the name in the second accent slips out.
+    // For a moment every few seconds the logo glitches: slices of it jump sideways and a
+    // ghost of the banner's words in the second accent slips out.
     const double t = std::fmod(seconds, 3.3);
     if (!glitching || t >= 0.16)
     {
-        g.setColour(colour(ColourRole::accent));
-        g.fillRect(block);
-        g.setColour(ink);
-        g.fillPath(letters);
+        draw(g, false);
         return;
     }
 
     const int step = static_cast<int>(t * 50.0);
-    const float slice = block.getHeight() / 3.0f;
+    const float slice = logo.block.getHeight() / 3.0f;
     for (int index = 0; index < 3; ++index)
     {
         const float shift = static_cast<float>(((step + index * 2) % 5) - 2) * 2.0f;
-        const auto band =
-            block.withY(block.getY() + slice * static_cast<float>(index)).withHeight(slice);
+        const auto band = logo.bounds.withY(logo.block.getY() + slice * static_cast<float>(index)).withHeight(slice);
 
         juce::Graphics::ScopedSaveState saved(g);
         g.reduceClipRegion(band.expanded(8.0f, 0.0f).toNearestInt());
         g.addTransform(juce::AffineTransform::translation(shift, 0.0f));
-        g.setColour(colour(ColourRole::accent));
-        g.fillRect(block);
-        g.setColour(colour(ColourRole::accentAlt).withAlpha(0.8f));
-        g.fillPath(letters, juce::AffineTransform::translation(2.0f, 0.0f));
-        g.setColour(ink);
-        g.fillPath(letters);
+        draw(g, true);
     }
+}
+
+float AcidTerminalLookAndFeel::logoWidth(const juce::String& text, float height) const
+{
+    return acidLogo(*this, {0.0f, 0.0f, 1000.0f, height}, text).bounds.getWidth() + 6.0f;
 }
 
 void AcidTerminalLookAndFeel::drawHazardBand(juce::Graphics& g, juce::Rectangle<float> area,
@@ -298,10 +486,11 @@ void SynthChromeLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> 
                                       const juce::String& text, double seconds,
                                       bool glitching) const
 {
-    // Chrome letters: light at the top, a dark band at the horizon, light again below,
-    // over a line in the accent.
-    const auto letters = logoPath(*this, area, text);
-    const auto bounds = letters.getBounds();
+    // Chrome letters on top: light at the top, a dark band at their horizon, light again
+    // below; under them the horizon line in the accent, the middle words on it, and the
+    // last word in the second accent.
+    const auto logo = synthLogo(*this, area, text);
+    const auto bounds = logo.top.getBounds();
     const auto light = colour(ColourRole::text);
     const auto dark = colour(ColourRole::textSecondary);
 
@@ -309,10 +498,14 @@ void SynthChromeLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> 
     chrome.addColour(0.48, dark);
     chrome.addColour(0.52, colour(ColourRole::accentAlt));
     g.setGradientFill(chrome);
-    g.fillPath(letters);
+    g.fillPath(logo.top);
 
     g.setColour(colour(ColourRole::accent));
-    g.fillRect(bounds.withY(bounds.getBottom() + 3.0f).withHeight(2.0f));
+    for (const auto& segment : logo.horizon)
+        g.fillRect(segment);
+    g.fillPath(logo.middle);
+    g.setColour(colour(ColourRole::accentAlt));
+    g.fillPath(logo.bottom);
 
     // Every few seconds a reflection sweeps across the chrome.
     const double t = std::fmod(seconds, 5.0);
@@ -326,9 +519,14 @@ void SynthChromeLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> 
                             bounds.getBottom(), x - 6.0f, bounds.getBottom());
 
     juce::Graphics::ScopedSaveState saved(g);
-    g.reduceClipRegion(letters);
+    g.reduceClipRegion(logo.top);
     g.setColour(colour(ColourRole::text).withAlpha(0.85f));
     g.fillPath(streak);
+}
+
+float SynthChromeLookAndFeel::logoWidth(const juce::String& text, float height) const
+{
+    return synthLogo(*this, {0.0f, 0.0f, 1000.0f, height}, text).bounds.getWidth() + 6.0f;
 }
 
 void SynthChromeLookAndFeel::drawTimelineBackground(juce::Graphics& g, juce::Rectangle<float> area,

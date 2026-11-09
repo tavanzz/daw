@@ -19,12 +19,22 @@ else()
 endif()
 option(DAW_HOST_LV2 "Host LV2 plugins" ${lv2_by_default})
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Only curl's header is needed to build: the library is opened at run time.
+    find_path(DAW_CURL_INCLUDE_DIR curl/curl.h)
+    if(NOT DAW_CURL_INCLUDE_DIR)
+        message(FATAL_ERROR "curl/curl.h not found: install libcurl's development package "
+                            "(Debian and Ubuntu: libcurl4-openssl-dev)")
+    endif()
+endif()
+
 add_library(daw_juce STATIC)
 add_library(daw::juce ALIAS daw_juce)
 
 target_link_libraries(daw_juce
     PRIVATE
         juce::juce_core
+        juce::juce_cryptography
         juce::juce_events
         juce::juce_data_structures
         juce::juce_audio_basics
@@ -44,7 +54,11 @@ target_compile_definitions(daw_juce
         # Optional features we don't use; disabling them also removes their
         # Linux build dependencies (WebKit/GTK, libcurl, JACK, LADSPA).
         JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
+        # HTTPS (updates, crash reports): macOS and Windows have their own; on Linux
+        # JUCE uses libcurl, loaded only when first needed, so the app still starts on
+        # a system without it (the network then fails, nothing else).
+        JUCE_USE_CURL=$<IF:$<PLATFORM_ID:Linux>,1,0>
+        JUCE_LOAD_CURL_SYMBOLS_LAZILY=1
         JUCE_JACK=0
         JUCE_PLUGINHOST_LADSPA=0
         # Plugin hosting (Phase 7): VST3 everywhere, AU on macOS, LV2 on Linux. No
@@ -61,3 +75,14 @@ target_compile_definitions(daw_juce
 target_include_directories(daw_juce SYSTEM
     INTERFACE
         $<TARGET_PROPERTY:daw_juce,INCLUDE_DIRECTORIES>)
+
+# juce_add_gui_app() gives an app JUCE_USE_CURL=0 on Linux (it links no curl itself),
+# while daw::juce, which compiles JUCE, opens curl lazily (JUCE_USE_CURL=1) and passes
+# that on: the app's own value goes, or the two clash.
+function(daw_use_juce_settings target)
+    get_target_property(definitions ${target} COMPILE_DEFINITIONS)
+    if(definitions)
+        list(FILTER definitions EXCLUDE REGEX "^JUCE_USE_CURL=")
+        set_target_properties(${target} PROPERTIES COMPILE_DEFINITIONS "${definitions}")
+    endif()
+endfunction()

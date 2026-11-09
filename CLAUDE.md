@@ -10,7 +10,8 @@ A cross-platform digital audio workstation (DAW). Final targets: Windows, macOS,
 Linux, iOS/iPadOS and Android. A personal project today, built so it can become a
 commercial product.
 
-- C++20, JUCE 9.0.4 (CMake FetchContent, no Projucer), Catch2 3.16.1 for tests.
+- C++20, JUCE 9.0.4 (CMake FetchContent, no Projucer; one patch of ours on macOS, see
+  Microphone permission and `cmake/patches/README.md`), Catch2 3.16.1 for tests.
 - CMake ≥ 3.25 with Ninja, driven by `CMakePresets.json`.
 - Development happens locally on macOS (Apple Silicon), the primary test platform:
   build and run the app there. Windows and Linux are verified through GitHub Actions.
@@ -25,22 +26,24 @@ Modules with one-way dependencies:
 | `model/`      | project state (tracks, clips, parameters), versioned project files | non-GUI JUCE modules            |
 | `controller/` | maps the model onto the engine: session, undo, loading, export, timeline view math | engine, model, non-GUI JUCE |
 | `appearance/` | theme values (colours, fonts, shapes, meter styles, effects) and animation settings, for every UI | non-GUI JUCE modules |
-| `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, JUCE GUI |
-| `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, JUCE GUI |
+| `services/`   | what the app needs around the audio: build information, user settings, log, updates, crash reports | non-GUI JUCE modules |
+| `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, appearance, services, JUCE GUI |
+| `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, appearance, services, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
-| `tests/`      | unit tests for engine, model, controller and appearance; UI tests for ui/desktop | everything but app (they run the app's plugin scanner program, linking none of its code) |
+| `tests/`      | unit tests for engine, model, controller, appearance and services; UI tests for ui/desktop | everything but app (they run the app's plugin scanner program, linking none of its code) |
 
 - `engine` never depends on any UI. `engine` and `model` don't depend on each other
   nor on `controller`; `controller` maps the model onto the engine. `appearance`
-  depends on no other module, and only the UIs (and `app`) use it.
+  and `services` depend on no other module, and only the UIs (and `app`) use them.
 - Enforced by the CMake target graph and by the `architecture.*` CTest tests
   (`cmake/CheckArchitecture.cmake`): they fail if `engine/`, `model/`, `controller/`
   or `appearance/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, if
-  `engine/` and `model/` include each other or `controller/`, or if `appearance/`
-  includes another module or is included by `engine/`, `model/` or `controller/`.
+  `engine/` and `model/` include each other or `controller/`, or if `appearance/` or
+  `services/` includes another module or is included by `engine/`, `model/`,
+  `controller/` (or each other).
 - Every module has public headers in `include/daw/<module>/` and private code in
   `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`,
-  `daw::appearance`, `daw::ui::desktop`.
+  `daw::appearance`, `daw::services`, `daw::ui::desktop`.
 - JUCE is compiled once into the internal static library `daw::juce`
   (`cmake/JuceLibrary.cmake`), with JUCE's own flags. Include JUCE module headers
   directly (`<juce_audio_basics/juce_audio_basics.h>`), never `JuceHeader.h`.
@@ -53,6 +56,235 @@ Modules with one-way dependencies:
   app (`Licences/`, `docs/THIRD_PARTY.md`).
 - Anything both UIs will need (waveform peaks, meter values, transport state) lives
   in `engine` or `model`, never in a UI module.
+- Build information (Phase 8): `services::buildInfo()` is what this build is: product
+  name, semantic version (`DAW_VERSION` = the project's version plus
+  `DAW_VERSION_SUFFIX`, e.g. "-rc.1", which the release workflow takes from the tag),
+  commit and its date (`cmake/BuildCommit.cmake`, rerun at every build, rewriting the
+  header only when they change; "unknown" without git), build type, platform, the
+  running slice's architecture, bundle id, update id and repository URL. The identity is
+  set once in the top-level `CMakeLists.txt` (product name "MICINSTATION", logo text "MIC
+  IN STATION", bundle id `io.github.tavanzz.micinstation`, publisher "tavanzz").
+  `MICINSTATION --version` prints `BuildInfo::describe()`; such diagnostic runs never
+  hand over to a running copy of the app. The app icon is drawn by
+  `tools/make_app_icon.py` (`app/resources/AppIcon.png`; JUCE makes the .icns and
+  .ico); macOS opens `.micin` files with the app, and `.dawproject` ones without claiming
+  them (`app/resources/Info.plist.in`, which must hold no semicolon).
+  Windows programs carry their C++ runtime (`CMAKE_MSVC_RUNTIME_LIBRARY`, static, for
+  every target). On Linux JUCE does HTTPS with libcurl, opened only when first used
+  (`JUCE_LOAD_CURL_SYMBOLS_LAZILY`): building needs its header, running does not.
+- The rename (Phase 8): up to v0.8.0-rc.4 the app was called "DAW" (bundle id
+  `io.github.tavanzz.daw`). Two values keep that name for ever (`DAW_PREVIOUS_PRODUCT_NAME`,
+  `DAW_UPDATE_ID`): update manifests name the app by `BuildInfo::updateId`, the old bundle
+  id, since copies of the old app accept nothing else (as Windows knows the installation by
+  its AppId), and `services::NameMigration` takes over the old name's data once, before the
+  settings and the log open (`AppController`): when the new name has no settings file and
+  the old one has, the settings folder is copied (the settings file renamed, so an old copy
+  still finds its own; files already there are kept), the session logs move (renamed, so
+  rotation counts them) with the crash reports, kept and waiting; a run with
+  `--settings-dir=` renames them in place; the log says what was taken over. In the code,
+  targets, namespaces, CMake and environment variables, secrets and the repository the
+  name stays "daw".
+- User settings (Phase 8): `services::UserSettings` is the one place that reads and
+  writes `DAW.settings` (JUCE's PropertiesFile XML, in `UserSettings::defaultFolder()`:
+  `~/Library/Application Support/DAW` on macOS, `%APPDATA%\DAW`, `~/.config/DAW`), with
+  typed values: audio device, MIDI inputs switched off, appearance (the appearance
+  module's JSON), plugin window positions, the last project, latency offsets per device
+  pair and rate, what the first launch has decided, crash-report consent, update
+  preferences. Versioned like project files: "settingsVersion" (`currentSettingsVersion`)
+  and a chain of migrations run on opening (0, as v0.7.0 wrote it, to 1: the offsets
+  gathered into one JSON object, a device or theme already there counts as chosen).
+  Settings from a newer version are read as far as understood; their version is never
+  lowered and unknown keys stay. Any change to what a key holds bumps the version and
+  adds a migration, with a test that opens the previous version's file. `--settings-dir=`
+  gives a run settings of its own (the plugin catalogue and the crash marker live next
+  to them), and such a run never hands over to a running copy. `Plugins.json` from a
+  newer version keeps its folders and favourites and its plugins are scanned again.
+- Local log (Phase 8): `services::AppLog` is JUCE's current logger from the start of
+  `AppController` to its end, so `juce::Logger::writeToLog()` logs from the message
+  thread and worker threads (never the audio thread). One file per session ("DAW
+  <start time>.log", to the millisecond) in `AppLog::defaultFolder()`
+  (`~/Library/Logs/DAW` on macOS, `Logs` next to the settings elsewhere, or under
+  `--settings-dir`), the last 20 kept, at most 4 MB each, flushed line by line; the home
+  folder is written "~". The app logs its build and the system, the settings' version
+  and migration, a previous session that did not end with `AppLog::endOfSessionLine`,
+  plugins kept off after a crash, the audio device and MIDI inputs when they change,
+  each finished plugin scan with what failed, the project's file name when it changes or
+  is saved, and the end of the session; the desktop UI logs every alert it shows
+  (`MainComponent::showError()`), dropouts and exports. Help > Open Log Folder
+  (`ui::desktop::AppServices`, what the app hands the UI for the Help menu).
+- Signed updates (Phase 8): every release carries an `update.json`
+  (`services::manifest`): `{"format": 1, "payload": <Base64 of the payload JSON>,
+  "signature": <Base64>}`, the signature Ed25519 (`services::ed25519`, Monocypher 4.0.2,
+  pinned by SHA-256 in `cmake/Dependencies.cmake`) over the payload's exact bytes, so
+  JSON formatting never matters. The payload names the app (`bundleId`), the version
+  (`services::SemanticVersion`: Semantic Versioning 2.0.0 order, release candidates
+  before their release), date, notes (Markdown), release page and per platform key
+  (`manifest::platformKey()`: "macos", "windows-x86_64", "linux-x86_64") the file's
+  URL, size and SHA-256 (`sha256Of()`, JUCE's `juce_cryptography`). `manifest::read()`
+  checks the signature before reading anything else; the public key comes from the
+  build (`DAW_UPDATE_PUBLIC_KEY`, `updatePublicKey()`; empty: nothing can be installed).
+  `daw_update_tool` (`tools/update-tool/`) makes the key pair (`keygen`: the system's
+  cryptographic random source, key file readable by its owner only), prints the public
+  key, signs payloads, verifies manifests and hashes files. Tests: RFC 8032's vectors,
+  another key, a changed payload, a changed file.
+- Update checks (Phase 8): `services::UpdateChecker` works on a thread of its own and
+  every UI polls `getStatus()` (state idle, checking, upToDate, available, downloading,
+  ready or failed; the release, whether it has a file for this platform, the progress,
+  the problem, the downloaded file; `getRevision()` changes with it). The stable channel
+  reads `<repository>/releases/latest/download/update.json` (GitHub's redirect, no API);
+  the pre-release channel asks GitHub's releases API for the newest release (by version,
+  drafts left out) that has an update.json; `Options::feedOverride` reads one manifest
+  instead (tests, `DAW_UPDATE_FEED`). A release is offered only for this app, newer than
+  the running version (never a downgrade) and, unless the user asked, not skipped. The
+  download (`services::http`: JUCE's URL with redirects, a timeout, progress and cancel;
+  `file://` for tests; the User-Agent "DAW/<version>") goes to a ".part" file and counts
+  only with the manifest's size and SHA-256. Tests run local feeds of signed manifests.
+- Installing updates (Phase 8): `services::UpdateInstaller` puts a verified download in
+  place of the running app in two halves. `describeRunningApp()` says what the app is (a
+  macOS bundle, a Windows installation, which has `unins000.exe` next to it and is for
+  all users under Program Files, an AppImage from `$APPIMAGE`) and why it cannot update
+  itself (run from the disk image or from where macOS translocated it, a folder it cannot
+  write, not installed): the UI then sends the user to the download. `prepare()`, on a
+  worker thread: macOS mounts the .dmg (`hdiutil`), requires the new app to be signed by
+  the running app's team when the running app is signed (`codesign`), and copies it next
+  to the installed one (`ditto`, quarantine removed); Linux copies the AppImage next to
+  the running one, executable; Windows keeps the installer. `finishAfterQuit()`, right
+  before the app quits: macOS and Linux leave a shell script (`finishingScript()`) that
+  waits for the app's process to end, swaps the new version in (the old one back if that
+  fails) and starts it with the given arguments; Windows runs the installer silently for
+  the same users into the same folder (`windowsInstallerArguments()`: Inno Setup's
+  options), then starts the program of the running app's name. Text files the app
+  writes for other programs (scripts, envelopes) use LF line endings, never JUCE's CRLF
+  default. A copy of the app from before the rename (DAW) installs the new one under its
+  own name and starts that: the new app then hands over at launch
+  (`handoverFromPreviousName()`, `Main.cpp`, before anything opens): on macOS the bundle
+  `DAW.app` asks a helper (`renamingScript()`) to rename it once the app has quit and to
+  open it again with the same arguments (with `--keep-previous-name` if that fails); on
+  Windows the program run as `DAW.exe` (a copy the installer leaves for that one time)
+  starts `MICINSTATION.exe` with the same arguments; both quit at once, never in the way
+  of the copy they start (`moreThanOneInstanceAllowed()`).
+- Crash reports (Phase 8): `services::CrashReporting` runs sentry-native 0.17.4 (pinned
+  by SHA-256) with the inproc backend (at a crash the crashing thread's stack is walked
+  and written to the crash database: addresses and modules, no memory) and no transport
+  of its own: at the next start sentry hands each stored envelope to
+  `receiveEnvelope()`, which keeps only the event and scrubs it (`scrubEvent()`: version,
+  release, OS name and version, architecture, signal, stack, modules, and a "plugin" tag
+  with what the crash marker saw; no user, computer name, breadcrumbs, messages, extra
+  or other contexts; the home folder written "~" in every string). The scrubbed report
+  is always kept as JSON in the log folder's `Crashes` (the last 20); it goes to the
+  outbox, and from there to Sentry's envelope endpoint on a thread of its own, only if
+  the user allowed it (`UserSettings::getCrashReportConsent()`) and the build has a DSN
+  (`DAW_SENTRY_DSN`, `BuildInfo::crashReportsDsn`); refusing empties the outbox, and a
+  report waits at most 30 days. `AppController` starts it right after the crash marker,
+  so sentry's handler runs first and hands the signal on to the marker's (sentry chains
+  to the handlers it found). `daw_crash_probe` (tests) crashes on purpose; the test
+  reads the report of the next start and checks that it names neither the user's home,
+  nor the computer, nor a project. `docs/PRIVACY.md` says what is sent and kept.
+- Help menu, About and updates in the desktop UI (Phase 8): the app hands the UI an
+  `AppServices` (log folder, licences folder, how the copy is signed, the user
+  settings, the update checker, crash reporting, why this copy cannot update itself, and
+  `installUpdate`). Help has Check for Updates..., Check for Updates at Launch, Include
+  Pre-releases, Send Crash Reports (off without a DSN), Privacy... (the repository's
+  `docs/PRIVACY.md`) and Open Log Folder; About and Check for Updates are in the
+  application menu on macOS, at the top of Help elsewhere. `AboutPanel` shows the build
+  (version, commit, platform, the project format, network protocol and settings
+  versions, the signature), links, Steinberg's VST trademark and every licence shipped
+  in `Licences/` (the app's own, `THIRD_PARTY.md`, each component's). `UpdatePanel`
+  shows the checker's status and the release notes; "Update Now" downloads, verifies and
+  installs in one click, "Skip This Version" saves the version, "Later" closes; a copy
+  that cannot replace itself offers the download page. `AppController` checks 5 s after
+  launch when the user wants it and offers a release found then once; installing refuses
+  while recording, offers to save, prepares the update on a thread of its own, then
+  calls `finishAfterQuit()` and quits. A project from a newer version
+  (`model::newerFormatMessage`) is refused with a "Check for Updates" button.
+- First launch (Phase 8): `FirstLaunchPanel` asks, page by page, only what
+  `UserSettings::getFirstLaunchPages()` says is undecided: the audio output (JUCE's device
+  selector with no inputs, so nothing asks for the microphone; Test plays a tone), the
+  theme (the previews, applied as they are clicked), and crash reports (Send / Don't
+  send, neither chosen until the user picks; only in builds that can send). Finishing
+  marks the device and the theme as chosen and stores the answer; closing the window
+  counts as no consent. Settings from v0.7.0 already have a device and a theme.
+- Release checks in the app (Phase 8): with `--settings-dir=` the app can run checks for
+  the release workflow and quit on its own. `--smoke-test=new` (`app/src/SmokeTest`)
+  scans a plugin given with `--smoke-plugin=` through the app's own scanner program, makes
+  a project (an audio track with a tone and the plugin, a MIDI track with the synth and a
+  note), saves it, opens it again from the disk and, after three seconds of updates,
+  writes what it finds to `--smoke-result=` as JSON (opened, tracks, clips, notes, the
+  plugin ready, unavailable plugins, version); `--smoke-test=<project>` opens a given
+  project (one from a newer version must be refused). `--update-test=<json>` checks
+  (`DAW_UPDATE_FEED`, `DAW_PRETEND_VERSION`), downloads, verifies and installs the update
+  as a user would, reports the outcome, and the new version starts with
+  `--smoke-test=new` and the same settings when `--smoke-result=` is given. On Windows the
+  helper is a batch script (`windowsFinishingScript()`): it waits for the app, runs the
+  installer and starts the new version as the user, never elevated.
+- macOS packaging (Phase 8, `packaging/macos/`): `sign.sh` signs inside out (the plugin
+  scanner, then the bundle) with the hardened runtime, a secure timestamp and the
+  entitlements in `App.entitlements` / `Scanner.entitlements`: microphone (the app),
+  `disable-library-validation` (plugins from other developers) and
+  `allow-unsigned-executable-memory` (plugins protected by PACE/iLok decrypt their code in
+  memory: with the hardened runtime a scan of this Mac's plugins lost 125 of them without
+  it, and with it found 696 with one timeout, KICK808's VST3, as in Phase 7; Ableton Live
+  and GarageBand carry the same three). Identity "-" signs ad hoc (no Apple
+  account: it runs, Gatekeeper asks). `notarize.sh` sends a file to Apple's notary service
+  (App Store Connect API key), waits, prints the log on refusal, staples and validates;
+  the app and then the .dmg are both notarised and stapled. `make-dmg.sh` makes a
+  compressed .dmg with a link to /Applications (signed when there is an identity);
+  `verify.sh` checks a .dmg as a user's Mac would: signature and entitlements, both
+  architectures, and when signed Developer ID, the hardened runtime, stapled tickets and
+  Gatekeeper's verdict on a quarantined copy. `DAW_RELEASE_SYMBOLS` adds debug symbols to
+  optimised builds (the release workflow keeps them apart: dSYM, PDB, debug files).
+  `--smoke-test=scan` scans every plugin of the computer and lists the failures, to
+  compare a hardened build with a development one. The release checks' runs open no
+  audio device (build machines have none, and an interface with inputs may make macOS
+  ask for the microphone first) and load audio at 48 kHz.
+- Windows packaging (Phase 8, `packaging/windows/DAW.iss`): an Inno Setup 6 installer,
+  x64, English or Italian. Its AppId never changes (Windows knows the installed app and
+  replaces it by it, also under its previous name). `PrivilegesRequired=lowest` with the
+  override dialog: "only for me" (`%LOCALAPPDATA%\Programs\MICINSTATION`, no
+  administrator, updates without elevation) or "for all users" (Program Files);
+  `/CURRENTUSER` and `/ALLUSERS` choose it silently. Start menu entry, optional desktop
+  icon, `.micin` owned and `.dawproject` opened by the app (registered for the same
+  users), the licences beside the program; uninstalling leaves settings, logs and
+  projects. Replacing an installation of DAW (decided at `ssInstall`: `DAW.exe` there,
+  `MICINSTATION.exe` not), it stays in that folder, takes away the old shortcuts,
+  scanner and file types, and leaves a copy of the program as `DAW.exe`, which the old
+  app starts after updating; the next update removes it. Programs and installer are signed with SSL.com eSigner when its secrets
+  exist (not yet: the Inno uninstaller is never signed).
+- Linux packaging (Phase 8, `packaging/linux/`): `make-appimage.sh` puts the app, its
+  scanner and licences (`usr/bin/Licences`, where the app looks), the desktop file
+  (`io.github.tavanzz.micinstation.desktop`), a 512 px icon and the `.micin` and
+  `.dawproject` MIME types in an
+  AppDir, lets linuxdeploy bundle the libraries not every distribution has (ALSA, X11,
+  fonts and libcurl stay the system's) and packs it with appimagetool and the static
+  type-2 runtime (no libfuse2). Tools at pinned versions, checked by SHA-256. Built on
+  Ubuntu 24.04: glibc 2.39 and newer.
+- Release workflow (Phase 8, `.github/workflows/release.yml`, `docs/RELEASING.md`): a
+  tag `vX.Y.Z` (or `-rc.N`, a pre-release) must agree with the project's version;
+  `prepare` writes the notes (`tools/release_notes.py`: commit subjects since the
+  previous release, merges and "CI:" commits left out, warnings for what is unsigned) and
+  takes the update key (the secret, or a throwaway one for the run, kept a day as an
+  artifact; `.github/actions/update-key`). Then on each platform: Release build with
+  symbols, every test (macOS: both slices, Intel under Rosetta), symbols kept apart,
+  signing and packaging, the signature checks, and `packaging/release_checks.py`: the
+  installed app's smoke test with the VST3 test plugin, a `.dawproject` copy of its
+  project and a newer project, on Windows
+  for one user and for everyone then uninstalled; and the update end to end (an
+  installed copy pretending to be 0.0.1 refuses a bad signature, a tampered file and an
+  older version, then installs the new one, which starts and passes the smoke test);
+  and, with the update key, the update from the previous release (`previous`: the newest
+  published one, downloaded with `gh`, installed as a user would, updates itself to this
+  build from a local feed; the new version must start under its own name, also when the
+  old one was DAW, take over the old copy's settings and pass the smoke test; on
+  Windows, then uninstalled with nothing left). Files are named after `APP`, the
+  workflow's product name.
+  `publish` (tags only) writes `update.json` (`tools/make_update_payload.py`, signed by
+  `daw_update_tool`), `SHA256SUMS.txt`, uploads symbols to Sentry when configured and
+  makes the GitHub Release; `check-feed` reads the published `update.json` as the app does
+  and checks its signature. Run by hand it does everything but publish.
+- Network protocol (Phase 8): `model::networkProtocolVersion` is the version of what
+  two copies of the app exchange (Phase 9), apart from the project format: bump it
+  whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
+  same version for now.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -347,8 +579,10 @@ Modules with one-way dependencies:
   readings into what a meter shows (time-based, so refresh-rate independent);
   `dsp::WaveformPeaks` keeps min/max per 256-sample bucket. All three are UI-agnostic.
 - Project model: `model::Project` / `Track` / `Clip` are typed handles onto a
-  `juce::ValueTree`. `model::ProjectFile` maps it explicitly to JSON (`.dawproject`,
-  LF, UTF-8) with `"formatVersion"`.
+  `juce::ValueTree`. `model::ProjectFile` maps it explicitly to JSON (`.micin`; projects
+  saved before the rename have `.dawproject`, which `model::isProjectFile()` accepts and
+  `withProjectFileExtension()` keeps when they are saved again; LF, UTF-8) with
+  `"formatVersion"`.
   - Tracks hold mixer settings (volume as linear gain 0 to +6 dB, pan -1 to 1, mute,
     solo) and clips in stacking order (last = on top). `Project::isTrackAudible()`
     is the one place with the mute/solo rule. A clip is a file, a timeline position,
@@ -685,6 +919,17 @@ Modules with one-way dependencies:
   `NSMicrophoneUsageDescription` (JUCE's `MICROPHONE_PERMISSION_*`). The app also
   passes the device's reported latencies to the session and keeps the manual offset
   in the user settings per input/output device pair and sample rate.
+  macOS asks for the microphone as soon as an IOProc is created on a device that has
+  input streams, in an app with the audio-input entitlement, even for output only (the
+  device itself, JUCE's private aggregate of it and Apple's output units alike): an
+  interface with inputs made it ask at the first launch. So JUCE is patched on macOS
+  (`cmake/patches/juce-coreaudio-output-only.patch`, applied exactly, once, by
+  `cmake/ApplyPatch.cmake`; the configure stops if it no longer applies or a build's JUCE
+  lacks it; CRLF kept by `.gitattributes`): an output opened without an
+  input device goes into a stacked private aggregate (as a Multi-Output Device), which
+  has no input streams; with an input device JUCE builds its usual aggregate. Checked
+  in the TCC log (`log show --predicate 'process == "tccd"'`): a real request has
+  `preflight=no`; opening the output makes none, opening the inputs does.
 - Themes (Phase 5): `appearance::Theme` holds everything a UI needs to draw in one
   theme: a colour per `ColourRole` (components ask for roles, never literal colours),
   a font per `FontRole` (family, style, size, tracking, capitals), the shape (corner
@@ -765,6 +1010,14 @@ Modules with one-way dependencies:
   active; each theme's look and feel draws the effect (`drawTimelineBackground()`,
   `drawPlayhead()` with a `PlayheadLook`, `drawLogo()` with the clock's time,
   `drawHazardBand()`, `drawRecordPulse()`, `drawMeterBar()` with a `MeterAnimation`).
+  The logo is `BuildInfo::logoText` word by word (Phase 8): Neon Grid one line of tubes
+  (first word in the accent, last in the second accent, those between smaller in the
+  third), Acid Terminal every word but the last cut out of the accent block and the last
+  after it, Synth Chrome stacked (the first word in chrome, the middle ones on the
+  accent horizon line, the last spaced out to the same width in the second accent);
+  `logoWidth()` sizes the transport's logo, and `MainWindow::minimumWidth` fits the
+  transport bar with the widest (a UI test checks it in every theme). A view in no window
+  (the UI tests') is told of a new theme by `MainComponent::themeChanged()`.
   `TrackLanes` paints its content (lanes, grid, loop, clips, automation) into an image
   of the visible area, redrawn only on `contentChanged()` (edits, view, selection,
   theme, size); frames put the image back and draw the background (under translucent
@@ -989,6 +1242,12 @@ ctest --preset debug            # run all tests
   animation level, `"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI
   Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
   four minutes); results in `docs/PERFORMANCE.md`.
+- Packaging locally (no account needed): `cmake --preset macos-universal`, build, then
+  `packaging/macos/sign.sh <DAW.app> -`, `make-dmg.sh`, `verify.sh <dmg> unsigned` and
+  `python3 packaging/release_checks.py smoke|update ...` (`docs/RELEASING.md`). Release
+  checks of the app: `DAW --settings-dir=<folder> --smoke-test=new|scan|<project>
+  --smoke-result=<json>`; `DAW --version`. Release notes: `python3 tools/release_notes.py
+  <tag>`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen. The app's
   `--show=previews,animations,mixer,editors,browser,plugins` option opens the theme
@@ -999,6 +1258,9 @@ ctest --preset debug            # run all tests
   put it back afterwards.
 
 ## CI
+
+Releases are made by `.github/workflows/release.yml` from tags (Architecture, Release
+workflow; `docs/RELEASING.md`), apart from the CI below.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on every
 push to `main`: configure, build and test with the `debug` preset on Linux (GCC),
@@ -1023,6 +1285,10 @@ apt.llvm.org.
 - Small steps, one commit per working step: it builds, all tests pass, zero warnings.
 - Phase work happens on a branch (`phase-N`) with a draft pull request into `main`;
   CI must be green on Windows, macOS and Linux.
+- Updating JUCE (or any dependency with a patch in `cmake/patches/`): go through
+  `cmake/patches/README.md` in the same commit. Delete a patch the new version makes
+  useless; otherwise make it again if it no longer applies (the configure says so), and
+  check again what it is for (the JUCE patch: no microphone request at launch).
 - Don't implement later phases (multiple takes and comping, CLAP, plugin sandboxing,
   sidechain, presets, MPE, MIDI clock, mobile) beyond keeping the architecture ready
   for them.
@@ -1371,7 +1637,7 @@ Phase 5 decisions (agreed before starting):
   file choosers and the title bar.
 - Layout: a status bar at the bottom in every theme (the transport's status line
   moves there; a prompt in Acid Terminal); a "DAW" logo at the left of the transport
-  in the theme's title font.
+  in the theme's title font (MIC IN STATION since the rename, Phase 8).
 - Fonts: static TTF files in the repository (at most two weights per family), from
   google/fonts and the upstream releases of JetBrains Mono and Space Grotesk; OFL
   texts next to them, in `docs/THIRD_PARTY.md` and in the app bundle.
@@ -1584,8 +1850,9 @@ while playing, MIDI effects, automation writing, mobile UI.
       placeholders, slow-plugin and NaN warnings
 - [x] 14. UI tests in every theme; listening tests for Phase 7 with the plugins
       installed on the Mac; version 0.7.0
-- [ ] Listening tests (`docs/LISTENING_TESTS.md`, checks 104 to 122): not run yet; the
-      phase was merged before them, 2026-11-08, and they remain to be done on macOS
+- [x] Listening tests (`docs/LISTENING_TESTS.md`, checks 104 to 122): the phase was
+      merged before them on 2026-11-08; the user reported them passed on macOS later
+      that day
 
 Phase 7 decisions (agreed before starting):
 
@@ -1664,3 +1931,170 @@ Phase 7 decisions (agreed before starting):
   process only, never installed; AU scanning is tested with Apple's built-in AUs;
   AUv3 is checked by hand.
 
+
+Phase 8 (done, released as v0.8.0): distribution. Friends install and update the
+DAW on macOS, Windows and Linux on their own: a tag `vX.Y.Z` makes GitHub Actions build
+in Release, sign, package and publish a GitHub Release with notes generated from the
+commits; a universal macOS app signed with Developer ID, notarised and stapled, in a
+.dmg; a Windows installer (per user or for all users); a Linux AppImage; automatic
+updates checked at launch (can be switched off), shown with their release notes,
+installed with one click, signed with Ed25519 and verified before installing; crash
+reports only with explicit consent, without personal data or project contents, plus a
+local log and Help > Open Log Folder; an About window (version, commit, third-party
+licences, links); a first launch that asks for the audio device, the theme and the
+crash-report consent, nothing else. Compatibility: a network protocol version apart from
+the project format, newer projects refused in the installed app, versioned user settings
+with migrations. The pipeline works without any secret (unsigned builds, flagged). Out of
+scope: networking and co-op (Phase 9), user accounts, payments, app stores, mobile UI,
+Windows code signing until an account exists, ASIO.
+
+- [x] 0. Plan (this list) and draft pull request
+- [x] 1. Identity and build information: the `services` module and its architecture
+      rules, `BuildInfo` (version with the tag's suffix, commit, date, signed or not),
+      bundle id, app icon, `.dawproject` document type, `--version`,
+      `model::networkProtocolVersion`, static MSVC runtime, libcurl loaded lazily on Linux
+- [x] 2. Versioned user settings: `services::UserSettings`, migration from version 0
+      (v0.7.0), newer settings read without being downgraded, the plugin catalogue's
+      version, `--settings-dir`
+- [x] 3. Local log: one file per session, rotation, the home folder masked; Help > Open
+      Log Folder
+- [x] 4. Signed update manifests: Monocypher (Ed25519), SHA-256, `update.json`, semantic
+      versions, `daw_update_tool` (keygen, sign, verify)
+- [x] 5. Update checks and downloads: stable and pre-release channels, check at launch,
+      skipped versions, progress, cancel, verification
+- [x] 6. Installing updates on each platform and relaunching
+- [x] 7. Crash reports: sentry-native (inproc), consent, scrubbing, local reports and an
+      upload queue, the crash marker chained; `docs/PRIVACY.md`
+- [x] 8. Desktop UI: Help menu, About window with the licences, update panel (updates
+      refused while recording), newer projects offering an update; themed, UI tests in
+      every theme
+- [x] 9. Desktop UI: first launch (output device, theme, consent); `--smoke-test` and
+      `--update-test` for the release checks
+- [x] 10. macOS packaging: hardened runtime, minimal entitlements, signing, notarisation,
+      stapling, .dmg; ad-hoc signing without secrets; all of this Mac's plugins scanned by
+      the hardened app
+- [x] 11. Windows packaging: Inno Setup installer (per user or all users, Start menu,
+      `.dawproject`, uninstaller); signing when the secrets exist
+- [x] 12. Linux packaging: AppImage (pinned linuxdeploy and appimagetool), desktop file,
+      icon, MIME type
+- [x] 13. Release workflow: tag to GitHub Release (notes, checksums, signed `update.json`,
+      debug symbols) on the three platforms; unsigned mode
+- [x] 14. Release checks in the workflow: signatures, notarisation, Gatekeeper,
+      install, launch, test project, newer project refused, clean quit, uninstall;
+      updates end to end (a valid one installed; a bad signature, a tampered file and a
+      downgrade refused)
+- [x] 15. Licences and documents: LICENSE, README, `docs/THIRD_PARTY.md`,
+      `docs/RELEASING.md` (accounts and secrets), `docs/PRIVACY.md`
+- [x] 16. Trial release candidates (`v0.8.0-rc.1`, published 2026-11-08 by the workflow
+      with every check green on the three platforms, unsigned, with a throwaway update
+      key; `rc.2` and `rc.3` the same day, signed with the project's update key, their
+      `update.json` checked against `DAW_UPDATE_PUBLIC_KEY`); practical tests in
+      `docs/INSTALL_TESTS.md` (a fresh install on a Mac, the update from rc.4 to rc.5 that
+      renames the app, the microphone, a friend on Windows); version 0.8.0
+- [x] 17. Microphone permission: playing to an interface with inputs no longer makes macOS
+      ask at launch (a JUCE patch: output-only devices in a stacked aggregate); macOS asks
+      when a track first needs an input. The patch applies exactly or stops the configure;
+      a report for JUCE is ready in `cmake/patches/README.md`; `v0.8.0-rc.4` carries it
+- [x] 18. Renamed MICINSTATION: identity and the old name's data taken over; projects
+      `.micin` (`.dawproject` still opens); copies of the old app update themselves to the
+      new one on every platform; the logos MIC IN STATION; release workflow and documents.
+      `v0.8.0-rc.5` published 2026-11-09 with every check green, the update from rc.4
+      (DAW) included on the three platforms; on this Mac a copy of rc.4 from GitHub found
+      it on the pre-release channel, installed it, and rc.5 renamed itself, took over the
+      settings and passed the smoke test
+- [ ] Practical tests (`docs/INSTALL_TESTS.md`): on the Mac (checks 1 to 16, rc.4 to
+      rc.5) done by the user on 2026-11-09; on Windows (17 to 23, now rc.4 to v0.8.0)
+      waiting for a friend to try the app. The phase was merged before them, at the
+      user's request (the release workflow checks Windows installs and updates itself)
+
+Phase 8 decisions (agreed before starting):
+
+- Licences: JUCE is used under the commercial JUCE 9 licence, Starter tier (free up to
+  US$20,000 of revenue in 12 months; then Indie or Pro). The project's own code is
+  proprietary with its source visible on GitHub: the binaries are free to install and
+  use; copying, modifying, redistributing or selling code or binaries is not allowed.
+  Nothing under the GPL, AGPL or LGPL is linked into the app (the JUCE 9 EULA, section
+  2.3, forbids what would put JUCE under an open-source licence). Copyright "tavanzz".
+- Identity: product name "DAW" (working title), bundle id `io.github.tavanzz.daw`.
+- New module `services/` (`daw::services`, non-GUI JUCE modules, Monocypher,
+  sentry-native): build information, settings, log, updates, crash reports. Only `app`
+  and `ui/desktop` use it; it uses no other module of ours.
+- macOS: universal, macOS 12+, hardened runtime; entitlements: the app
+  `com.apple.security.device.audio-input` and `com.apple.security.cs.disable-library-
+  validation` (plugins from other developers), the scanner the latter only; more only
+  if real plugins need it. Signed inside out with a secure timestamp; the app and the
+  .dmg are both notarised and stapled. Without the Apple secrets: ad-hoc signatures.
+- Windows: x64, Inno Setup; "only for me" (default, no UAC, updates without elevation)
+  or "for all users"; Start menu, optional desktop icon, `.dawproject` association; the
+  uninstaller keeps settings and projects. Static MSVC runtime. Not signed until an
+  account exists (SSL.com IV + eSigner is prepared: secrets `SSLCOM_*`); SmartScreen
+  asks friends to confirm ("More info", "Run anyway"), and Smart App Control blocks it.
+  No ASIO (it needs Steinberg's agreement): WASAPI.
+- Linux: an x86_64 AppImage built on Ubuntu 24.04 (glibc 2.39), static runtime (no
+  libfuse2), no sandbox; libcurl is loaded lazily (`JUCE_LOAD_CURL_SYMBOLS_LAZILY`), so a
+  system without it starts and only has no network. Not Flatpak (host plugins invisible
+  without overrides, rtkit in the sandbox), not .deb (one distribution family, updates
+  need sudo).
+- Updates: our own updater, not Sparkle or WinSparkle (one mechanism tested in CI on the
+  three platforms, themed). Each release has an `update.json`: a payload (version, date,
+  notes, per platform the file, size and SHA-256) and its Ed25519 signature (Monocypher);
+  the public key is compiled into the app. Stable channel: the latest release's
+  `update.json` (`releases/latest/download/`, no API); "Include Pre-releases" (off) asks
+  the releases API. Tags `vX.Y.Z` are releases, `vX.Y.Z-rc.N` pre-releases. Checked at
+  every launch in the background (Help switch), never offered while recording or
+  exporting; "Update Now" (one click, after offering to save), "Later", "Skip This
+  Version". Refused: a bad signature, another size or hash, a version not newer. macOS:
+  the .dmg is mounted, the new app must carry the running app's Team ID (when signed),
+  the bundle is replaced, the app relaunched; when its folder cannot be written (or it
+  runs from the .dmg) the .dmg is opened with an explanation. Windows: the installer runs
+  silently in the same mode and folder and relaunches the app. Linux: the AppImage
+  replaces itself. Without the update key the workflow signs with a throwaway key: such
+  builds find updates but send the user to the releases page.
+- Crash reports: Sentry, EU region (Frankfurt), free Developer plan; sentry-native with
+  the inproc backend (a stack walk, no memory dump) and a transport of our own. A report
+  is always written locally (into the log folder, scrubbed); it is sent only with the
+  consent given at first launch (Help switch) and only by builds with a DSN. Sent: app
+  version and commit, OS and architecture, the signal, the stack (addresses and modules,
+  the home folder replaced by `~`), the plugin running at the crash. Not sent: user,
+  computer name, breadcrumbs, files or project names, sessions; IP addresses not stored
+  (a Sentry project setting).
+- Local log: macOS `~/Library/Logs/DAW/`, Windows `%APPDATA%\DAW\Logs`, Linux
+  `~/.config/DAW/Logs`; one file per session, the last 20 kept, at most 4 MB each; the
+  home folder masked; written from the message thread and worker threads only.
+- First launch: three pages, only those not decided yet: audio output (device, rate,
+  buffer, Test; no inputs, so no microphone prompt), theme (the three previews, applied
+  live), crash reports (Send / Don't Send, neither preselected; absent without a DSN).
+  Settings migrated from v0.7.0 already have a device and a theme.
+- Settings: `settingsVersion` 1; the migration from 0 gathers the latency offsets into
+  one JSON object and adds the first-launch state, update and crash-report preferences.
+  Settings from a newer version are read as far as understood, unknown keys kept, the
+  version never lowered. A newer `Plugins.json` is rebuilt by a scan (it is a cache).
+- Network protocol: `model::networkProtocolVersion` 1, apart from the project format;
+  for now two apps are compatible only with the same version.
+- About: version, commit, date, platform, project format, protocol and settings
+  versions, signed or not; the licence; the third-party licences shipped in the app;
+  links to the repository, the releases and the privacy notes; Steinberg's VST
+  trademark. On macOS "About DAW" and "Check for Updates..." are in the app menu.
+- Release notes: the subjects of the commits (merges left out) since the previous final
+  tag (for a release candidate, since the previous tag), checksums, and a warning when
+  something is unsigned. The update panel shows the same notes.
+- Without secrets the workflow still publishes (macOS ad-hoc, Windows unsigned,
+  throwaway update key) and says so in the notes and the run summary; CI stays green.
+- Pipeline trials: tags `v0.8.0-rc.N` from the branch make public pre-releases, which
+  the stable channel ignores; tags of failed attempts (no release) are deleted.
+- The rename (agreed 2026-11-09, before v0.8.0): "MICINSTATION" in capitals wherever the
+  name shows (menus, windows, About, installers, folders, files, notes), lowercase in
+  identifiers (`io.github.tavanzz.micinstation`); the logos split it MIC IN STATION. The
+  update id, the key pair, the secrets, the repository, namespaces and targets keep "daw".
+  Windows keeps its AppId (one entry in Installed apps); copies updated from the old name
+  stay in their folder (`Programs\DAW`), new installations go to `Programs\MICINSTATION`.
+  Projects: `.micin` (`.dawproject` is also the extension of Bitwig's DAWproject format);
+  `.dawproject` files still open everywhere, Save keeps a file where it is, new projects and
+  Save As use `.micin`. Settings are copied (the old copy stays), logs and crash reports
+  moved. macOS asks for the microphone once more (a new bundle id).
+- Accounts and secrets are created by the user (`docs/RELEASING.md`): the update key
+  (`DAW_UPDATE_PRIVATE_KEY`, variable `DAW_UPDATE_PUBLIC_KEY`), Apple
+  (`MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_NOTARY_KEY_P8`,
+  `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER_ID`), Sentry (`SENTRY_AUTH_TOKEN`,
+  variables `SENTRY_ORG`, `SENTRY_PROJECT`, `DAW_SENTRY_DSN`), later SSL.com
+  (`SSLCOM_USERNAME`, `SSLCOM_PASSWORD`, `SSLCOM_CREDENTIAL_ID`, `SSLCOM_TOTP_SECRET`).

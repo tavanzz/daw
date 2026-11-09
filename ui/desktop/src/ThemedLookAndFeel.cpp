@@ -1405,6 +1405,13 @@ void ThemedLookAndFeel::drawLogo(juce::Graphics& g, juce::Rectangle<float> area,
     g.drawText(labelText(FontRole::title, text), area, juce::Justification::centred, false);
 }
 
+float ThemedLookAndFeel::logoWidth(const juce::String& text, float height) const
+{
+    const auto shown = juce::GlyphArrangement::getStringWidth(font(FontRole::title, std::min(26.0f, height * 0.62f)),
+                                                              labelText(FontRole::title, text));
+    return shown + 8.0f;
+}
+
 void ThemedLookAndFeel::drawStatusBar(juce::Graphics& g, juce::Rectangle<float> area,
                                       const StatusLine& line) const
 {

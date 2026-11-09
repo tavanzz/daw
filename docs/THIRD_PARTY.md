@@ -1,19 +1,40 @@
 # Third-party components
 
 What the app and its build use that this project did not write, and under which
-licence. This file is copied into the app (macOS: `DAW.app/Contents/Resources/Licences`;
+licence. This file is copied into the app (macOS: `MICINSTATION.app/Contents/Resources/Licences`;
 Windows and Linux: the `Licences` folder next to the executable), together with the
-font licences.
+app's own licence (`LICENSE.txt`) and the licence text of each component; Help > About
+shows them all. The app's own code is not open source (`LICENSE.txt`).
 
 ## Libraries
 
 | Component | Version | Licence | Used for |
 |-----------|---------|---------|----------|
-| [JUCE](https://juce.com) | 9.0.4 | AGPLv3 or the commercial JUCE 9 licence | audio, graphics, the whole app (see the note at the top of the README) |
+| [JUCE](https://juce.com) | 9.0.4 | used under the commercial [JUCE 9 licence](https://juce.com/legal/juce-9-licence/), Starter tier (it is also available under the AGPLv3, which this project does not use) | audio, graphics, the whole app; on macOS with one change of ours to its CoreAudio code (`cmake/patches/`) |
+| [Monocypher](https://monocypher.org) | 4.0.2 | CC0-1.0 or BSD 2-Clause (either) | checking the Ed25519 signatures of updates |
+| [sentry-native](https://github.com/getsentry/sentry-native) | 0.17.4 | MIT | crash reports (its in-process backend; nothing is sent without consent) |
+| ↳ [mpack](https://github.com/ludocode/mpack) | as sentry-native ships it | MIT | inside sentry-native |
+| ↳ [jsmn](https://github.com/zserge/jsmn) | as sentry-native ships it | MIT | inside sentry-native |
+| ↳ [stb_sprintf](https://github.com/nothings/stb) | as sentry-native ships it | public domain or MIT | inside sentry-native |
+| ↳ [libunwind](https://www.nongnu.org/libunwind/) | as sentry-native ships it | MIT | inside sentry-native, Linux only |
 | [Catch2](https://github.com/catchorg/Catch2) | 3.16.1 | Boost Software License 1.0 | unit tests only, not in the app |
 
-Both are downloaded when the build is configured, at pinned versions verified by
-SHA-256 (`cmake/Dependencies.cmake`).
+They are downloaded when the build is configured, at pinned versions verified by
+SHA-256 (`cmake/Dependencies.cmake`). JUCE's Starter licence is free while revenue or
+funding stays under US$20,000 in twelve months; above that a paid JUCE licence (Indie or
+Pro) is needed. Because JUCE is not used under the AGPLv3, nothing under the GPL, AGPL
+or LGPL is linked into the app (the JUCE 9 EULA, section 2.3).
+
+## Packaging tools and what they put in the installers
+
+| Component | Version | Licence | Where |
+|-----------|---------|---------|-------|
+| [Inno Setup](https://jrsoftware.org/isinfo.php) | 6.7.3 | Inno Setup licence (free, commercial use allowed) | builds the Windows installer; its setup and uninstall code is inside the installer |
+| [AppImage type-2 runtime](https://github.com/AppImage/type2-runtime) | 20251108 | MIT; statically includes libfuse (LGPL 2.1) and squashfuse (BSD), a separate program from the app | the start of the Linux AppImage, which mounts it; sources at the link |
+| [appimagetool](https://github.com/AppImage/appimagetool) | 1.9.1 | MIT | builds the AppImage (not shipped) |
+| [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy) | 1-alpha-20251107-1 | MIT | gathers the AppImage's libraries (not shipped) |
+
+All are downloaded by the release workflow at pinned versions checked by SHA-256.
 
 ## Plugin SDKs
 

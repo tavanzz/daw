@@ -1,17 +1,39 @@
-# DAW
+# MICINSTATION
 
 A cross-platform digital audio workstation written in C++20 with
-[JUCE](https://juce.com). "DAW" is a working title.
+[JUCE](https://juce.com). Up to v0.8.0-rc.4 it was called DAW, its working title: those
+copies update themselves to MICINSTATION and keep their settings, and projects saved as
+`.dawproject` still open.
 
 Targets: Windows, macOS and Linux now; iOS/iPadOS and Android later.
 
-> **Licensing: check the JUCE licence before any commercial distribution.**
-> JUCE is dual-licensed under the [AGPLv3](https://www.gnu.org/licenses/agpl-3.0.en.html)
-> and the commercial [JUCE 9 licence](https://juce.com/legal/juce-9-licence/).
-> Distributing this application under the AGPLv3 means releasing its complete
-> source code under the AGPLv3; distributing it as closed source requires a
-> suitable commercial JUCE licence. Review the current terms before releasing
-> anything. See [Licence](#licence).
+> **Licensing.** MICINSTATION is not open source: its code is published to be read, and the
+> released versions are free to install and use ([LICENSE.txt](LICENSE.txt)). It uses
+> JUCE under the commercial [JUCE 9 licence](https://juce.com/legal/juce-9-licence/),
+> Starter tier, free under US$20,000 of revenue in twelve months. See [Licence](#licence).
+
+## Installing
+
+Download the latest version from the
+[releases page](https://github.com/tavanzz/daw/releases/latest):
+
+- **macOS 12 or later** (Apple Silicon and Intel): `MICINSTATION-x.y.z-macOS.dmg`. Open
+  it and drag MICINSTATION onto Applications. If macOS says it cannot check the app (a build without an
+  Apple signature, as the release notes say), open System Settings > Privacy & Security
+  and choose Open Anyway, once.
+- **Windows 10 or 11** (64-bit): `MICINSTATION-x.y.z-Windows-x64-Setup.exe`. Choose "only for me"
+  (no administrator rights) or "for all users". While the installer is not signed,
+  SmartScreen warns: More info > Run anyway. With Smart App Control on, Windows refuses
+  unsigned installers altogether.
+- **Linux** (x86_64; Ubuntu 24.04, Debian 13, Fedora 40 or newer): the AppImage. Make it
+  executable (`chmod +x MICINSTATION-*.AppImage`) and run it. Plugins in `~/.vst3`, `/usr/lib/vst3`
+  and the LV2 folders are found as usual.
+
+The first launch asks where to play (your audio interface), which theme you like, and
+whether crash reports may be sent; nothing else. At every launch MICINSTATION checks GitHub for a
+newer version (Help > Check for Updates at Launch switches it off) and offers it with its
+release notes; Update Now downloads it, checks its signature and installs it. What it
+sends and keeps: [docs/PRIVACY.md](docs/PRIVACY.md). Releasing: [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Status
 
@@ -60,7 +82,16 @@ scanning in a separate process that puts plugins that crash or hang on a list of
 their own; a plugin browser with search, filters and favourites, dragged onto tracks
 and mixer slots; each plugin's own editor in a window of its own (or a generic one);
 plugin state saved in the project, kept intact when a plugin is missing. Project
-format version 6. See [CLAUDE.md](CLAUDE.md#status) for the steps.
+format version 6.
+
+Phase 8 (v0.8.0): distribution. Installers for macOS (a universal app, signed and
+notarised when the Apple account is set up), Windows (per user or for everyone) and Linux
+(an AppImage), built, checked and published by GitHub Actions from a tag; automatic
+updates signed with Ed25519 and verified before installing; crash reports only with
+consent, a local log, Help > About with every licence, and a first launch that asks only
+for the audio output, the theme and the consent. The app took its name, MICINSTATION, before
+v0.8.0 (it was DAW up to v0.8.0-rc.4: those copies update themselves to it). See
+[CLAUDE.md](CLAUDE.md#status) for the steps.
 
 ## Building
 
@@ -74,7 +105,7 @@ format version 6. See [CLAUDE.md](CLAUDE.md#status) for the steps.
 
   ```bash
   sudo apt install build-essential cmake ninja-build pkg-config \
-      libasound2-dev libfreetype-dev libfontconfig1-dev \
+      libasound2-dev libcurl4-openssl-dev libfreetype-dev libfontconfig1-dev \
       libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
       libxinerama-dev libxrandr-dev libxrender-dev libxi-dev \
       xvfb
@@ -97,7 +128,7 @@ ctest --preset debug
 Use the `release` preset for an optimised build. On macOS, the `macos-universal`
 preset builds a universal binary for Apple Silicon and Intel Macs.
 
-The macOS app bundle ends up in `build/<preset>/app/daw_app_artefacts/<Config>/DAW.app`.
+The macOS app bundle ends up in `build/<preset>/app/daw_app_artefacts/<Config>/MICINSTATION.app`.
 
 ## Using the app
 
@@ -121,7 +152,7 @@ Recording:
   every armed track from the playhead; press R, Space or Return to stop. Each take
   becomes a clip (one undo step) and a WAV file in the `Audio` folder next to the
   project, which is why a new project is saved first.
-- The first time a track needs an input, macOS asks whether DAW may use the
+- The first time a track needs an input, macOS asks whether MICINSTATION may use the
   microphone. If you refuse, allow it later in System Settings > Privacy & Security
   > Microphone.
 - Input monitoring per track: Auto plays the input while the track is armed and
@@ -236,6 +267,17 @@ Effects, buses and automation:
 
 (Ctrl instead of Cmd on Windows and Linux.)
 
+Help:
+
+- Help > Check for Updates... looks for a newer version now; Check for Updates at Launch
+  and Include Pre-releases (release candidates, to try versions before everyone) are
+  switches. Skip This Version in the update panel stops offering a version at launch.
+- Help > Send Crash Reports switches crash reports on or off; Privacy... says what they
+  contain. Help > Open Log Folder shows the logs (one per session) and the crash reports
+  kept on the computer, to send them if something goes wrong.
+- About MICINSTATION (in the MICINSTATION menu on macOS, in Help elsewhere) shows the version, the commit it
+  was built from and every licence.
+
 Appearance: View > Theme chooses one of three themes (Neon Grid, the default; Acid
 Terminal; Synth Chrome), which applies at once to every window; Show Previews puts
 them side by side. View > Animations sets how much moves: Full, Reduced (no moving
@@ -243,9 +285,10 @@ backgrounds, glitches or panel transitions) or Off, and each effect on its own; 
 default the app follows the system's "Reduce motion". Both are kept in the user
 settings, not in projects.
 
-Projects (`.dawproject`) are small JSON files that refer to the audio files; keep the
+Projects (`.micin`) are small JSON files that refer to the audio files; keep the
 audio next to the project (or in a subfolder) and the folder can be moved as a whole.
-Projects saved by earlier phases open too. Manual checks with reference files:
+Projects saved by earlier phases open too, also those saved as `.dawproject` before the
+rename (saving one keeps its name). Manual checks with reference files:
 [docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md). How many tracks fit in an audio
 callback, stream from disk and record, what each effect costs and what each
 instrument's voice costs:
@@ -264,18 +307,22 @@ instrument's voice costs:
 | `app/`        | application entry point                                         |
 | `tests/`      | unit tests; `tests/bench/` the benchmarks                       |
 | `cmake/`      | build helpers: dependencies, warnings, architecture checks      |
-| `tools/`      | development scripts (listening-test files)                      |
-| `docs/`       | manual test procedures, performance measurements, licences     |
+| `services/`   | build information, settings, log, updates, crash reports; no GUI |
+| `packaging/`  | signing, installers and the release checks, per platform        |
+| `tools/`      | development and release scripts and the update tool            |
+| `docs/`       | manual test procedures, performance, licences, privacy, releasing |
 
 Architecture, audio-thread rules and coding conventions are described in
 [CLAUDE.md](CLAUDE.md).
 
 ## Licence
 
-Copyright © 2026. All rights reserved. No open-source licence has been chosen for
-this project's own code yet.
+Copyright © 2026 tavanzz. All rights reserved: the source is published to be read, the
+released versions may be installed and used free of charge, nothing may be copied,
+modified, redistributed or sold without permission ([LICENSE.txt](LICENSE.txt)).
 
-Third-party components keep their own licences: JUCE (AGPLv3 or commercial, see
-the note at the top), Catch2 (Boost Software License 1.0, tests only) and the fonts
-built into the app (SIL Open Font License 1.1). See
-[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+Third-party components keep their own licences: JUCE (the commercial JUCE 9 licence,
+Starter tier), the VST 3 SDK (MIT), Monocypher (CC0 or BSD), sentry-native (MIT), the LV2
+libraries (ISC, Linux), the fonts built into the app (SIL Open Font License 1.1) and
+Catch2 (Boost Software License 1.0, tests only). See
+[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md); Help > About shows them in the app.

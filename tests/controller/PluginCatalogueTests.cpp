@@ -212,3 +212,23 @@ TEST_CASE("The catalogue is saved and read back whole; bad files give an empty o
     CHECK(PluginCatalogue::loadFrom(file).getPlugins().empty());
     CHECK(PluginCatalogue::loadFrom(directory.file("missing.json")).getPlugins().empty());
 }
+
+TEST_CASE("A catalogue from a newer version keeps folders and favourites and scans again",
+          "[controller][plugins]")
+{
+    PluginCatalogue catalogue;
+    catalogue.addScanned({"VST3", "/x.vst3"}, {{makeDescription("A", "M", true, "VST3", 7), {}}});
+    catalogue.block({"VST3", "/bad.vst3"}, ScanFailure::crashed);
+    catalogue.setCustomFolders("VST3", {"/my/plugins"});
+    catalogue.setFavourite({"VST3", 7}, true);
+
+    auto json = catalogue.toJson();
+    REQUIRE(static_cast<int>(json["version"]) == 1);
+    json.getDynamicObject()->setProperty("version", 2);
+
+    const auto read = PluginCatalogue::fromJson(json);
+    CHECK(read.getNumScannedItems() == 0);
+    CHECK(read.getBlocked().empty());
+    CHECK(read.getCustomFolders("VST3") == juce::StringArray{"/my/plugins"});
+    CHECK(read.isFavourite({"VST3", 7}));
+}

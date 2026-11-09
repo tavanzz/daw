@@ -431,7 +431,12 @@ PluginCatalogue PluginCatalogue::fromJson(const juce::var& json)
     if (!json.isObject())
         return catalogue;
 
-    if (const auto* entries = json["scanned"].getArray())
+    // A catalogue written by a newer version of the app may describe plugins in ways this
+    // one cannot read: its scan results (a cache) are left out and the plugins scanned
+    // again; the user's own choices (folders, favourites) are kept.
+    const bool newer = static_cast<int>(json.getProperty("version", catalogueVersion)) > catalogueVersion;
+
+    if (const auto* entries = newer ? nullptr : json["scanned"].getArray())
         for (const auto& entry : *entries)
         {
             const ScanItem item{entry["format"].toString(), entry["item"].toString()};
@@ -445,7 +450,7 @@ PluginCatalogue PluginCatalogue::fromJson(const juce::var& json)
             catalogue.scanned[item] = std::move(infos);
         }
 
-    if (const auto* entries = json["blocked"].getArray())
+    if (const auto* entries = newer ? nullptr : json["blocked"].getArray())
         for (const auto& entry : *entries)
         {
             const ScanItem item{entry["format"].toString(), entry["item"].toString()};

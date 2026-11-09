@@ -228,12 +228,17 @@ void TransportBar::paint(juce::Graphics& g)
                                             appearance::ColourRole::panel, true);
 }
 
+void TransportBar::lookAndFeelChanged()
+{
+    resized();
+}
+
 void TransportBar::resized()
 {
     auto area = getLocalBounds().reduced(8, 7);
     const int gap = 6;
 
-    logo.setBounds(area.removeFromLeft(86));
+    logo.setBounds(area.removeFromLeft(logo.getPreferredWidth(area.getHeight())));
     area.removeFromLeft(2 * gap);
 
     for (auto* button : {&playButton, &pauseButton, &stopButton, &recordButton, &loopButton})

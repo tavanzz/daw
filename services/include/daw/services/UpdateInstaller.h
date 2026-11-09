@@ -1,0 +1,129 @@
+#pragma once
+
+#include <juce_core/juce_core.h>
+
+namespace daw::services
+{
+
+/**
+    Installs a downloaded, verified update in place of the running app, in two halves:
+    prepare() while the app runs (on a worker thread: it may take seconds), then
+    finishAfterQuit() right before the app quits, which leaves a small helper waiting for
+    the app's process to end, putting the new version in place and starting it.
+
+    - macOS: the .dmg is mounted, the app inside must be signed by the running app's team
+      (when the running app is signed at all), copied next to the installed one; the
+      helper swaps the two bundles and opens the new one.
+    - Windows: a helper waits for the app to end, runs the installer silently, for the
+      same users and into the same folder, and starts the new version.
+    - Linux: the new AppImage is copied next to the running one ($APPIMAGE); the helper
+      renames it over the old one and starts it.
+
+    When the app cannot replace itself (a development build, a folder the user cannot
+    write, an app started from the .dmg or the Downloads folder), getInstallation() says
+    why, and the UI sends the user to the download instead.
+*/
+class UpdateInstaller
+{
+public:
+    enum class Kind
+    {
+        macBundle,
+        windowsInstall,
+        appImage,
+        notInstalled ///< a development build, or a layout the installer does not know
+    };
+
+    struct Installation
+    {
+        Kind kind = Kind::notInstalled;
+        juce::File location;      ///< the .app bundle, the install folder or the AppImage
+        bool allUsers = false;    ///< Windows: installed for everyone (Program Files)
+        juce::String whyNot;      ///< empty when an update can be installed in place
+    };
+
+    /** Where the running app is installed, and whether it can be updated in place. */
+    [[nodiscard]] static Installation describeRunningApp();
+
+    /** Where an app at `location` (the executable's bundle, folder or AppImage) can be
+        updated; `appImage` is the value of $APPIMAGE (Linux), if any. Testable. */
+    [[nodiscard]] static Installation describe(const juce::File& executable, const juce::String& appImage);
+
+    explicit UpdateInstaller(Installation installation);
+
+    /** Gets the update ready to be put in place. Blocks; empty on success, else why not.
+        `download`: the verified file (.dmg, installer, AppImage). */
+    [[nodiscard]] juce::String prepare(const juce::File& download);
+
+    /** Starts what finishes the update once process `processId` has ended (the running app,
+        which must then quit), and relaunches the new version with `relaunchArguments`.
+        False if it could not be started. */
+    bool finishAfterQuit(int processId, const juce::StringArray& relaunchArguments);
+
+    /** The helper's script (macOS and Linux): waits for the process, swaps `staged` in for
+        `installed` (keeping nothing of the old one), opens it with the arguments. */
+    [[nodiscard]] static juce::String finishingScript(int processId, const juce::File& installed,
+                                                      const juce::File& staged, const juce::String& launchCommand);
+
+    /** The installer's command line on Windows (Inno Setup options). */
+    [[nodiscard]] static juce::String windowsInstallerArguments(const Installation& installation);
+
+    /** The helper's batch script on Windows: waits for the process, runs the installer
+        silently (which waits for its elevated self when installing for all users), then
+        starts the app with the arguments, as the user, not elevated. */
+    [[nodiscard]] static juce::String windowsFinishingScript(int processId, const juce::File& installer,
+                                                             const Installation& installation,
+                                                             const juce::StringArray& arguments);
+
+    /** What the app does when it starts under its previous name (BuildInfo::
+        previousProductName). A copy of the old app puts an update in its own place, under
+        its own name, and starts it there: on macOS the bundle (DAW.app) is renamed after
+        the app quits and opened again; on Windows the installer leaves the old program
+        name (DAW.exe) as a copy of the new program, which starts that one. */
+    struct Handover
+    {
+        enum class Action
+        {
+            none,
+            renameBundle, ///< `from`: the bundle, `to`: its new name next to it
+            startProgram  ///< `from`: this program, `to`: the one to start instead
+        };
+        Action action = Action::none;
+        juce::File from;
+        juce::File to;
+    };
+
+    /** An option the app is given after a rename failed, so that it does not try again. */
+    static constexpr const char* keepNameOption = "--keep-previous-name";
+
+    /** The handover for an app whose executable is `executable`. Testable. */
+    [[nodiscard]] static Handover handoverFromPreviousName(const juce::File& executable, const juce::String& productName,
+                                                           const juce::String& previousName);
+
+    /** Carries a handover out with the app's arguments: starts the helper that renames the
+        bundle once the app has quit, or the program to run instead. True when the app must
+        now quit. */
+    static bool handOver(const Handover& handover, const juce::StringArray& arguments);
+
+    /** The helper's script for a rename (macOS): waits for the process, renames the bundle
+        unless something has its new name already, then runs `launchRenamed`, or
+        `launchKept` if the bundle kept its name. */
+    [[nodiscard]] static juce::String renamingScript(int processId, const juce::File& from, const juce::File& to,
+                                                     const juce::String& launchRenamed, const juce::String& launchKept);
+
+    /** This process's id, for finishAfterQuit(). */
+    [[nodiscard]] static int currentProcessId();
+
+    /** The team that signed a macOS bundle ("" if unsigned or ad-hoc). */
+    [[nodiscard]] static juce::String signingTeam(const juce::File& bundle);
+
+private:
+    juce::String prepareMac(const juce::File& dmg);
+    juce::String prepareAppImage(const juce::File& appImage);
+
+    Installation installation;
+    juce::File staged;     ///< macOS, Linux: the new version next to the installed one
+    juce::File installer;  ///< Windows: the downloaded installer
+};
+
+} // namespace daw::services

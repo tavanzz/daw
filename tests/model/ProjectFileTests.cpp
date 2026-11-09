@@ -1678,3 +1678,21 @@ TEST_CASE("Plugin effects load back exactly; damaged plugin fields make the file
                ContainsSubstring("instrument"));
     CHECK(errorForEffect(R"({"type": "plugin", "plugin": {"format": "LV2", "uniqueId": 1, "name": "X"}})").empty());
 }
+
+TEST_CASE("Projects have the current extension or the one from before the rename", "[model]")
+{
+    using daw::model::isProjectFile;
+    using daw::model::withProjectFileExtension;
+
+    CHECK(isProjectFile(juce::File("/tmp/song.micin")));
+    CHECK(isProjectFile(juce::File("/tmp/song.dawproject")));
+    CHECK(isProjectFile(juce::File("/tmp/SONG.MICIN")));
+    CHECK_FALSE(isProjectFile(juce::File("/tmp/song.wav")));
+    CHECK_FALSE(isProjectFile(juce::File("/tmp/micin")));
+
+    CHECK(withProjectFileExtension(juce::File("/tmp/song")) == juce::File("/tmp/song.micin"));
+    CHECK(withProjectFileExtension(juce::File("/tmp/song.json")) == juce::File("/tmp/song.micin"));
+    CHECK(withProjectFileExtension(juce::File("/tmp/song.dawproject")) == juce::File("/tmp/song.dawproject"));
+    CHECK(withProjectFileExtension(juce::File("/tmp/song.micin")) == juce::File("/tmp/song.micin"));
+    CHECK(juce::String(daw::model::projectFilePatterns).contains("*.dawproject"));
+}

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the Info.plist JUCE generates (app/CMakeLists.txt): the project files the
+     app opens from the Finder. Its own, ".micin", which it owns, and ".dawproject", as the
+     app saved them under its previous name (DAW, whose bundle id is the update id), which
+     it opens without claiming them: Bitwig's DAWproject format has the same extension.
+     No semicolons in here: CMake would take them for list separators and JUCE would drop
+     the whole merge without a word. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>@DAW_PRODUCT_NAME@ Project</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>@DAW_BUNDLE_ID@.project</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>@DAW_PREVIOUS_PRODUCT_NAME@ Project</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>@DAW_UPDATE_ID@.project</string>
+      </array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>@DAW_BUNDLE_ID@.project</string>
+      <key>UTTypeDescription</key>
+      <string>@DAW_PRODUCT_NAME@ Project</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.json</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>micin</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>@DAW_UPDATE_ID@.project</string>
+      <key>UTTypeDescription</key>
+      <string>@DAW_PREVIOUS_PRODUCT_NAME@ Project</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>dawproject</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

@@ -1,0 +1,603 @@
+name: Release
+
+# A tag vX.Y.Z publishes a release; vX.Y.Z-rc.N a pre-release (which the stable update
+# channel ignores). Run by hand (workflow_dispatch) it builds, signs, packages and checks
+# everything but publishes nothing. See docs/RELEASING.md for the accounts and secrets;
+# every one is optional: without them the builds are unsigned, and say so.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# The product's name, as CMakeLists.txt gives it (DAW_PRODUCT_NAME): programs, bundles and
+# files are named after it.
+env:
+  APP: MICINSTATION
+
+jobs:
+  prepare:
+    name: Version, notes and keys
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      suffix: ${{ steps.version.outputs.suffix }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      tag: ${{ steps.version.outputs.tag }}
+      publish: ${{ steps.version.outputs.publish }}
+      public_key: ${{ steps.keys.outputs.public_key }}
+      throwaway_key: ${{ steps.keys.outputs.throwaway }}
+      signed_macos: ${{ steps.accounts.outputs.macos }}
+      signed_windows: ${{ steps.accounts.outputs.windows }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Version from the tag
+        id: version
+        run: |
+          project=$(sed -n 's/^    VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt | head -1)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+            publish=true
+          else
+            version="${project}-dev.${GITHUB_RUN_NUMBER}"
+            tag="v${version}"
+            publish=false
+          fi
+          base="${version%%-*}"
+          if [ "$base" != "$project" ]; then
+            echo "::error::The tag says ${base}, CMakeLists.txt says ${project}: they must agree"
+            exit 1
+          fi
+          suffix=""
+          prerelease=false
+          if [ "$version" != "$base" ]; then
+            suffix="-${version#*-}"
+            prerelease=true
+          fi
+          { echo "version=$version"; echo "suffix=$suffix"; echo "prerelease=$prerelease"
+            echo "tag=$tag"; echo "publish=$publish"; } >> "$GITHUB_OUTPUT"
+          echo "Version $version (tag $tag, pre-release $prerelease, publish $publish)"
+
+      - name: Accounts present
+        id: accounts
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_NOTARY_KEY_P8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+          SSLCOM_USERNAME: ${{ secrets.SSLCOM_USERNAME }}
+        run: |
+          macos=false; windows=false
+          if [ -n "$MACOS_CERTIFICATE_P12" ] && [ -n "$MACOS_NOTARY_KEY_P8" ]; then macos=true; fi
+          if [ -n "$SSLCOM_USERNAME" ]; then windows=true; fi
+          { echo "macos=$macos"; echo "windows=$windows"; } >> "$GITHUB_OUTPUT"
+          [ "$macos" = true ] || echo "::warning::No Apple secrets: the macOS build is signed ad hoc, not notarised"
+          [ "$windows" = true ] || echo "::warning::No Windows signing secrets: the installer is not signed"
+
+      - name: Update key
+        id: keys
+        env:
+          PRIVATE_KEY: ${{ secrets.DAW_UPDATE_PRIVATE_KEY }}
+          PUBLIC_KEY: ${{ vars.DAW_UPDATE_PUBLIC_KEY }}
+        run: |
+          mkdir -p keys
+          if [ -n "$PRIVATE_KEY" ] && [ -n "$PUBLIC_KEY" ]; then
+            echo "throwaway=false" >> "$GITHUB_OUTPUT"
+            echo "public_key=$PUBLIC_KEY" >> "$GITHUB_OUTPUT"
+          else
+            # A key for this run only (OpenSSL's Ed25519, in Monocypher's 64-byte form:
+            # the seed, then the public key). Builds that carry it cannot be updated later.
+            echo "::warning::No update key (DAW_UPDATE_PRIVATE_KEY, DAW_UPDATE_PUBLIC_KEY): a throwaway key signs this run"
+            openssl genpkey -algorithm ed25519 -out keys/key.pem
+            openssl pkey -in keys/key.pem -outform DER | tail -c 32 > keys/seed
+            openssl pkey -in keys/key.pem -pubout -outform DER | tail -c 32 > keys/public
+            cat keys/seed keys/public | base64 -w0 > keys/update-key.txt
+            echo "throwaway=true" >> "$GITHUB_OUTPUT"
+            echo "public_key=$(base64 -w0 keys/public)" >> "$GITHUB_OUTPUT"
+            rm keys/key.pem keys/seed keys/public
+          fi
+
+      - name: Keep the throwaway key for this run's jobs
+        if: steps.keys.outputs.throwaway == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: throwaway-update-key
+          path: keys/update-key.txt
+          retention-days: 1
+
+      - name: Release notes
+        run: |
+          flags=""
+          [ "${{ steps.accounts.outputs.macos }}" = true ] || flags="$flags --unsigned-macos"
+          [ "${{ steps.accounts.outputs.windows }}" = true ] || flags="$flags --unsigned-windows"
+          [ "${{ steps.keys.outputs.throwaway }}" = true ] && flags="$flags --throwaway-update-key"
+          ref="${{ steps.version.outputs.tag }}"
+          [ "${{ steps.version.outputs.publish }}" = true ] || ref=HEAD
+          python3 tools/release_notes.py "$ref" $flags > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the notes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: notes.md
+
+  macos:
+    name: macOS (universal)
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 150
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Ninja and Rosetta
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          brew install ninja
+          softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Cache dependency archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/deps
+          key: deps-${{ hashFiles('cmake/Dependencies.cmake') }}
+
+      - name: Update key
+        uses: ./.github/actions/update-key
+        with:
+          throwaway: ${{ needs.prepare.outputs.throwaway_key }}
+          private-key: ${{ secrets.DAW_UPDATE_PRIVATE_KEY }}
+
+      - name: Configure
+        run: >
+          cmake --preset macos-universal -DDAW_RELEASE_SYMBOLS=ON
+          "-DDAW_VERSION_SUFFIX=${{ needs.prepare.outputs.suffix }}"
+          "-DDAW_UPDATE_PUBLIC_KEY=${{ needs.prepare.outputs.public_key }}"
+          "-DDAW_SENTRY_DSN=${{ vars.DAW_SENTRY_DSN }}"
+
+      - name: Build
+        run: cmake --build --preset macos-universal
+
+      - name: Test (Apple Silicon)
+        run: ctest --preset macos-universal
+
+      - name: Test (Intel, under Rosetta)
+        run: |
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            arch -x86_64 build/macos-universal/tests/daw_tests
+          else
+            echo "::warning::Rosetta is not available: the Intel slice was not tested"
+          fi
+
+      - name: Debug symbols
+        run: |
+          app="build/macos-universal/app/daw_app_artefacts/Release/$APP.app"
+          mkdir -p symbols
+          dsymutil "$app/Contents/MacOS/$APP" -o "symbols/$APP.dSYM"
+          dsymutil "$app/Contents/MacOS/$APP Plugin Scanner" -o "symbols/$APP Plugin Scanner.dSYM"
+          (cd symbols && zip -qr "../$APP-${{ needs.prepare.outputs.version }}-macOS-symbols.zip" .)
+
+      - name: Signing identity
+        id: identity
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_KEY_P8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+        run: |
+          if [ "${{ needs.prepare.outputs.signed_macos }}" != true ]; then
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" | grep 'Developer ID Application' | head -1 | sed 's/.*"\(.*\)"/\1/')"
+          [ -n "$identity" ] || { echo "::error::No Developer ID Application identity in the certificate"; exit 1; }
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          echo "$MACOS_NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+
+      - name: Sign, notarise, package
+        env:
+          MACOS_NOTARY_KEY_FILE: ${{ runner.temp }}/notary.p8
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          version="${{ needs.prepare.outputs.version }}"
+          identity="${{ steps.identity.outputs.identity }}"
+          mkdir -p dist
+          ditto "build/macos-universal/app/daw_app_artefacts/Release/$APP.app" "dist/$APP.app"
+          packaging/macos/sign.sh "dist/$APP.app" "$identity"
+          if [ "$identity" != "-" ]; then
+            ditto -c -k --keepParent "dist/$APP.app" "dist/$APP.zip"
+            packaging/macos/notarize.sh "dist/$APP.zip" "dist/$APP.app"
+            rm "dist/$APP.zip"
+          fi
+          dmg="dist/$APP-$version-macOS.dmg"
+          packaging/macos/make-dmg.sh "dist/$APP.app" "$dmg" "$APP $version" "$identity"
+          if [ "$identity" != "-" ]; then
+            packaging/macos/notarize.sh "$dmg"
+          fi
+
+      - name: Check the signature and Gatekeeper
+        run: |
+          mode=unsigned
+          [ "${{ needs.prepare.outputs.signed_macos }}" = true ] && mode=signed
+          packaging/macos/verify.sh "dist/$APP-${{ needs.prepare.outputs.version }}-macOS.dmg" "$mode"
+
+      - name: Install, start, open a project, quit
+        run: |
+          dmg="dist/$APP-${{ needs.prepare.outputs.version }}-macOS.dmg"
+          mkdir -p "$RUNNER_TEMP/mount" "$RUNNER_TEMP/Applications"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/mount" "$dmg"
+          ditto "$RUNNER_TEMP/mount/$APP.app" "$RUNNER_TEMP/Applications/$APP.app"
+          hdiutil detach "$RUNNER_TEMP/mount"
+          python3 packaging/release_checks.py smoke "$RUNNER_TEMP/Applications/$APP.app" "$RUNNER_TEMP/smoke" \
+            --plugin "build/macos-universal/test-plugins/VST3/DAW Test Gain.vst3" \
+            --version "${{ needs.prepare.outputs.version }}"
+
+      - name: Update from the previous release
+        if: needs.prepare.outputs.throwaway_key != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          python3 packaging/release_checks.py previous
+          "dist/$APP-${{ needs.prepare.outputs.version }}-macOS.dmg" "${{ needs.prepare.outputs.version }}"
+          build/macos-universal/tools/daw_update_tool "$RUNNER_TEMP/update-key.txt" "$RUNNER_TEMP/previous"
+
+      - name: Updates end to end
+        run: >
+          python3 packaging/release_checks.py update "$RUNNER_TEMP/Applications/$APP.app"
+          "dist/$APP-${{ needs.prepare.outputs.version }}-macOS.dmg" "${{ needs.prepare.outputs.version }}"
+          build/macos-universal/tools/daw_update_tool "$RUNNER_TEMP/update-key.txt" "$RUNNER_TEMP/update"
+
+
+      - name: Keep the disk image and symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos
+          path: |
+            dist/*.dmg
+            *-symbols.zip
+
+  windows:
+    name: Windows (x64)
+    needs: prepare
+    runs-on: windows-2025
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
+      - name: Cache dependency archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/deps
+          key: deps-${{ hashFiles('cmake/Dependencies.cmake') }}
+
+      - name: Update key
+        uses: ./.github/actions/update-key
+        with:
+          throwaway: ${{ needs.prepare.outputs.throwaway_key }}
+          private-key: ${{ secrets.DAW_UPDATE_PRIVATE_KEY }}
+
+      - name: Configure
+        run: >
+          cmake --preset release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DDAW_RELEASE_SYMBOLS=ON
+          "-DDAW_VERSION_SUFFIX=${{ needs.prepare.outputs.suffix }}"
+          "-DDAW_UPDATE_PUBLIC_KEY=${{ needs.prepare.outputs.public_key }}"
+          "-DDAW_SENTRY_DSN=${{ vars.DAW_SENTRY_DSN }}"
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Test
+        run: ctest --preset release
+
+      - name: Stage the app and its symbols
+        run: |
+          artefacts=build/release/app/daw_app_artefacts/Release
+          mkdir -p stage symbols
+          cp "$artefacts/$APP.exe" "$artefacts/$APP Plugin Scanner.exe" stage/
+          cp -R "$artefacts/Licences" stage/Licences
+          find build/release -name '*.pdb' \( -name "$APP*.pdb" -o -name 'daw_app*.pdb' -o -name 'daw_plugin_scanner*.pdb' \) -exec cp {} symbols/ \;
+          (cd symbols && 7z a -tzip "../$APP-${{ needs.prepare.outputs.version }}-Windows-symbols.zip" . > /dev/null)
+
+      - name: Sign the programs
+        if: needs.prepare.outputs.signed_windows == 'true'
+        uses: sslcom/esigner-codesign@cf5f6c1d38ad10f47e3ed9aca873f429b1a8d85b # v1.3.2
+        with:
+          command: batch_sign
+          username: ${{ secrets.SSLCOM_USERNAME }}
+          password: ${{ secrets.SSLCOM_PASSWORD }}
+          credential_id: ${{ secrets.SSLCOM_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.SSLCOM_TOTP_SECRET }}
+          dir_path: ${{ github.workspace }}/stage
+          override: true
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $installer = "$env:RUNNER_TEMP\innosetup-6.7.3.exe"
+          Invoke-WebRequest https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe -OutFile $installer
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
+          if ($hash -ne "9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732") { throw "Inno Setup: unexpected SHA-256 $hash" }
+          Start-Process $installer -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER", "/DIR=$env:RUNNER_TEMP\InnoSetup" -Wait
+
+      - name: Make the installer
+        run: |
+          icon="$(find build/release/app -name icon.ico | head -1)"
+          "$(cygpath -u "$RUNNER_TEMP")/InnoSetup/ISCC.exe" -Q "-DAppVersion=${{ needs.prepare.outputs.version }}" \
+            "-DSourceDir=$(cygpath -w "$PWD/stage")" "-DOutputDir=$(cygpath -w "$PWD/dist")" \
+            "-DIconFile=$(cygpath -w "$PWD/$icon")" packaging/windows/DAW.iss
+
+      - name: Sign the installer
+        if: needs.prepare.outputs.signed_windows == 'true'
+        uses: sslcom/esigner-codesign@cf5f6c1d38ad10f47e3ed9aca873f429b1a8d85b # v1.3.2
+        with:
+          command: batch_sign
+          username: ${{ secrets.SSLCOM_USERNAME }}
+          password: ${{ secrets.SSLCOM_PASSWORD }}
+          credential_id: ${{ secrets.SSLCOM_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.SSLCOM_TOTP_SECRET }}
+          dir_path: ${{ github.workspace }}/dist
+          override: true
+
+      - name: Check the signatures
+        shell: pwsh
+        run: |
+          $expected = if ("${{ needs.prepare.outputs.signed_windows }}" -eq "true") { "Valid" } else { "NotSigned" }
+          foreach ($file in @(Get-ChildItem dist\*.exe) + @(Get-ChildItem stage\*.exe)) {
+            $status = (Get-AuthenticodeSignature $file.FullName).Status
+            Write-Host "$($file.Name): $status"
+            if ("$status" -ne $expected) { throw "$($file.Name): signature $status, expected $expected" }
+          }
+
+      - name: Install for the user and for everyone, start, open a project, quit, uninstall
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\*-Setup.exe).FullName
+          $plugin = "$PWD\build\release\test-plugins\VST3\DAW Test Gain.vst3"
+          foreach ($mode in @("CURRENTUSER", "ALLUSERS")) {
+            $dir = if ($mode -eq "ALLUSERS") { "$env:ProgramFiles\DAWReleaseCheck" } else { "$env:LOCALAPPDATA\Programs\DAWReleaseCheck" }
+            # Start-Process joins its arguments unquoted: the folder is quoted here.
+            Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/$mode", "/DIR=`"$dir`"" -Wait
+            $program = "$dir\$($env:APP).exe"
+            if (-not (Test-Path $program)) { throw "Not installed for $mode" }
+            python packaging\release_checks.py smoke $program "$env:RUNNER_TEMP\smoke-$mode" --plugin $plugin --version "${{ needs.prepare.outputs.version }}"
+            if ($LASTEXITCODE -ne 0) { throw "Smoke test failed for $mode" }
+            Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+            Start-Sleep -Seconds 3
+            if (Test-Path $program) { throw "Not uninstalled for $mode" }
+          }
+
+      - name: Update from the previous release
+        if: needs.prepare.outputs.throwaway_key != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          python packaging/release_checks.py previous
+          "$(ls dist/*-Setup.exe)" "${{ needs.prepare.outputs.version }}"
+          build/release/tools/daw_update_tool.exe "$(cygpath -w "$RUNNER_TEMP/update-key.txt")"
+          "$(cygpath -w "$RUNNER_TEMP/previous")"
+
+      - name: Updates end to end
+        run: >
+          python packaging/release_checks.py update unused
+          "$(ls dist/*-Setup.exe)" "${{ needs.prepare.outputs.version }}"
+          build/release/tools/daw_update_tool.exe "$(cygpath -w "$RUNNER_TEMP/update-key.txt")"
+          "$(cygpath -w "$RUNNER_TEMP/update")"
+
+
+      - name: Keep the installer and symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: |
+            dist/*.exe
+            *-symbols.zip
+
+  linux:
+    name: Linux (x86_64 AppImage)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build \
+            libasound2-dev libcurl4-openssl-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev libxi-dev \
+            xvfb
+
+      - name: Cache dependency archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/deps
+          key: deps-${{ hashFiles('cmake/Dependencies.cmake') }}
+
+      - name: Update key
+        uses: ./.github/actions/update-key
+        with:
+          throwaway: ${{ needs.prepare.outputs.throwaway_key }}
+          private-key: ${{ secrets.DAW_UPDATE_PRIVATE_KEY }}
+
+      - name: Configure
+        run: >
+          cmake --preset release -DDAW_RELEASE_SYMBOLS=ON
+          "-DDAW_VERSION_SUFFIX=${{ needs.prepare.outputs.suffix }}"
+          "-DDAW_UPDATE_PUBLIC_KEY=${{ needs.prepare.outputs.public_key }}"
+          "-DDAW_SENTRY_DSN=${{ vars.DAW_SENTRY_DSN }}"
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Test
+        run: xvfb-run -a ctest --preset release
+
+      - name: Stage the app and its symbols
+        run: |
+          artefacts=build/release/app/daw_app_artefacts/Release
+          mkdir -p stage symbols
+          cp "$artefacts/$APP" "$artefacts/$APP Plugin Scanner" stage/
+          cp -R "$artefacts/Licences" stage/Licences
+          for program in "$APP" "$APP Plugin Scanner"; do
+            objcopy --only-keep-debug "stage/$program" "symbols/$program.debug"
+            strip --strip-debug --strip-unneeded "stage/$program"
+            objcopy --add-gnu-debuglink="symbols/$program.debug" "stage/$program"
+          done
+          (cd symbols && zip -qr "../$APP-${{ needs.prepare.outputs.version }}-Linux-symbols.zip" .)
+
+      - name: Make the AppImage
+        run: packaging/linux/make-appimage.sh stage "${{ needs.prepare.outputs.version }}" dist
+
+      - name: Start, open a project, quit
+        run: |
+          Xvfb :99 -screen 0 1600x1000x24 &
+          export DISPLAY=:99
+          sleep 2
+          python3 packaging/release_checks.py smoke "$(ls dist/*.AppImage)" "$RUNNER_TEMP/smoke" \
+            --plugin "build/release/test-plugins/VST3/DAW Test Gain.vst3" \
+            --version "${{ needs.prepare.outputs.version }}"
+
+      - name: Update from the previous release
+        if: needs.prepare.outputs.throwaway_key != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export DISPLAY=:99
+          python3 packaging/release_checks.py previous "$(ls dist/*.AppImage)" "${{ needs.prepare.outputs.version }}" \
+            build/release/tools/daw_update_tool "$RUNNER_TEMP/update-key.txt" "$RUNNER_TEMP/previous"
+
+      - name: Updates end to end
+        run: |
+          export DISPLAY=:99
+          image="$(ls dist/*.AppImage)"
+          python3 packaging/release_checks.py update "$image" "$image" "${{ needs.prepare.outputs.version }}" \
+            build/release/tools/daw_update_tool "$RUNNER_TEMP/update-key.txt" "$RUNNER_TEMP/update"
+
+
+      - name: Keep the AppImage, symbols and the update tool
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux
+          path: |
+            dist/*.AppImage
+            *-symbols.zip
+            build/release/tools/daw_update_tool
+
+  publish:
+    name: Publish the release
+    needs: [prepare, macos, windows, linux]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Fetch the builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+
+      - name: Update key
+        uses: ./.github/actions/update-key
+        with:
+          throwaway: ${{ needs.prepare.outputs.throwaway_key }}
+          private-key: ${{ secrets.DAW_UPDATE_PRIVATE_KEY }}
+
+      - name: Signed update information and checksums
+        run: |
+          version="${{ needs.prepare.outputs.version }}"
+          tag="${{ needs.prepare.outputs.tag }}"
+          mkdir -p release
+          cp artifacts/macos/dist/*.dmg artifacts/windows/dist/*.exe artifacts/linux/dist/*.AppImage release/
+          cp artifacts/*/*-symbols.zip release/
+          chmod +x artifacts/linux/build/release/tools/daw_update_tool
+          python3 tools/make_update_payload.py "$version" "$tag" artifacts/release-notes/notes.md release > payload.json
+          artifacts/linux/build/release/tools/daw_update_tool sign payload.json "$RUNNER_TEMP/update-key.txt" release/update.json
+          artifacts/linux/build/release/tools/daw_update_tool verify release/update.json "${{ needs.prepare.outputs.public_key }}"
+          (cd release && sha256sum -- *.dmg *.exe *.AppImage *-symbols.zip update.json > SHA256SUMS.txt)
+          cat release/SHA256SUMS.txt
+
+      - name: Debug symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_URL: https://de.sentry.io
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "::warning::No Sentry secrets: debug symbols are only in the release"
+            exit 0
+          fi
+          curl -fsSL -o sentry-cli https://github.com/getsentry/sentry-cli/releases/download/3.8.2/sentry-cli-Linux-x86_64
+          echo "c958865f9d4000183509ea21b1f04925d5390de6d8d87386b9e69f2b305070c3  sentry-cli" | sha256sum -c
+          chmod +x sentry-cli
+          mkdir symbols
+          for zip in release/*-symbols.zip; do unzip -q "$zip" -d "symbols/$(basename "$zip" .zip)"; done
+          ./sentry-cli debug-files upload --include-sources symbols
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          [ "${{ needs.prepare.outputs.prerelease }}" = true ] && prerelease="--prerelease"
+          gh release create "${{ needs.prepare.outputs.tag }}" --verify-tag $prerelease \
+            --title "$APP ${{ needs.prepare.outputs.version }}" --notes-file artifacts/release-notes/notes.md \
+            release/*
+
+  check-feed:
+    name: Check the published update information
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fetch the update tool
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux
+          path: linux
+
+      - name: Read update.json from GitHub as the app does
+        run: |
+          tool=linux/build/release/tools/daw_update_tool
+          chmod +x "$tool"
+          if [ "${{ needs.prepare.outputs.prerelease }}" = true ]; then
+            url="https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.tag }}/update.json"
+          else
+            url="https://github.com/${{ github.repository }}/releases/latest/download/update.json"
+          fi
+          curl -fsSL -o update.json "$url"
+          "$tool" verify update.json "${{ needs.prepare.outputs.public_key }}" | tee result.txt
+          grep -q " ${{ needs.prepare.outputs.version }}," result.txt

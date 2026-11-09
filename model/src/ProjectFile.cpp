@@ -941,7 +941,7 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
         return failure(0, "the file has no valid format version.");
 
     if (*version > newestVersion)
-        return failure(*version, "the project was saved by a newer version of the app (file format " +
+        return failure(*version, "the project was " + juce::String(newerFormatMessage) + " (file format " +
                                      juce::String(*version) + "; this version reads up to " +
                                      juce::String(newestVersion) +
                                      "). Update the app to open it.");
@@ -1265,6 +1265,16 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
     result.project = std::move(project);
     result.fileFormatVersion = *version;
     return result;
+}
+
+bool isProjectFile(const juce::File& file)
+{
+    return file.hasFileExtension(projectFileExtension) || file.hasFileExtension(previousProjectFileExtension);
+}
+
+juce::File withProjectFileExtension(const juce::File& file)
+{
+    return isProjectFile(file) ? file : file.withFileExtension(projectFileExtension);
 }
 
 juce::Result saveProject(const Project& project, const juce::File& file)

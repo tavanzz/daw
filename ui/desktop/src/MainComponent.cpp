@@ -1,12 +1,20 @@
 #include "daw/ui/desktop/MainComponent.h"
 
+#include "daw/model/FormatVersion.h"
 #include "daw/model/ProjectFile.h"
+#include "daw/services/BuildInfo.h"
+#include "daw/services/CrashReporting.h"
+#include "daw/services/UpdateChecker.h"
+#include "daw/services/UserSettings.h"
+#include "daw/ui/desktop/AboutPanel.h"
 #include "daw/ui/desktop/Alerts.h"
 #include "daw/ui/desktop/AnimationsPanel.h"
 #include "daw/ui/desktop/AudioSettingsDialog.h"
 #include "daw/ui/desktop/ExportDialog.h"
+#include "daw/ui/desktop/FirstLaunchPanel.h"
 #include "daw/ui/desktop/PluginManagerPanel.h"
 #include "daw/ui/desktop/ThemePreviewsPanel.h"
+#include "daw/ui/desktop/UpdatePanel.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
@@ -17,12 +25,6 @@ namespace
 {
 constexpr int refreshRateHz = 60;
 constexpr const char* audioFilePatterns = "*.wav;*.wave;*.aif;*.aiff;*.aifc;*.mid;*.midi";
-constexpr const char* projectFilePattern = "*.dawproject";
-
-bool isProjectFile(const juce::File& file)
-{
-    return file.hasFileExtension("dawproject");
-}
 } // namespace
 
 MainComponent::MainComponent(controller::Session& sessionToShow,
@@ -85,7 +87,7 @@ MainComponent::~MainComponent()
 
 void MainComponent::openFile(const juce::File& file)
 {
-    if (isProjectFile(file))
+    if (model::isProjectFile(file))
         askToSaveChanges([this, file] { openProjectFile(file); });
     else if (file.hasFileExtension("mid;midi;smf"))
         session.importMidi(file, arrangeView.getInsertPosition());
@@ -121,8 +123,54 @@ void MainComponent::showForReview(const juce::StringArray& what)
     }
 }
 
+void MainComponent::setAppServices(AppServices servicesToUse)
+{
+    appServices = std::move(servicesToUse);
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::showFirstLaunch(services::FirstLaunchPages pages,
+                                    std::function<void(std::optional<bool>)> finished)
+{
+    if (firstLaunchWindow != nullptr || !pages.any())
+        return;
+
+    // Answered once, either by finishing the pages or by closing the window.
+    auto answer = std::make_shared<std::function<void(std::optional<bool>)>>(std::move(finished));
+    const auto finish = [this, answer](std::optional<bool> sendCrashReports) {
+        if (*answer)
+            std::exchange(*answer, nullptr)(sendCrashReports);
+        juce::MessageManager::callAsync([safe = juce::Component::SafePointer<MainComponent>(this)] {
+            if (safe != nullptr)
+                safe->firstLaunchWindow.reset();
+        });
+    };
+    firstLaunchWindow = std::make_unique<PanelWindow>(
+        "Welcome to " + services::buildInfo().productName,
+        std::make_unique<FirstLaunchPanel>(pages, deviceManager, themes, finish), this,
+        [finish] { finish(std::nullopt); });
+}
+
+void MainComponent::showUpdatePanel()
+{
+    if (updateWindow != nullptr)
+    {
+        updateWindow->toFront(true);
+        return;
+    }
+    showPanel(updateWindow, "Updates", [this] {
+        return std::make_unique<UpdatePanel>(appServices, [this] {
+            juce::MessageManager::callAsync([safe = juce::Component::SafePointer<MainComponent>(this)] {
+                if (safe != nullptr)
+                    safe->updateWindow.reset();
+            });
+        });
+    });
+}
+
 void MainComponent::showError(const juce::String& title, const juce::String& message)
 {
+    juce::Logger::writeToLog("Alert: " + title + ". " + message.replace("\n", " "));
     showAlert(
         juce::MessageBoxOptions::makeOptionsOk(juce::MessageBoxIconType::WarningIcon, title,
                                                message, "OK", this),
@@ -229,7 +277,10 @@ void MainComponent::timerCallback()
     if (const auto problem = session.takeRecordingProblem(); problem.isNotEmpty())
         showError("Recording stopped", problem);
     if (session.takeDropouts() > 0)
+    {
+        juce::Logger::writeToLog("Dropouts: the disk was too slow, some audio was missing");
         statusBar.showWarning("The disk is too slow: some audio was missing");
+    }
 
     // The output peaks can be taken once: both master meters get the same reading.
     auto& engine = session.getEngine();
@@ -282,6 +333,11 @@ void MainComponent::lookAndFeelChanged()
 void MainComponent::themeChanged()
 {
     commandManager.commandStatusChanged(); // the menu's tick moves
+
+    // JUCE tells the components of windows on screen about the new look; a view in no
+    // window (the UI tests') is told here, so that it lays itself out for it too.
+    if (getPeer() == nullptr)
+        sendLookAndFeelChange();
 }
 
 void MainComponent::themeAboutToChange()
@@ -399,6 +455,24 @@ void MainComponent::openProjectFile(const juce::File& file, bool withPlugins)
 {
     effectEditors.closeAll();
     const auto result = session.openProject(file, withPlugins);
+    if (result.failed() && result.getErrorMessage().contains(model::newerFormatMessage) &&
+        appServices.updates != nullptr)
+    {
+        // A project from a newer version: the way out is updating.
+        juce::Logger::writeToLog("Alert: Could not open the project. " + result.getErrorMessage());
+        const auto options = juce::MessageBoxOptions()
+                                 .withIconType(juce::MessageBoxIconType::WarningIcon)
+                                 .withTitle("Could not open the project")
+                                 .withMessage(result.getErrorMessage())
+                                 .withButton("Check for Updates")
+                                 .withButton("OK")
+                                 .withAssociatedComponent(this);
+        showAlert(options, [safe = juce::Component::SafePointer<MainComponent>(this)](int button) {
+            if (safe != nullptr && button == 0)
+                safe->perform(InvocationInfo(checkForUpdates));
+        });
+        return;
+    }
     if (result.failed())
     {
         showError("Could not open the project", result.getErrorMessage());
@@ -531,7 +605,7 @@ void MainComponent::chooseMidiExport()
 void MainComponent::chooseProjectToOpen(bool withPlugins)
 {
     fileChooser = std::make_unique<juce::FileChooser>(
-        withPlugins ? "Open a project" : "Open a project without its plugins", juce::File(), projectFilePattern);
+        withPlugins ? "Open a project" : "Open a project without its plugins", juce::File(), model::projectFilePatterns);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
                                  juce::FileBrowserComponent::canSelectFiles,
                              [this, withPlugins](const juce::FileChooser& chooser) {
@@ -586,8 +660,11 @@ void MainComponent::confirmDiscardRecording()
 void MainComponent::chooseProjectToSave(std::function<void()> afterSaving,
                                         const juce::String& title)
 {
-    fileChooser =
-        std::make_unique<juce::FileChooser>(title, session.getProjectFile(), projectFilePattern);
+    // Save As proposes the current extension, also for a project saved under the old one.
+    const auto current = session.getProjectFile();
+    fileChooser = std::make_unique<juce::FileChooser>(
+        title, current != juce::File() ? current.withFileExtension(model::projectFileExtension) : current,
+        juce::String("*") + model::projectFileExtension);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode |
                                  juce::FileBrowserComponent::canSelectFiles |
                                  juce::FileBrowserComponent::warnAboutOverwriting,
@@ -624,7 +701,9 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        discardRecording, toggleMetronome, toggleCountIn, togglePunch,
                        newBus,           toggleAutomation, showThemePreviews, showAnimations,
                        toggleAllAnimations, newMidiTrack, duplicate, togglePianoRoll,
-                       quantiseNotes,    exportMidi,      panic, togglePluginBrowser, openWithoutPlugins, showPluginManager});
+                       quantiseNotes,    exportMidi,      panic, togglePluginBrowser, openWithoutPlugins, showPluginManager,
+                       openLogFolder, showAbout, checkForUpdates, toggleCheckAtLaunch,
+                       toggleIncludePreReleases, toggleCrashReports, showPrivacy});
 
     const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
     for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
@@ -826,6 +905,44 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
                        "and the folders searched", "File", 0);
         result.setActive(pluginLibrary != nullptr);
         break;
+    case showAbout:
+        result.setInfo("About " + services::buildInfo().productName,
+                       "The version, the licences and where the app comes from", "Help", 0);
+        break;
+    case checkForUpdates:
+        result.setInfo("Check for Updates...", "Looks for a newer version of the app", "Help", 0);
+        result.setActive(appServices.updates != nullptr);
+        break;
+    case toggleCheckAtLaunch:
+        result.setInfo("Check for Updates at Launch", "Looks for a newer version every time the app starts",
+                       "Help", 0);
+        result.setActive(appServices.settings != nullptr);
+        result.setTicked(appServices.settings != nullptr &&
+                         appServices.settings->getUpdatePreferences().checkAtLaunch);
+        break;
+    case toggleIncludePreReleases:
+        result.setInfo("Include Pre-releases", "Offers release candidates too, to try them before everyone",
+                       "Help", 0);
+        result.setActive(appServices.settings != nullptr);
+        result.setTicked(appServices.settings != nullptr && appServices.settings->getUpdatePreferences().channel ==
+                                                                services::UpdateChannel::preRelease);
+        break;
+    case toggleCrashReports:
+        result.setInfo("Send Crash Reports", "Sends a report when the app crashes, without personal data "
+                       "(see Privacy)", "Help", 0);
+        result.setActive(appServices.settings != nullptr && appServices.crashReports != nullptr &&
+                         appServices.crashReports->canSend());
+        result.setTicked(appServices.settings != nullptr &&
+                         appServices.settings->getCrashReportConsent() == services::CrashReportConsent::allowed);
+        break;
+    case showPrivacy:
+        result.setInfo("Privacy...", "What the app sends and what it keeps on this computer", "Help", 0);
+        break;
+    case openLogFolder:
+        result.setInfo("Open Log Folder", "Shows the folder of the app's logs, to send them when "
+                       "something went wrong", "Help", 0);
+        result.setActive(appServices.logFolder != juce::File());
+        break;
     case toggleAllAnimations:
         result.setInfo("All Animations Off", "Switches every animation off, and again back on",
                        "View", 0);
@@ -986,6 +1103,56 @@ bool MainComponent::perform(const InvocationInfo& info)
             showPanel(pluginManagerWindow, "Plugin Manager",
                       [this] { return std::make_unique<PluginManagerPanel>(*pluginLibrary); });
         break;
+    case openLogFolder:
+        if (appServices.logFolder.isDirectory())
+            appServices.logFolder.startAsProcess();
+        break;
+    case showAbout:
+        showPanel(aboutWindow, "About " + services::buildInfo().productName, [this] {
+            return std::make_unique<AboutPanel>(appServices.signature, appServices.licencesFolder);
+        });
+        break;
+    case checkForUpdates:
+        if (appServices.updates != nullptr)
+        {
+            appServices.updates->check(appServices.settings != nullptr ? appServices.settings->getUpdatePreferences()
+                                                                       : services::UpdatePreferences{},
+                                       true);
+            showUpdatePanel();
+        }
+        break;
+    case toggleCheckAtLaunch:
+    case toggleIncludePreReleases:
+        if (appServices.settings != nullptr)
+        {
+            auto preferences = appServices.settings->getUpdatePreferences();
+            if (info.commandID == toggleCheckAtLaunch)
+                preferences.checkAtLaunch = !preferences.checkAtLaunch;
+            else
+                preferences.channel = preferences.channel == services::UpdateChannel::stable
+                                          ? services::UpdateChannel::preRelease
+                                          : services::UpdateChannel::stable;
+            appServices.settings->setUpdatePreferences(preferences);
+            appServices.settings->save();
+            commandManager.commandStatusChanged();
+        }
+        break;
+    case toggleCrashReports:
+        if (appServices.settings != nullptr && appServices.crashReports != nullptr)
+        {
+            const bool allow = appServices.settings->getCrashReportConsent() != services::CrashReportConsent::allowed;
+            appServices.settings->setCrashReportConsent(allow ? services::CrashReportConsent::allowed
+                                                              : services::CrashReportConsent::refused);
+            appServices.settings->save();
+            appServices.crashReports->setSendAllowed(allow);
+            juce::Logger::writeToLog(allow ? "Crash reports: the user allowed sending them"
+                                           : "Crash reports: the user stopped sending them");
+            commandManager.commandStatusChanged();
+        }
+        break;
+    case showPrivacy:
+        juce::URL(services::buildInfo().repositoryUrl + "/blob/main/docs/PRIVACY.md").launchInDefaultBrowser();
+        break;
     case toggleMetronome:
         session.setMetronomeEnabled(!session.getProject().isMetronomeEnabled());
         break;
@@ -1047,7 +1214,7 @@ void MainComponent::showPanel(std::unique_ptr<PanelWindow>& window, const juce::
 
 bool MainComponent::isInterestedInFileDrag(const juce::StringArray& files)
 {
-    return files.size() == 1 && isProjectFile(juce::File(files[0]));
+    return files.size() == 1 && model::isProjectFile(juce::File(files[0]));
 }
 
 void MainComponent::filesDropped(const juce::StringArray& files, int, int)

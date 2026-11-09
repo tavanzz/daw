@@ -1,0 +1,49 @@
+A change of ours to JUCE 9.0.4, macOS only. cmake/Dependencies.cmake applies it to the
+downloaded sources through cmake/ApplyPatch.cmake, exactly or not at all, and the configure
+stops when it no longer applies or the sources lack it.
+
+Why: macOS asks the user for the microphone as soon as an IOProc is created on an audio
+device that has input streams, even when the app only plays (tccd's log shows a request
+with preflight=no). JUCE opens every device through a private aggregate device, which
+carries an interface's input streams, so playing to an interface that also has inputs made
+macOS ask at the first launch. Here an aggregate of one device used for its output only is
+stacked, as a Multi-Output Device is, and has output streams only; with an input device
+JUCE builds its usual aggregate.
+
+Delete it once JUCE does this itself: cmake/patches/README.md says what to check at every
+JUCE update and how to make the patch again. The lines below keep the CRLF endings of
+JUCE's file (.gitattributes).
+
+--- a/modules/juce_audio_devices/native/juce_CoreAudio_mac.cpp
++++ b/modules/juce_audio_devices/native/juce_CoreAudio_mac.cpp
+@@ -1176,6 +1176,14 @@
+ 
+         addDevice (ioDevices[toUnderlyingType (PlaybackDirection::output)], PlaybackDirection::output);
+         addDevice (ioDevices[toUnderlyingType (PlaybackDirection::input)], PlaybackDirection::input);
++
++        // DAW patch (cmake/patches/juce-coreaudio-output-only.patch): one device used for its
++        // output only goes into a stacked aggregate, as in a Multi-Output Device, which has
++        // output streams only. macOS asks for the microphone as soon as an IOProc is created on
++        // a device with input streams (the device itself, a plain aggregate of it, or Apple's
++        // output units alike), long before any input is used.
++        outputOnly = ! ioDevices[toUnderlyingType (PlaybackDirection::input)].isValid()
++                     && devices.getArray().size() == 1;
+     }
+ 
+     AggregateAudioDevice createAggregateAudioDevice() const
+@@ -1301,6 +1309,7 @@
+         description.setString (kAudioAggregateDeviceClockDeviceKey, clockingDeviceUid);
+         description.setString (subDeviceKey, clockingDeviceUid);
+         description.setInt (kAudioAggregateDeviceIsPrivateKey, ! JUCE_COREAUDIO_LOGGING_ENABLED);
++        description.setInt (kAudioAggregateDeviceIsStackedKey, outputOnly);
+         description.setArray (kAudioAggregateDeviceSubDeviceListKey, subDevices);
+ 
+         return description;
+@@ -1325,6 +1334,7 @@
+ 
+     String name;
+     AudioDevice clockingDevice;
++    bool outputOnly = false;
+     UniqueArray<AudioDevice> devices;
+     std::array<ChannelMap, 2> channelMap;
+ };

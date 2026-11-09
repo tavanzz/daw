@@ -1,15 +1,21 @@
 #pragma once
 
 #include "CrashMarker.h"
+#include "SmokeTest.h"
 #include "daw/controller/PluginInstances.h"
 #include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
 #include "daw/engine/Engine.h"
 #include "daw/engine/io/AudioDeviceHost.h"
+#include "daw/services/AppLog.h"
+#include "daw/services/CrashReporting.h"
+#include "daw/services/NameMigration.h"
+#include "daw/services/UpdateChecker.h"
+#include "daw/services/UpdateInstaller.h"
+#include "daw/services/UserSettings.h"
 #include "daw/ui/desktop/MainWindow.h"
 #include "daw/ui/desktop/ThemeManager.h"
 
-#include <juce_data_structures/juce_data_structures.h>
 #include <juce_events/juce_events.h>
 
 #include <memory>
@@ -36,12 +42,25 @@ namespace daw::app
     to (also those plugged in later) unless switched off in the device settings,
     which the user settings remember.
 
+    The user settings (services::UserSettings) are in the user's settings folder, or in
+    a folder of its own for diagnostic runs (--settings-dir=), with everything else the
+    app keeps there (plugin catalogue, crash marker).
+
     Message thread only.
 */
 class AppController final : private juce::ChangeListener, private juce::Timer
 {
 public:
-    explicit AppController(const juce::String& applicationName);
+    /** How this run differs from a normal launch (the release checks' runs). */
+    struct Options
+    {
+        juce::File settingsFolder;   ///< empty: the user's own
+        std::optional<SmokeTest::Options> smokeTest;
+        juce::File updateTestResult; ///< --update-test: check, download, install, report here
+        juce::StringArray relaunchArguments; ///< what the new version starts with after an update
+    };
+
+    AppController(const juce::String& applicationName, Options options);
     ~AppController() override;
 
     AppController(const AppController&) = delete;
@@ -57,8 +76,7 @@ public:
     void requestQuit();
 
 private:
-    [[nodiscard]] static juce::PropertiesFile::Options settingsOptions(const juce::String& name);
-    [[nodiscard]] static controller::PluginLibrary::Options libraryOptions(const juce::String& name);
+    [[nodiscard]] static controller::PluginLibrary::Options libraryOptions(const juce::File& folder);
     [[nodiscard]] static std::unique_ptr<juce::AudioPluginFormatManager> pluginFormats();
     [[nodiscard]] controller::SessionOptions sessionOptions();
     void offerProjectWithoutCrashedPlugins(const juce::StringArray& names);
@@ -73,9 +91,30 @@ private:
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     void timerCallback() override;
 
+    [[nodiscard]] static services::NameMigration::Folders foldersFor(const juce::String& name,
+                                                                     const juce::File& settingsFolder);
+    [[nodiscard]] services::AppLog::Options logOptions() const;
+    void logStart(const juce::StringArray& crashedPlugins);
+    void startCrashReports(const juce::StringArray& crashedPlugins);
+    [[nodiscard]] std::unique_ptr<services::UpdateChecker> makeUpdateChecker() const;
+    [[nodiscard]] ui::desktop::AppServices appServices();
+    void installUpdate(std::function<void(const juce::String&)> onProblem);
+    void watchUpdates();
+    void runUpdateTest();
+    void finishFirstLaunch(const services::FirstLaunchPages& pages, std::optional<bool> sendCrashReports);
+    void logPlugins();
+    void logProject();
+
     const juce::String applicationName;
-    juce::ApplicationProperties settings;
+    const Options runOptions;
+    // Before the settings and the log open: the user's data under the app's previous name.
+    const services::NameMigration::Folders previousFolders;
+    const services::NameMigration::Result nameMigration;
+    services::UserSettings settings;
+    services::AppLog log; // installed as JUCE's logger: everything after it may log
     CrashMarker crashMarker;
+    // After the crash marker: its handler runs first, then hands the crash on to the marker.
+    std::unique_ptr<services::CrashReporting> crashReports;
 
     // Destroyed in reverse order: the window refers to the session, the session to
     // the engine and the plugins, and the device must stop before the engine goes;
@@ -85,11 +124,21 @@ private:
     engine::Engine engine;
     engine::io::AudioDeviceHost deviceHost{engine};
     controller::Session session{engine, sessionOptions()};
+    std::unique_ptr<services::UpdateChecker> updates;
     std::unique_ptr<ui::desktop::ThemeManager> themes; // the window draws with its looks
     std::unique_ptr<ui::desktop::MainWindow> window;
 
     juce::String shownTitle;
     juce::File shownProject; // the last one kept in the settings
+    bool shownUnsaved = false;
+    juce::String loggedDevice, loggedMidiInputs;
+    bool loggedScanning = false;
+    int ticks = 0;               // timer ticks since the start (the check at launch waits)
+    int watchedUpdates = -1;     // the update status last looked at
+    bool offeredUpdate = false;  // a release found at launch is offered once
+    std::unique_ptr<juce::Thread> updatePreparation;
+    std::unique_ptr<SmokeTest> smokeTest;
+    bool updateTestStarted = false;
 
     // Inputs: asking the user, or the device has none (until the device changes).
     bool askingForInputs = false;

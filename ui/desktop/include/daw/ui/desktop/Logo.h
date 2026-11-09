@@ -14,6 +14,9 @@ class Logo final : public juce::Component
 public:
     Logo();
 
+    /** How wide the logo is at this height, in the current theme. */
+    [[nodiscard]] int getPreferredWidth(int height);
+
     void paint(juce::Graphics& g) override;
 
 private:

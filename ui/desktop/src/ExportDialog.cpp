@@ -80,6 +80,8 @@ public:
             }
         }
 
+        juce::Logger::writeToLog(title + " (" + settings.file.getFileName() + "): " +
+                                 text.replace("\n", " "));
         showAlert(
             juce::MessageBoxOptions::makeOptionsOk(icon, title, text), nullptr);
         delete this; // launched with new, owns itself

@@ -369,6 +369,9 @@ public:
     virtual void drawLogo(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text,
                           double seconds, bool glitching) const;
 
+    /** How wide the logo is in an area `height` high (drawLogo() centres it there). */
+    [[nodiscard]] virtual float logoWidth(const juce::String& text, float height) const;
+
     /** What the status bar shows. */
     struct StatusLine
     {

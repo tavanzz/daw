@@ -1,5 +1,8 @@
 #pragma once
 
+#include "daw/services/UserSettings.h"
+#include "daw/ui/desktop/AppServices.h"
+
 #include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
@@ -78,6 +81,13 @@ public:
         togglePluginBrowser,
         openWithoutPlugins,
         showPluginManager,
+        openLogFolder,
+        showAbout,
+        checkForUpdates,
+        toggleCheckAtLaunch,
+        toggleIncludePreReleases,
+        toggleCrashReports,
+        showPrivacy,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8
@@ -97,6 +107,16 @@ public:
         of the first track with effects), "browser" (the plugin browser), "plugins" (the
         Plugin Manager). */
     void showForReview(const juce::StringArray& what);
+
+    /** What the app provides for the Help menu (log folder, ...). */
+    void setAppServices(AppServices servicesToUse);
+
+    /** Shows the update panel (the app does when a check at launch found a release). */
+    void showUpdatePanel();
+
+    /** The first launch's questions; `finished` gets the crash-report answer (nothing if
+        that page was not shown or the window was closed). */
+    void showFirstLaunch(services::FirstLaunchPages pages, std::function<void(std::optional<bool>)> finished);
 
     void showError(const juce::String& title, const juce::String& message);
 
@@ -163,6 +183,7 @@ private:
     juce::ApplicationCommandManager& commandManager;
     ThemeManager& themes;
     controller::PluginLibrary* pluginLibrary;
+    AppServices appServices;
 
     TransportBar transportBar;
     HazardBand hazardBand;
@@ -181,6 +202,9 @@ private:
     std::unique_ptr<PanelWindow> previewsWindow;
     std::unique_ptr<PanelWindow> animationsWindow;
     std::unique_ptr<PanelWindow> pluginManagerWindow;
+    std::unique_ptr<PanelWindow> aboutWindow;
+    std::unique_ptr<PanelWindow> updateWindow;
+    std::unique_ptr<PanelWindow> firstLaunchWindow;
     StatusBar statusBar{session};
     PluginBrowserPanel pluginBrowser;
     bool browserVisible = false;
