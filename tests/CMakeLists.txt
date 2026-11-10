@@ -4,6 +4,7 @@ add_subdirectory(plugins)
 
 add_executable(daw_tests
     support/Phase3Mixer.cpp
+    support/RandomProjectEdits.cpp
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
     support/SimulatedDevice.cpp
@@ -74,6 +75,7 @@ add_executable(daw_tests
     engine/WaveformPeaksTests.cpp
     model/FormatVersionTests.cpp
     model/NetworkProtocolTests.cpp
+    model/ProjectChangeTests.cpp
     model/ProjectFileTests.cpp
     model/ProjectTests.cpp
     model/TimelineTests.cpp

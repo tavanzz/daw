@@ -285,6 +285,27 @@ Modules with one-way dependencies:
   two copies of the app exchange (Phase 9), apart from the project format: bump it
   whenever what peers send changes. `isCompatibleNetworkProtocol()` accepts only the
   same version for now.
+- Project changes as data (Phase 9, `model/ProjectChanges.h`, `ChangeRecorder.h`,
+  `SharedProject.h`): a `ProjectChange` sets a property, inserts, removes or moves a child,
+  found by a `NodePath` from the root (tracks, clips, buses, effects and sends by id, lanes
+  by target, anything else by its index among siblings of its type), with the value before
+  and after (the child, as a copy). `applyChanges()` applies a `ChangeSet` all or nothing,
+  checking that what each change expects is there (values compared exactly,
+  `isSameValue()`: 1 is not 1.0); `inverted()` undoes one. `ChangeRecorder` listens to a
+  project state and keeps a shadow copy of it, so every change (setters with or without an
+  UndoManager, undo, redo) becomes a ProjectChange with its value before; with recording
+  off it only follows. `scopesOf()` says what a change needs locked: the innermost track,
+  bus or master on its path (the master volume too), else the project; adding or removing a
+  track or bus also needs that track or bus. Personal settings (`isPersonalProperty()`: arm,
+  input, monitoring, MIDI input and solo of a track; snap, grid, metronome, count-in,
+  punch, recording format and the id range of the project) are followed but never recorded
+  or shared; `sharedCopy()` / `sharedChange()` leave them out and write file paths
+  relative to the copy's folder, `localCopy()` / `localChange()` make paths absolute and
+  give default personal settings. In a session each participant makes ids in a range of
+  their own (`setIdRange()`, `idRangeOfParticipant()`: n * 2^40 up), still the largest + 1
+  within it. `checkChange()` refuses what would make a project malformed (children a node
+  may not have, containers twice or before items, taken ids, personal settings, changing
+  an id). Tests make random edits through the model (`tests/support/RandomProjectEdits`).
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2122,7 +2143,7 @@ once (second stage), chat and voice, playing live together, user accounts, offli
 work merged later, the mobile UI.
 
 - [x] 0. Plan (this list) and draft pull request
-- [ ] 1. Project changes as data (model): changes captured from the ValueTree with
+- [x] 1. Project changes as data (model): changes captured from the ValueTree with
       their values before and after, addressed by ids, applied, inverted and checked;
       scopes (track, bus, master, project), personal settings, file paths relative to
       the copy, id ranges per participant, the children each node type allows
