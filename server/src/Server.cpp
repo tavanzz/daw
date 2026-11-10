@@ -212,8 +212,15 @@ struct Server::Impl
     {
         if (options.dataFolder == juce::File())
         {
-            temporaryFiles = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                                 .getNonexistentChildFile("micinstation-server-files", {}, false);
+            // A random name, not the first free one: servers in processes started together
+            // (tests run in parallel) would pick the same folder, and the first to stop
+            // would delete the other's files.
+            const auto temporaryRoot = juce::File::getSpecialLocation(juce::File::tempDirectory);
+            do
+                temporaryFiles = temporaryRoot.getChildFile(
+                    "micinstation-server-files-"
+                    + juce::String::toHexString(juce::Random::getSystemRandom().nextInt64()));
+            while (temporaryFiles.exists());
             temporaryFiles.createDirectory();
         }
         else
