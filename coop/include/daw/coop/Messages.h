@@ -31,7 +31,8 @@ enum class FrameKind : std::uint8_t
     hello = 1,
     welcome = 2,
     refused = 3,
-    channel = 4
+    channel = 4,
+    files = 5 ///< a FileMessage, on a participant's second connection
 };
 
 /** "MICN": the first bytes of a hello after its kind. */
@@ -74,12 +75,20 @@ struct RejoinSession
     juce::String token;
 };
 
+/** A participant's second connection, for files only. */
+struct AttachFiles
+{
+    juce::String sessionId;
+    ParticipantNumber participant = 0;
+    juce::String token;
+};
+
 struct Hello
 {
     std::uint32_t protocolVersion = 0;
     std::uint32_t formatVersion = 0;
     juce::String appVersion;
-    std::variant<CreateSession, JoinSession, RejoinSession> request;
+    std::variant<CreateSession, JoinSession, RejoinSession, AttachFiles> request;
     /** How many reliable messages of this session the client already received. */
     std::uint64_t delivered = 0;
 };
@@ -333,6 +342,57 @@ using Message =
                  HostCommand, Leave, ProjectSnapshot, ParticipantList, LockState, AcceptedChange,
                  Rejection, TransportStart, Invite, FileAvailable, SessionEnded, PresenceUpdate,
                  Ping, Pong, SnapshotRequest>;
+
+// Files (on the second connection: frames in order while it lasts, resumed by offsets) ----
+
+/** How much of a file the server has; it answers with an UploadStatus. */
+struct UploadQuery
+{
+    juce::MemoryBlock hash;
+    std::uint64_t size = 0;
+};
+
+struct UploadStatus
+{
+    juce::MemoryBlock hash;
+    std::uint64_t stored = 0; ///< bytes the server has: the next chunk starts there
+    bool complete = false;    ///< whole and checked
+    bool refused = false;     ///< too large for what the session may keep (or a bad hash)
+};
+
+struct UploadChunk
+{
+    juce::MemoryBlock hash;
+    std::uint64_t offset = 0;
+    juce::MemoryBlock data;
+};
+
+/** Asks for a range of a file the server has whole. */
+struct DownloadRequest
+{
+    juce::MemoryBlock hash;
+    std::uint64_t offset = 0;
+    std::uint64_t length = 0;
+};
+
+struct DownloadChunk
+{
+    juce::MemoryBlock hash;
+    std::uint64_t offset = 0;
+    juce::MemoryBlock data;
+};
+
+/** The server does not have the file whole yet: FileAvailable will say when. */
+struct DownloadUnavailable
+{
+    juce::MemoryBlock hash;
+};
+
+using FileMessage = std::variant<UploadQuery, UploadStatus, UploadChunk, DownloadRequest,
+                                 DownloadChunk, DownloadUnavailable>;
+
+[[nodiscard]] juce::MemoryBlock encodeFrame(const FileMessage& message);
+[[nodiscard]] std::optional<FileMessage> decodeFileFrame(const juce::MemoryBlock& frame);
 
 /** Messages that may be lost (presence, clocks): sent outside the reliable order. */
 [[nodiscard]] bool isUnreliable(const Message& message) noexcept;

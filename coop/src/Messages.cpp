@@ -557,6 +557,30 @@ void writeHelloRequest(Writer& writer, const Hello& hello)
         writer.writeVarUInt(rejoin->participant);
         writer.writeString(rejoin->token);
     }
+    else if (const auto* files = std::get_if<AttachFiles>(&hello.request))
+    {
+        writer.writeString(files->sessionId);
+        writer.writeVarUInt(files->participant);
+        writer.writeString(files->token);
+    }
+}
+
+juce::MemoryBlock readHash(Reader& reader)
+{
+    auto hash = reader.readBlock();
+    if (hash.getSize() != 32)
+        reader.fail();
+    return hash;
+}
+
+constexpr std::size_t maximumChunk = 1u << 20;
+
+juce::MemoryBlock readChunkData(Reader& reader)
+{
+    auto data = reader.readBlock();
+    if (data.getSize() > maximumChunk)
+        reader.fail();
+    return data;
 }
 
 } // namespace
@@ -632,7 +656,7 @@ std::optional<FrameKind> frameKindOf(const juce::MemoryBlock& frame)
         return std::nullopt;
     const auto kind = static_cast<std::uint8_t>(frame[0]);
     if (kind < static_cast<std::uint8_t>(FrameKind::hello)
-        || kind > static_cast<std::uint8_t>(FrameKind::channel))
+        || kind > static_cast<std::uint8_t>(FrameKind::files))
         return std::nullopt;
     return static_cast<FrameKind>(kind);
 }
@@ -692,6 +716,15 @@ std::optional<Hello> decodeHello(const juce::MemoryBlock& frame)
         hello.request = rejoin;
         break;
     }
+    case 3:
+    {
+        AttachFiles files;
+        files.sessionId = reader.readString();
+        files.participant = readParticipant(reader);
+        files.token = reader.readString();
+        hello.request = files;
+        break;
+    }
     default:
         return std::nullopt;
     }
@@ -738,6 +771,112 @@ std::optional<Refused> decodeRefused(const juce::MemoryBlock& frame)
     if (!reader.isOk())
         return std::nullopt;
     return refused;
+}
+
+juce::MemoryBlock encodeFrame(const FileMessage& message)
+{
+    Writer writer;
+    writer.writeByte(static_cast<std::uint8_t>(FrameKind::files));
+    writer.writeByte(static_cast<std::uint8_t>(message.index()));
+    if (const auto* query = std::get_if<UploadQuery>(&message))
+    {
+        writer.writeBlock(query->hash);
+        writer.writeVarUInt(query->size);
+    }
+    else if (const auto* status = std::get_if<UploadStatus>(&message))
+    {
+        writer.writeBlock(status->hash);
+        writer.writeVarUInt(status->stored);
+        writer.writeBool(status->complete);
+        writer.writeBool(status->refused);
+    }
+    else if (const auto* upload = std::get_if<UploadChunk>(&message))
+    {
+        writer.writeBlock(upload->hash);
+        writer.writeVarUInt(upload->offset);
+        writer.writeBlock(upload->data);
+    }
+    else if (const auto* request = std::get_if<DownloadRequest>(&message))
+    {
+        writer.writeBlock(request->hash);
+        writer.writeVarUInt(request->offset);
+        writer.writeVarUInt(request->length);
+    }
+    else if (const auto* download = std::get_if<DownloadChunk>(&message))
+    {
+        writer.writeBlock(download->hash);
+        writer.writeVarUInt(download->offset);
+        writer.writeBlock(download->data);
+    }
+    else if (const auto* unavailable = std::get_if<DownloadUnavailable>(&message))
+        writer.writeBlock(unavailable->hash);
+    return writer.takeData();
+}
+
+std::optional<FileMessage> decodeFileFrame(const juce::MemoryBlock& frame)
+{
+    Reader reader(frame);
+    if (reader.readByte() != static_cast<std::uint8_t>(FrameKind::files))
+        return std::nullopt;
+
+    std::optional<FileMessage> message;
+    switch (reader.readByte())
+    {
+    case 0:
+    {
+        UploadQuery query;
+        query.hash = readHash(reader);
+        query.size = reader.readVarUInt();
+        message = query;
+        break;
+    }
+    case 1:
+    {
+        UploadStatus status;
+        status.hash = readHash(reader);
+        status.stored = reader.readVarUInt();
+        status.complete = reader.readBool();
+        status.refused = reader.readBool();
+        message = status;
+        break;
+    }
+    case 2:
+    {
+        UploadChunk upload;
+        upload.hash = readHash(reader);
+        upload.offset = reader.readVarUInt();
+        upload.data = readChunkData(reader);
+        message = upload;
+        break;
+    }
+    case 3:
+    {
+        DownloadRequest request;
+        request.hash = readHash(reader);
+        request.offset = reader.readVarUInt();
+        request.length = reader.readVarUInt();
+        message = request;
+        break;
+    }
+    case 4:
+    {
+        DownloadChunk download;
+        download.hash = readHash(reader);
+        download.offset = reader.readVarUInt();
+        download.data = readChunkData(reader);
+        message = download;
+        break;
+    }
+    case 5:
+        message = DownloadUnavailable{readHash(reader)};
+        break;
+    default:
+        return std::nullopt;
+    }
+
+    if (!reader.isOk() || !reader.isAtEnd())
+        return std::nullopt;
+    return message;
 }
 
 juce::MemoryBlock channelFrame(const juce::MemoryBlock& payload)

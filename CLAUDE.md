@@ -373,6 +373,31 @@ Modules with one-way dependencies:
   uploads, removals and invites are saved at once, the rest every 5 s; a server that
   crashes replays the journal. Its log has ids, numbers and reasons, never names, contents
   or addresses. Tests drive it with `tests/support/TestPeer` over the simulated network.
+- A participant's copy (Phase 9, `coop::Client`): records the project's changes and sends
+  them a transaction at a time (`setTransaction(name, undo step)`, `flush()`), shown in the
+  copy at once; `mayEdit(scope)` is true when the scope is free or this participant's, the
+  copy is in step and connected (reconnecting: only scopes it holds, for 30 s; then read
+  only). A change made in a scope someone else holds is undone at once, with a notice.
+  Accepted transactions of others are applied with the recorder off; when one touches a
+  scope with transactions still waiting for the server, those are taken back, it is
+  applied, and they are applied again (one that no longer fits is dropped when the server
+  refuses it). A refused transaction is taken back with what came after it (re-applied
+  where it still fits), the step it belonged to leaves the undo history, and a notice
+  names who holds the lock. Undo is personal: the inverse of the participant's last step
+  as a new transaction, refused (with a notice) while someone else holds its scopes, and
+  forgotten when what it changed was changed since. Links come from a factory; the client
+  connects, rejoins after a drop (backoff 1 s doubling to 10 s; the reliable channel
+  sends the rest), and after a server restart takes its `ProjectSnapshot`
+  (`copyPropertiesAndChildrenFrom()`, keeping its personal settings) and sends again the
+  transactions after `lastTransaction`. Channel frames that overtake the `Welcome` wait
+  for it. Out of step (a gap in sequences, a change that does not apply) it asks for a
+  `SnapshotRequest`. It also keeps the participants, locks, invite, others' presence
+  (sent at most 20 times a second), transport starts and the server's clock (pings, the
+  offset of the shortest round trip of the last 16). Tests: `tests/support/CoopWorld` (a
+  server and clients on the simulated network, restartable); the convergence test makes
+  thousands of random edits, undos and redos by 2, 3 and 5 participants with latency,
+  loss, duplicates, reordering and dropped links, and requires every copy to be the
+  server's project byte for byte.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2226,7 +2251,7 @@ work merged later, the mobile UI.
       timeout and grace, participants (colours, removal, closing, host role), invites and
       rejoin tokens, a log of changes and snapshots, storage on disk, limits and rate
       limits, logs without project data
-- [ ] 5. Client sync (`coop`): pending changes applied at once, rolled back when
+- [x] 5. Client sync (`coop`): pending changes applied at once, rolled back when
       refused, sent again without duplicates, catch-up after a disconnection, personal
       undo; convergence of 2 to 5 simulated clients with thousands of random edits over
       a lossy, reordering network, byte for byte

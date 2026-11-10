@@ -38,7 +38,7 @@ public:
         return std::move(pair.server);
     }
 
-    void hello(std::variant<coop::CreateSession, coop::JoinSession, coop::RejoinSession> request,
+    void hello(decltype(coop::Hello::request) request,
                std::uint32_t protocol = static_cast<std::uint32_t>(model::networkProtocolVersion),
                std::uint32_t format = static_cast<std::uint32_t>(model::currentFormatVersion))
     {

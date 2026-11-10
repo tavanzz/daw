@@ -2,6 +2,7 @@
 # the server's sessions. No UI, no audio (see CLAUDE.md, Architecture).
 
 add_library(daw_coop STATIC
+    src/Client.cpp
     src/Messages.cpp
     src/Wire.cpp)
 add_library(daw::coop ALIAS daw_coop)
