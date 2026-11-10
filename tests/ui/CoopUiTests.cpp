@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <vector>
 
@@ -25,6 +26,18 @@ namespace
 
 const juce::String hostKey = "ui test key";
 const juce::String fingerprint = juce::String::repeatedString("A", 43);
+
+// The same colour, give or take the renderer's rounding (Direct2D on Windows, CoreGraphics
+// on macOS); says both when they differ.
+bool closeTo(juce::Colour actual, juce::Colour expected)
+{
+    const auto near = [](juce::uint8 a, juce::uint8 b) { return std::abs(static_cast<int>(a) - static_cast<int>(b)) <= 2; };
+    const bool close = near(actual.getRed(), expected.getRed()) && near(actual.getGreen(), expected.getGreen())
+                       && near(actual.getBlue(), expected.getBlue()) && near(actual.getAlpha(), expected.getAlpha());
+    if (!close)
+        UNSCOPED_INFO("pixel " << actual.toDisplayString(true) << ", expected " << expected.toDisplayString(true));
+    return close;
+}
 
 void snapshot(juce::Component& component, const juce::String& name)
 {
@@ -276,7 +289,8 @@ TEST_CASE("Participant chips draw every colour with a readable initial in every 
         themes.setTheme(theme.id);
         juce::Component holder;
         holder.setSize(8 * 24, 24);
-        juce::Image image(juce::Image::ARGB, holder.getWidth(), holder.getHeight(), true);
+        // A software image: what is drawn is read back as drawn, on every platform.
+        juce::Image image(juce::Image::ARGB, holder.getWidth(), holder.getHeight(), true, juce::SoftwareImageType());
         juce::Graphics g(image);
         for (int colour = 0; colour < 8; ++colour)
             ui::desktop::drawParticipantChip(g, holder, juce::Rectangle<float>(static_cast<float>(colour * 24), 0.0f, 22.0f, 22.0f),
@@ -284,7 +298,7 @@ TEST_CASE("Participant chips draw every colour with a readable initial in every 
         // Each chip is filled with its participant's colour.
         const auto& look = ui::desktop::ThemedLookAndFeel::get(holder);
         for (int colour = 0; colour < 8; ++colour)
-            CHECK(image.getPixelAt(colour * 24 + 3, 18) == look.participantColour(colour));
+            CHECK(closeTo(image.getPixelAt(colour * 24 + 3, 18), look.participantColour(colour)));
     }
 }
 
@@ -377,8 +391,8 @@ TEST_CASE("The others show where they look, what they selected and what they hol
         const auto image = lanes->createComponentSnapshot(lanes->getLocalBounds(), true, 1.0f);
         const auto x = arrange.getStateForTesting().viewport.ticksToX(model::ticksPerSecond * 2);
         const int y = ui::desktop::ArrangeState::laneHeight / 2;
-        const bool lineThere = image.getPixelAt(static_cast<int>(std::floor(x)) - 1, y) == colour
-                               || image.getPixelAt(static_cast<int>(std::floor(x)), y) == colour;
+        const bool lineThere = closeTo(image.getPixelAt(static_cast<int>(std::floor(x)) - 1, y), colour)
+                               || closeTo(image.getPixelAt(static_cast<int>(std::floor(x)), y), colour);
         INFO(theme.id);
         CHECK(lineThere);
 
