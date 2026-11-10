@@ -2,6 +2,7 @@
 
 #include "daw/controller/ClipEditing.h"
 #include "daw/controller/MidiTakes.h"
+#include "daw/ui/desktop/CoopPanels.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
@@ -170,6 +171,71 @@ void TrackLanes::paint(juce::Graphics& g)
     look.drawPlayhead(g, static_cast<float>(state.viewport.ticksToX(playhead)), 0.0f,
                              static_cast<float>(getHeight()),
                              {playheadLink.getTime(), playheadLink.isActive(), playing});
+
+    if (state.inCoop())
+        paintOthers(g);
+}
+
+void TrackLanes::paintOthers(juce::Graphics& g) const
+{
+    // The others, each in their colour: the clips they selected, their playhead while
+    // they play, and their pointer with their initial.
+    const auto& project = state.session.getProject();
+    const auto& look = ThemedLookAndFeel::get(*this);
+    const auto height = static_cast<float>(getHeight());
+    for (const auto& peer : state.coop->getOthers())
+    {
+        if (!peer.connected)
+            continue;
+        const auto colour = look.participantColour(peer.colour);
+        const auto& presence = peer.presence;
+
+        g.setColour(colour);
+        for (const auto clipId : presence.selectedClips)
+            if (const auto location = project.findClip(clipId))
+                g.drawRect(clipBounds(location->trackIndex, project.getTrack(location->trackIndex)
+                                                                .getClip(location->clipIndex))
+                               .expanded(1.0f),
+                           2.0f);
+
+        if (presence.playing)
+        {
+            const auto x = static_cast<float>(state.viewport.ticksToX(presence.playhead));
+            const float dashes[] = {4.0f, 4.0f};
+            g.setColour(colour.withAlpha(0.8f));
+            g.drawDashedLine({x, 0.0f, x, height}, dashes, 2, 1.5f);
+        }
+
+        if (presence.hasCursor)
+            if (const int track = project.indexOfTrack(presence.cursorTrack); track >= 0)
+            {
+                const auto x = static_cast<float>(state.viewport.ticksToX(presence.cursorPosition));
+                const auto top = static_cast<float>(track * ArrangeState::laneHeight);
+                g.setColour(colour);
+                g.fillRect(juce::Rectangle<float>(x - 1.0f, top + 2.0f, 2.0f,
+                                                  static_cast<float>(ArrangeState::laneHeight) - 4.0f));
+                drawParticipantChip(g, *this, {x + 3.0f, top + 3.0f, 16.0f, 16.0f}, peer.colour, peer.name);
+            }
+    }
+}
+
+void TrackLanes::notePointer(juce::Point<float> position)
+{
+    const int row = static_cast<int>(position.y) / ArrangeState::laneHeight;
+    const auto& project = state.session.getProject();
+    if (position.y >= 0.0f && row < project.getNumTracks())
+    {
+        const auto track = project.getTrack(row).getId();
+        state.pointer = std::make_pair(track, state.viewport.xToTicks(position.x));
+        state.lookedAt = track;
+    }
+    else
+        state.pointer.reset();
+}
+
+void TrackLanes::mouseExit(const juce::MouseEvent&)
+{
+    state.pointer.reset();
 }
 
 void TrackLanes::paintContent(juce::Graphics& g, bool translucent) const
@@ -298,7 +364,11 @@ void TrackLanes::drawClip(juce::Graphics& g, int trackIndex, const model::Clip& 
         }
 
         auto name = clip.getAudioFile().getFileNameWithoutExtension();
-        if (failed)
+        // In co-op a file someone else brought may still be on its way.
+        if (const auto coming = state.inCoop() ? state.coop->describeFile(clip.getAudioFile()) : juce::String();
+            !ready && coming.isNotEmpty())
+            name = coming + ": " + name;
+        else if (failed)
             name = "Missing: " + name;
         else if (!ready)
             name = "Loading " + name + "...";
@@ -528,6 +598,7 @@ void TrackLanes::mouseDoubleClick(const juce::MouseEvent& event)
 
 void TrackLanes::mouseMove(const juce::MouseEvent& event)
 {
+    notePointer(event.position);
     if (state.showAutomation)
     {
         setMouseCursor(juce::MouseCursor::NormalCursor);
@@ -541,6 +612,7 @@ void TrackLanes::mouseMove(const juce::MouseEvent& event)
 
 void TrackLanes::mouseDown(const juce::MouseEvent& event)
 {
+    notePointer(event.position);
     if (state.showAutomation)
     {
         const int row = trackIndexAt(event.position.y);
@@ -583,6 +655,7 @@ void TrackLanes::mouseDown(const juce::MouseEvent& event)
 
 void TrackLanes::mouseDrag(const juce::MouseEvent& event)
 {
+    notePointer(event.position);
     if (state.showAutomation)
     {
         automation.mouseDrag(event);

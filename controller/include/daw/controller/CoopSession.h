@@ -48,6 +48,17 @@ struct CoopMembership
     juce::String name;
 };
 
+/** Someone else in the session, as views show them. */
+struct CoopPeer
+{
+    coop::ParticipantNumber number = 0;
+    juce::String name;
+    int colour = 0; ///< into the theme's participant colours
+    bool connected = false;
+    bool recording = false;
+    coop::Presence presence; ///< what they look at (nothing until they said)
+};
+
 [[nodiscard]] std::optional<CoopMembership> readMembership(const juce::File& copyFolder);
 
 /** A new folder in parent for the co-op copy of a project called title: "Song", or
@@ -122,6 +133,22 @@ public:
 
     /** The state of a file of the copy (incoming, downloading with progress...). */
     [[nodiscard]] std::optional<coop::FileSync::State> getFileState(const juce::File& file) const;
+    /** What a view says of a file someone else brought that is not here yet: "Incoming"
+        (not on the server yet), "Downloading 40 %", "Not available"; empty when it is
+        here (or this copy is in no session). */
+    [[nodiscard]] juce::String describeFile(const juce::File& file) const;
+    /** Files on their way, up or down: views showing their progress redraw meanwhile. */
+    [[nodiscard]] bool areFilesMoving() const;
+
+    // For views --------------------------------------------------------------------------
+
+    /** Everyone else in the session (nobody outside one). */
+    [[nodiscard]] std::vector<CoopPeer> getOthers() const;
+    /** Who else holds this scope: nothing if it is free or this participant's. */
+    [[nodiscard]] std::optional<CoopPeer> findOtherHolder(const model::EditScope& scope) const;
+    /** Goes up whenever what views show of the session changes (participants, locks,
+        presence). */
+    [[nodiscard]] std::uint64_t getRevision() const noexcept;
 
     /** Notices for the user since the last call (refused edits, missing plugins...). */
     [[nodiscard]] juce::StringArray takeNotices();

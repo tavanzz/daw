@@ -26,6 +26,13 @@ public:
 
     std::function<void()> onClose;
     void closeButtonPressed() override;
+
+    /** Co-op: says in the title who else is editing what this effect belongs to (an
+        empty name: nobody). Their changes still show; this copy's are refused. */
+    void showEditedBy(const juce::String& name);
+
+private:
+    juce::String baseTitle;
 };
 
 /** The name of a track, a bus or "Master", for editor titles. */

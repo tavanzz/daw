@@ -304,7 +304,21 @@ void EffectEditors::refresh(double elapsedSeconds)
                                  }),
                   windows.end());
     for (auto& window : windows)
+    {
         window->refresh(elapsedSeconds);
+        juce::String editor;
+        if (coop != nullptr && coop->isActive())
+            if (const auto location = session.findEffect(window->getEffectId()))
+            {
+                const auto& owner = location->owner;
+                const auto scope = owner.kind == controller::ChainOwner::Kind::track ? model::EditScope::track(owner.id)
+                                   : owner.kind == controller::ChainOwner::Kind::bus ? model::EditScope::bus(owner.id)
+                                                                                     : model::EditScope::master();
+                if (const auto holder = coop->findOtherHolder(scope))
+                    editor = holder->name;
+            }
+        window->showEditedBy(editor);
+    }
 }
 
 void EffectEditors::closeAll()

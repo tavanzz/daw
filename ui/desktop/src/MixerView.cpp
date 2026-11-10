@@ -1,6 +1,7 @@
 #include "daw/ui/desktop/MixerView.h"
 
 #include "daw/engine/dsp/FaderLaw.h"
+#include "daw/ui/desktop/CoopPanels.h"
 #include "daw/ui/desktop/EffectSlots.h"
 #include "daw/ui/desktop/SendSlots.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
@@ -266,6 +267,36 @@ public:
         fader.setBounds(area);
     }
 
+    /** Co-op: who else holds this strip's track, bus or the master. */
+    void showHolder(const std::optional<controller::CoopPeer>& holder)
+    {
+        const auto mark = holder ? std::optional<std::pair<int, juce::String>>({holder->colour, holder->name})
+                                 : std::nullopt;
+        if (mark == holderMark)
+            return;
+        holderMark = mark;
+        name.setTooltip(holder ? holder->name + " is editing this: it changes only when they are done."
+                               : juce::String());
+        repaint();
+    }
+
+    void paintOverChildren(juce::Graphics& g) override
+    {
+        if (!holderMark)
+            return;
+        const auto& look = ThemedLookAndFeel::get(*this);
+        g.setColour(look.participantColour(holderMark->first));
+        g.fillRect(0, 0, getWidth(), 3);
+        drawParticipantChip(g, *this, {4.0f, 6.0f, 16.0f, 16.0f}, holderMark->first, holderMark->second);
+    }
+
+    [[nodiscard]] model::EditScope scope() const
+    {
+        return owner.kind == controller::ChainOwner::Kind::track ? model::EditScope::track(owner.id)
+               : owner.kind == controller::ChainOwner::Kind::bus ? model::EditScope::bus(owner.id)
+                                                                 : model::EditScope::master();
+    }
+
     void paint(juce::Graphics& g) override
     {
         using Kind = ThemedLookAndFeel::StripKind;
@@ -288,6 +319,7 @@ private:
     juce::TextButton solo{"S"};
     std::unique_ptr<TrackInputControls> recording;
     LevelMeter meter;
+    std::optional<std::pair<int, juce::String>> holderMark;
 };
 
 MixerView::MixerView(controller::Session& sessionToEdit)
@@ -361,6 +393,11 @@ void MixerView::refresh(float masterLeftPeak, float masterRightPeak, double elap
     }
 
     masterStrip->updateMeter(masterLeftPeak, masterRightPeak, elapsedSeconds);
+
+    const bool inCoop = coop != nullptr && coop->isActive();
+    for (auto& strip : strips)
+        strip->showHolder(inCoop ? coop->findOtherHolder(strip->scope()) : std::nullopt);
+    masterStrip->showHolder(inCoop ? coop->findOtherHolder(model::EditScope::master()) : std::nullopt);
 }
 
 void MixerView::resized()

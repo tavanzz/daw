@@ -135,6 +135,10 @@ void MainComponent::setCoopSession(controller::CoopSession* coopToUse)
 {
     coop = coopToUse;
     statusBar.setCoop(coop);
+    arrangeView.setCoop(coop);
+    pianoRoll.setCoop(coop);
+    mixerView.setCoop(coop);
+    effectEditors.setCoop(coop);
     if (coop != nullptr && appServices.settings != nullptr)
         coop->setFollowing(appServices.settings->getCoopPreferences().follow);
     commandManager.commandStatusChanged();
@@ -374,7 +378,23 @@ void MainComponent::refreshCoop()
         {
             lastCoopRevision = client->getRevision();
             commandManager.commandStatusChanged();
+            if (mixerVisible && showingPianoRoll)
+                pianoRoll.repaint(); // the others' pointers and selections
         }
+    }
+
+    // What this participant looks at, for the others (sent when it changes, at most 20
+    // times a second).
+    if (coop->isActive())
+    {
+        auto presence = arrangeView.getPresence();
+        if (mixerVisible && showingPianoRoll && pianoRoll.getClip() != 0)
+        {
+            pianoRoll.fillPresence(presence);
+            if (const auto location = session.getProject().findClip(pianoRoll.getClip()))
+                presence.track = session.getProject().getTrack(location->trackIndex).getId();
+        }
+        coop->setPresence(std::move(presence));
     }
     if (!notices.isEmpty())
     {

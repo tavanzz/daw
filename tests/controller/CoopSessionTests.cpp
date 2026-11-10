@@ -332,7 +332,21 @@ TEST_CASE("An import goes into the participant's folder and reaches the others",
     const auto ids = guest.session.importAudio({file}, model::ticksPerSecond);
     CHECK(ids.empty()); // added once hashed
     CHECK(guest.session.hasEditsWaitingForFiles());
+
+    // The host gets the clip at once and its file soon after: meanwhile views say so.
+    const auto hostCopy = shared.hostFolder.file("Copy/Audio/2/hit.wav");
+    juce::StringArray seen;
+    for (int step = 0; step < 500 && !hostCopy.existsAsFile(); ++step)
+    {
+        shared.world.run(0.01);
+        if (host.session.getProject().getNumTracks() == 2)
+            seen.addIfNotAlreadyThere(host.coop->describeFile(hostCopy).upToFirstOccurrenceOf(" ", false, false));
+    }
+    INFO(seen.joinIntoString(", ").toStdString());
+    CHECK((seen.contains("Incoming") || seen.contains("Downloading")));
     shared.world.settle();
+    CHECK(host.coop->describeFile(hostCopy).isEmpty());
+    CHECK_FALSE(host.coop->areFilesMoving());
 
     REQUIRE(host.session.getProject().getNumTracks() == 2);
     const auto clip = host.session.getProject().getTrack(1).getClip(0);

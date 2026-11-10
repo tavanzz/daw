@@ -38,6 +38,11 @@ public:
     /** The automation view (A): each row's automation lane over its clips. */
     [[nodiscard]] bool isShowingAutomation() const noexcept { return state.showAutomation; }
     [[nodiscard]] ArrangeState& getStateForTesting() noexcept { return state; }
+
+    /** The co-op session whose others and locks the view shows (null: none). */
+    void setCoop(const controller::CoopSession* coop);
+    /** What this participant looks at in the arrange view (the playhead is the session's). */
+    [[nodiscard]] coop::Presence getPresence() const;
     /** The component items from the plugin browser are dropped on. Tests. */
     [[nodiscard]] juce::DragAndDropTarget& getDropTargetForTesting() noexcept;
     void setShowingAutomation(bool show);
@@ -80,6 +85,9 @@ private:
     juce::ScrollBar timelineScrollBar{false};
 
     juce::uint64 shownRevision = 0;
+    std::uint64_t shownCoopRevision = 0;
+    juce::uint32 filesShownAt = 0;
+    bool filesWereMoving = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ArrangeView)
 };

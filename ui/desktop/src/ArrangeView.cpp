@@ -183,6 +183,45 @@ void ArrangeView::refresh()
     // Recordings grow on screen.
     if (session.isRecording())
         trackArea->lanes.contentChanged();
+
+    // Co-op: the others move (presence, locks), and files they brought arrive.
+    if (state.coop != nullptr)
+    {
+        if (state.coop->getRevision() != shownCoopRevision)
+        {
+            shownCoopRevision = state.coop->getRevision();
+            trackArea->headers.refresh();
+            trackArea->lanes.repaint();
+        }
+        const auto now = juce::Time::getMillisecondCounter();
+        const bool moving = state.coop->areFilesMoving();
+        if ((moving && now - filesShownAt >= 250) || (!moving && filesWereMoving))
+        {
+            filesShownAt = now;
+            trackArea->lanes.contentChanged();
+        }
+        filesWereMoving = moving;
+    }
+}
+
+void ArrangeView::setCoop(const controller::CoopSession* coop)
+{
+    state.coop = coop;
+    shownCoopRevision = ~std::uint64_t{0};
+}
+
+coop::Presence ArrangeView::getPresence() const
+{
+    coop::Presence presence;
+    presence.track = state.lookedAt;
+    if (state.pointer)
+    {
+        presence.hasCursor = true;
+        presence.cursorTrack = state.pointer->first;
+        presence.cursorPosition = state.pointer->second;
+    }
+    presence.selectedClips.assign(state.selection.begin(), state.selection.end());
+    return presence;
 }
 
 void ArrangeView::updateMeters(double elapsedSeconds)

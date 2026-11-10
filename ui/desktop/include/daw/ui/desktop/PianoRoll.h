@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/CoopSession.h"
 #include "daw/controller/NoteEditing.h"
 #include "daw/controller/PianoRollViewport.h"
 #include "daw/controller/Session.h"
@@ -59,6 +60,12 @@ public:
     void deleteSelection();
     void duplicateSelection();
     [[nodiscard]] bool hasSelection() const noexcept;
+
+    /** The co-op session whose others the notes show (null: none). */
+    void setCoop(const controller::CoopSession* coop);
+    /** What this participant looks at here: the clip, the key and position under the
+        pointer, the selected notes. */
+    void fillPresence(coop::Presence& presence) const;
 
     void resized() override;
     void paint(juce::Graphics& g) override;

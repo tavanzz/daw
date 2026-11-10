@@ -1324,6 +1324,22 @@ Modules with one-way dependencies:
   (`Session::takeEditProblem()`, unless a view took it) show as its warnings; the end of
   a session the copy did not leave is an alert. Invite links carry the project's name
   (`JoinLink::title`) for the joiner's folder.
+- Presence and locks in the desktop UI (Phase 9): views read the session through
+  `controller::CoopSession` (`getOthers()`: each `CoopPeer` with its colour and
+  `coop::Presence`; `findOtherHolder(scope)`; `describeFile()`: "Incoming",
+  "Downloading 40 %"; `areFilesMoving()`; `getRevision()`), given to them by
+  `MainComponent::setCoopSession()`. `TrackLanes` draws over its cached content, each in
+  their colour, the others' selected clips, their playheads (dashed, while they play) and
+  pointers with their initial; audio clips whose file is on its way are named so (the
+  lanes redraw four times a second while files move). Track headers show who holds the
+  track (a bar and their chip; the name's tooltip says so) and the chips of who looks at
+  it; mixer strips their holder (a bar and a chip); effect and plugin editor windows say
+  in their title who is editing their track. The piano roll draws the others with the
+  same clip open: their selected notes and their pointer. Each tick `MainComponent` sends
+  what this participant looks at (`ArrangeView::getPresence()`: the track pointed at or
+  last clicked, the pointer, the selected clips; `PianoRoll::fillPresence()`: the clip,
+  key and position, the selected notes); `CoopSession` adds the playhead and the client
+  sends it only when it changes, at most 20 times a second.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -2374,7 +2390,7 @@ work merged later, the mobile UI.
 - [x] 11. Desktop UI: the Co-op menu and windows (host, join, invite, participants,
       remove, close, leave, host role), the connection in the status bar, participant
       colours in the three themes
-- [ ] 12. Desktop UI: presence on the timeline and in the piano roll, locks on tracks,
+- [x] 12. Desktop UI: presence on the timeline and in the piano roll, locks on tracks,
       strips and editors, incoming clips, plugin warnings, Play for Everyone, Follow
 - [ ] 13. App: `micinstation://` links, co-op settings, rejoining after a restart, two
       copies of the app on one computer

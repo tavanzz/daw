@@ -4,12 +4,14 @@
 #include "daw/ui/desktop/CoopPanels.h"
 #include "daw/ui/desktop/MainComponent.h"
 #include "daw/ui/desktop/ThemeManager.h"
+#include "daw/ui/desktop/TrackLanes.h"
 
 #include "support/SimulatedNetwork.h"
 #include "support/TestAudioFiles.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -281,4 +283,109 @@ TEST_CASE("Participant chips draw every colour with a readable initial in every 
         for (int colour = 0; colour < 8; ++colour)
             CHECK(image.getPixelAt(colour * 24 + 3, 18) == look.participantColour(colour));
     }
+}
+
+namespace
+{
+template <typename Type>
+Type* findChild(juce::Component& parent)
+{
+    for (auto* child : parent.getChildren())
+    {
+        if (auto* found = dynamic_cast<Type*>(child))
+            return found;
+        if (auto* deeper = findChild<Type>(*child))
+            return deeper;
+    }
+    return nullptr;
+}
+} // namespace
+
+TEST_CASE("The others show where they look, what they selected and what they hold", "[ui][coop]")
+{
+    test::TemporaryDirectory folder;
+    World world;
+    auto& host = world.add();
+    auto& guest = world.add();
+
+    const auto drums = host.session.addTrack("Drums");
+    const auto equaliser = host.session.addEffect(controller::ChainOwner::track(drums), "equaliser");
+    const auto keys = host.session.addMidiTrack("Keys");
+    const auto clip = host.session.addMidiClip(keys, 0, model::ticksPerSecond * 4);
+    const auto note = host.session.addNote(clip, {0, 0, model::ticksPerSecond / 2, 64, 100});
+    REQUIRE(note != 0);
+
+    Desktop desktop(host, folder.file("Host"));
+    REQUIRE(host.coop->host(*controller::parseServerLink(World::serverLink()), "Ann", folder.file("Host copy")).wasOk());
+    world.run(1.0);
+    REQUIRE(guest.coop->join(*controller::parseInvite(host.coop->getInviteLink()), "Marco", folder.file("Guest copy"))
+                .wasOk());
+    world.run(2.0);
+    REQUIRE(guest.coop->getClient().getStatus() == coop::Client::Status::connected);
+
+    // Marco turns the drums down (he holds the track now), points at them two seconds
+    // in, selects the keys' clip and opens it, pointing at its note.
+    guest.session.setTrackVolume(drums, 0.5);
+    coop::Presence presence;
+    presence.track = drums;
+    presence.hasCursor = true;
+    presence.cursorTrack = drums;
+    presence.cursorPosition = model::ticksPerSecond * 2;
+    presence.selectedClips = {clip};
+    presence.clip = clip;
+    presence.cursorKey = 64;
+    presence.clipCursorPosition = model::ticksPerSecond / 4;
+    presence.selectedNotes = {note};
+    guest.coop->setPresence(presence);
+    world.run(1.0);
+
+    const auto holder = host.coop->findOtherHolder(model::EditScope::track(drums));
+    REQUIRE(holder.has_value());
+    CHECK(holder->name == "Marco");
+    REQUIRE(host.coop->getOthers().size() == 1);
+    CHECK(host.coop->getOthers()[0].presence.cursorTrack == drums);
+
+    // Ann's own presence: what she points at in the lanes and opens in the piano roll.
+    auto& arrange = desktop.view.getArrangeViewForTesting();
+    arrange.refresh();
+    auto* lanes = findChild<ui::desktop::TrackLanes>(arrange);
+    REQUIRE(lanes != nullptr);
+    desktop.view.editClip(clip);
+    coop::Presence own;
+    desktop.view.getPianoRollForTesting().fillPresence(own);
+    CHECK(own.clip == clip);
+
+    // The editor of the drums' equaliser says who is editing the track.
+    auto& editors = desktop.view.getEffectEditorsForTesting();
+    editors.open(equaliser);
+    editors.refresh(0.0);
+    REQUIRE(editors.find(equaliser) != nullptr);
+    CHECK(editors.find(equaliser)->getName().contains("Marco is editing this track"));
+
+    for (const auto& theme : desktop.themes.getLibrary().getThemes())
+    {
+        desktop.themes.setTheme(theme.id);
+        arrange.refresh();
+        lanes->contentChanged();
+
+        // Marco's pointer: a line in his colour on the drums' lane.
+        const auto& look = ui::desktop::ThemedLookAndFeel::get(*lanes);
+        const auto colour = look.participantColour(holder->colour);
+        const auto image = lanes->createComponentSnapshot(lanes->getLocalBounds(), true, 1.0f);
+        const auto x = arrange.getStateForTesting().viewport.ticksToX(model::ticksPerSecond * 2);
+        const int y = ui::desktop::ArrangeState::laneHeight / 2;
+        const bool lineThere = image.getPixelAt(static_cast<int>(std::floor(x)) - 1, y) == colour
+                               || image.getPixelAt(static_cast<int>(std::floor(x)), y) == colour;
+        INFO(theme.id);
+        CHECK(lineThere);
+
+        CHECK(desktop.view.createComponentSnapshot(desktop.view.getLocalBounds()).isValid());
+        snapshot(desktop.view, "coop-presence-" + theme.id);
+    }
+
+    // When Marco lets the track go, the editor's title is its own again.
+    world.run(35.0);
+    CHECK_FALSE(host.coop->findOtherHolder(model::EditScope::track(drums)).has_value());
+    editors.refresh(0.0);
+    CHECK_FALSE(editors.find(equaliser)->getName().contains("is editing"));
 }

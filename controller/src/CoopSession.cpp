@@ -397,6 +397,74 @@ std::optional<coop::FileSync::State> CoopSession::getFileState(const juce::File&
     return client->getFiles().stateOf(relativePathOf(file));
 }
 
+juce::String CoopSession::describeFile(const juce::File& file) const
+{
+    if (!isActive())
+        return {};
+    const auto fileState = getFileState(file);
+    if (!fileState)
+        return {};
+    using Kind = coop::FileSync::State::Kind;
+    switch (fileState->kind)
+    {
+    case Kind::incoming:
+        return "Incoming";
+    case Kind::downloading:
+        return "Downloading "
+               + juce::String(fileState->size > 0 ? static_cast<int>(100 * fileState->done / fileState->size) : 0)
+               + " %";
+    case Kind::failed:
+        return "Not available";
+    case Kind::present:
+    case Kind::hashing:
+    case Kind::uploading:
+        break;
+    }
+    return {};
+}
+
+bool CoopSession::areFilesMoving() const
+{
+    return isActive() && !client->getFiles().isIdle();
+}
+
+std::vector<CoopPeer> CoopSession::getOthers() const
+{
+    std::vector<CoopPeer> others;
+    if (!isActive())
+        return others;
+    const auto& presences = client->getPresences();
+    for (const auto& participant : client->getParticipants())
+    {
+        if (participant.number == client->getParticipant())
+            continue;
+        CoopPeer peer{participant.number, participant.name, participant.colour, participant.connected,
+                      participant.recording, {}};
+        if (const auto found = presences.find(participant.number); found != presences.end())
+            peer.presence = found->second;
+        others.push_back(std::move(peer));
+    }
+    return others;
+}
+
+std::optional<CoopPeer> CoopSession::findOtherHolder(const model::EditScope& scope) const
+{
+    if (!isActive())
+        return std::nullopt;
+    const auto holder = client->holderOf(scope);
+    if (holder == 0 || holder == client->getParticipant())
+        return std::nullopt;
+    for (auto& peer : getOthers())
+        if (peer.number == holder)
+            return peer;
+    return CoopPeer{holder, "Someone", 0, false, false, {}};
+}
+
+std::uint64_t CoopSession::getRevision() const noexcept
+{
+    return client != nullptr ? client->getRevision() : 0;
+}
+
 juce::StringArray CoopSession::takeNotices()
 {
     return std::exchange(notices, {});

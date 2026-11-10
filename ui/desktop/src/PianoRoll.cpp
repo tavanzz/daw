@@ -2,6 +2,7 @@
 
 #include "daw/controller/NotePreview.h"
 #include "daw/engine/fx/Sampler.h"
+#include "daw/ui/desktop/CoopPanels.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 
 #include <algorithm>
@@ -89,6 +90,11 @@ struct PianoRoll::State
     int newVelocity = model::Note::defaultVelocity;
     model::Ticks playhead = 0;
     std::function<void()> changed; // repaint every part
+
+    // Co-op: the others' pointers and selections in this clip; this one's pointer.
+    const controller::CoopSession* coop = nullptr;
+    int pointerKey = -1;
+    model::Ticks pointerPosition = 0; // on the timeline
 
     [[nodiscard]] std::optional<model::MidiClip> clip() const { return session.findMidiClip(clipId); }
 
@@ -328,8 +334,52 @@ public:
         if (band)
             look.drawSelectionBand(g, *band);
 
+        if (state.coop != nullptr && state.coop->isActive())
+            paintOthers(g, frame);
+
         look.drawPlayhead(g, static_cast<float>(viewport.timeline.ticksToX(state.playhead)), 0.0f,
                           height, {});
+    }
+
+    // Others with this clip open: the notes they selected and their pointer, in their
+    // colours.
+    void paintOthers(juce::Graphics& g, const controller::ClipFrame& frame) const
+    {
+        const auto& look = ThemedLookAndFeel::get(*this);
+        const auto notes = state.notes();
+        for (const auto& peer : state.coop->getOthers())
+        {
+            if (!peer.connected || peer.presence.clip != state.clipId)
+                continue;
+            const auto colour = look.participantColour(peer.colour);
+            g.setColour(colour);
+            for (const auto& note : notes)
+                if (std::find(peer.presence.selectedNotes.begin(), peer.presence.selectedNotes.end(), note.id)
+                    != peer.presence.selectedNotes.end())
+                    g.drawRect(noteBounds(note, frame).expanded(1.0f), 2.0f);
+            if (peer.presence.cursorKey >= 0)
+            {
+                const auto x = static_cast<float>(state.viewport.timeline.ticksToX(peer.presence.clipCursorPosition));
+                const auto y = static_cast<float>(state.viewport.keyToY(peer.presence.cursorKey));
+                const auto keyHeight = static_cast<float>(state.viewport.getKeyHeight());
+                g.setColour(colour);
+                g.fillRect(juce::Rectangle<float>(x - 1.0f, y, 2.0f, keyHeight));
+                const auto chip = std::max(12.0f, std::min(16.0f, keyHeight));
+                drawParticipantChip(g, *this, {x + 3.0f, y + (keyHeight - chip) / 2.0f, chip, chip}, peer.colour,
+                                    peer.name);
+            }
+        }
+    }
+
+    void notePointer(juce::Point<float> position)
+    {
+        state.pointerKey = state.viewport.yToKey(position.y);
+        state.pointerPosition = state.viewport.timeline.xToTicks(position.x);
+    }
+
+    void mouseExit(const juce::MouseEvent&) override
+    {
+        state.pointerKey = -1;
     }
 
     [[nodiscard]] juce::Rectangle<float> noteBounds(const model::Note& note,
@@ -344,6 +394,7 @@ public:
 
     void mouseMove(const juce::MouseEvent& event) override
     {
+        notePointer(event.position);
         const auto hit = hitAt(event.position);
         setMouseCursor(hit.part == controller::NotePart::start || hit.part == controller::NotePart::end
                            ? juce::MouseCursor::LeftRightResizeCursor
@@ -402,6 +453,7 @@ public:
 
     void mouseDrag(const juce::MouseEvent& event) override
     {
+        notePointer(event.position);
         if (!drag)
             return;
         if (!drag->started)
@@ -1204,6 +1256,19 @@ void PianoRoll::duplicateSelection()
 bool PianoRoll::hasSelection() const noexcept
 {
     return !state->selection.empty();
+}
+
+void PianoRoll::setCoop(const controller::CoopSession* coop)
+{
+    state->coop = coop;
+}
+
+void PianoRoll::fillPresence(coop::Presence& presence) const
+{
+    presence.clip = state->clipId;
+    presence.cursorKey = state->clipId != 0 ? state->pointerKey : -1;
+    presence.clipCursorPosition = state->pointerPosition;
+    presence.selectedNotes.assign(state->selection.begin(), state->selection.end());
 }
 
 bool PianoRoll::keyPressed(const juce::KeyPress& key)
