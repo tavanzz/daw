@@ -20,6 +20,7 @@ add_executable(daw_tests
     appearance/ThemeLibraryTests.cpp
     coop/MessageTests.cpp
     net/NetTests.cpp
+    server/ServerTests.cpp
     controller/ArrangementBuilderTests.cpp
     controller/AutomationEditingTests.cpp
     controller/EffectSessionTests.cpp
@@ -93,7 +94,7 @@ add_executable(daw_tests
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::coop daw::engine
-    daw::model daw::net daw::services Catch2::Catch2)
+    daw::model daw::net daw::server daw::services Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 # The test plugins are built with the tests, which find them here.
 add_dependencies(daw_tests daw_test_plugins)
@@ -248,6 +249,16 @@ add_test(NAME architecture.detects_model_include_in_net
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_model_include_in_net PROPERTIES
     PASS_REGULAR_EXPRESSION "net/src/UsesModel\\.cpp: <daw/model/Project\\.h>")
+
+add_test(NAME architecture.detects_engine_include_in_server
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_engine_include_in_server PROPERTIES
+    PASS_REGULAR_EXPRESSION "server/src/UsesEngine\\.cpp: <daw/engine/Engine\\.h>")
+
+add_test(NAME architecture.detects_server_include_in_controller
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_server_include_in_controller PROPERTIES
+    PASS_REGULAR_EXPRESSION "controller/src/UsesServer\\.cpp: <daw/server/Server\\.h>")
 
 add_test(NAME architecture.detects_coop_include_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")

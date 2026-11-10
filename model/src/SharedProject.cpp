@@ -332,6 +332,16 @@ ChangeSet localChanges(const ChangeSet& changes, const juce::File& folder)
     return local;
 }
 
+void removePersonalSettings(juce::ValueTree& tree)
+{
+    for (int index = tree.getNumProperties(); --index >= 0;)
+        if (const auto name = tree.getPropertyName(index); isPersonalProperty(tree.getType(), name))
+            tree.removeProperty(name, nullptr);
+
+    for (auto child : tree)
+        removePersonalSettings(child);
+}
+
 void addDefaultPersonalSettings(juce::ValueTree& tree)
 {
     if (tree.hasType(ids::project))
@@ -456,6 +466,24 @@ juce::Result checkChange(const juce::ValueTree& projectRoot, const ProjectChange
     }
 
     return juce::Result::fail("unknown change");
+}
+
+juce::Result checkProject(const juce::ValueTree& projectRoot)
+{
+    if (!projectRoot.hasType(ids::project))
+        return juce::Result::fail("not a project");
+    if (!projectRoot.getChildWithName(ids::buses).isValid()
+        || !projectRoot.getChildWithName(ids::master).isValid())
+        return juce::Result::fail("a project without its buses or master");
+
+    if (const auto result = checkNode(projectRoot); result.failed())
+        return result;
+
+    auto ids = idsIn(projectRoot);
+    std::sort(ids.begin(), ids.end());
+    if (std::adjacent_find(ids.begin(), ids.end()) != ids.end())
+        return juce::Result::fail("an id twice");
+    return juce::Result::ok();
 }
 
 } // namespace daw::model

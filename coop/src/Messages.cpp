@@ -92,7 +92,7 @@ std::vector<FileEntry> readFiles(Reader& reader)
         file.path = reader.readString();
         file.hash = reader.readBlock();
         file.size = reader.readVarUInt();
-        if (file.hash.getSize() != 32)
+        if (file.hash.getSize() != 32 || !isSafeSharedPath(file.path))
             reader.fail();
         files.push_back(std::move(file));
     }
@@ -234,6 +234,7 @@ void write(Writer& writer, const ProjectSnapshot& message)
     writer.writeVarUInt(message.sequence);
     writeCompressedTree(writer, message.project);
     writeFiles(writer, message.files);
+    writer.writeVarUInt(message.lastTransaction);
 }
 
 void write(Writer& writer, const ParticipantList& message)
@@ -321,6 +322,8 @@ void write(Writer& writer, const Pong& message)
     writer.writeDouble(message.serverTime);
 }
 
+void write(Writer&, const SnapshotRequest&) {}
+
 // Reading each message ------------------------------------------------------------------
 
 template <typename Type>
@@ -393,6 +396,7 @@ ProjectSnapshot read(Reader& reader)
     message.sequence = reader.readVarUInt();
     message.project = readCompressedTree(reader);
     message.files = readFiles(reader);
+    message.lastTransaction = reader.readVarUInt();
     return message;
 }
 
@@ -511,6 +515,12 @@ Pong read(Reader& reader)
     return message;
 }
 
+template <>
+SnapshotRequest read(Reader&)
+{
+    return {};
+}
+
 template <std::size_t index = 0>
 std::optional<Message> readAlternative(Reader& reader, std::size_t tag)
 {
@@ -600,6 +610,7 @@ juce::MemoryBlock encodeFrame(const Welcome& welcome)
     writer.writeString(welcome.token);
     writer.writeBool(welcome.resumed);
     writer.writeVarUInt(welcome.delivered);
+    writer.writeVarUInt(welcome.lastTransaction);
     writer.writeDouble(welcome.serverTime);
     return writer.takeData();
 }
@@ -703,6 +714,7 @@ std::optional<Welcome> decodeWelcome(const juce::MemoryBlock& frame)
     welcome.token = reader.readString();
     welcome.resumed = reader.readBool();
     welcome.delivered = reader.readVarUInt();
+    welcome.lastTransaction = reader.readVarUInt();
     welcome.serverTime = reader.readDouble();
     if (!reader.isOk() || !reader.isAtEnd())
         return std::nullopt;
@@ -742,6 +754,25 @@ juce::MemoryBlock channelPayload(const juce::MemoryBlock& frame)
     if (frame.getSize() < 1)
         return {};
     return {static_cast<const char*>(frame.getData()) + 1, frame.getSize() - 1};
+}
+
+bool isSafeSharedPath(const juce::String& path)
+{
+    if (!path.startsWith("Audio/") || path.length() > 1000 || path.containsAnyOf("\\:")
+        || path.endsWithChar('/'))
+        return false;
+
+    juce::StringArray steps;
+    steps.addTokens(path, "/", "");
+    for (const auto& step : steps)
+    {
+        if (step.isEmpty() || step == "." || step == ".." || step.trim() != step)
+            return false;
+        for (const auto character : step)
+            if (character < 0x20 || character == 0x7f)
+                return false;
+    }
+    return true;
 }
 
 juce::String describe(const Refused& refused)

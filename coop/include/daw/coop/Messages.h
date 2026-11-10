@@ -93,7 +93,10 @@ struct Welcome
         the other lacks. Otherwise the client gets a ProjectSnapshot first. */
     bool resumed = false;
     std::uint64_t delivered = 0; ///< reliable messages from the client the server has
-    double serverTime = 0.0;     ///< seconds on the server's clock
+    /** The last transaction of this participant the server dealt with (accepted or not):
+        after a snapshot, the client sends again only those after it. */
+    std::uint64_t lastTransaction = 0;
+    double serverTime = 0.0; ///< seconds on the server's clock
 };
 
 enum class RefusalReason : std::uint8_t
@@ -188,6 +191,9 @@ struct ProjectSnapshot
     std::uint64_t sequence = 0;
     juce::ValueTree project;
     std::vector<FileEntry> files;
+    /** The last transaction of the receiving participant it includes the outcome of: the
+        participant sends again only those after it. */
+    std::uint64_t lastTransaction = 0;
 };
 
 struct ParticipantInfo
@@ -315,13 +321,18 @@ struct Pong
     double serverTime = 0.0;
 };
 
+/** A participant whose copy went out of step asks for the whole project again. */
+struct SnapshotRequest
+{
+};
+
 /** Every message inside the channel. The index of each type is its tag on the wire:
     append new types at the end. */
 using Message =
     std::variant<ProjectUpload, Transaction, LockRequest, RecordingState, TransportRequest,
                  HostCommand, Leave, ProjectSnapshot, ParticipantList, LockState, AcceptedChange,
                  Rejection, TransportStart, Invite, FileAvailable, SessionEnded, PresenceUpdate,
-                 Ping, Pong>;
+                 Ping, Pong, SnapshotRequest>;
 
 /** Messages that may be lost (presence, clocks): sent outside the reliable order. */
 [[nodiscard]] bool isUnreliable(const Message& message) noexcept;
@@ -351,6 +362,11 @@ struct HelloVersions
 /** A channel frame around a payload, and the payload of one. */
 [[nodiscard]] juce::MemoryBlock channelFrame(const juce::MemoryBlock& payload);
 [[nodiscard]] juce::MemoryBlock channelPayload(const juce::MemoryBlock& frame);
+
+/** True for a path a shared project may name a file by: relative, with '/', inside the
+    copy's "Audio" folder, without "." or ".." steps. Anything else could make a
+    participant read or write outside their copy. */
+[[nodiscard]] bool isSafeSharedPath(const juce::String& path);
 
 /** Why a peer refused, written for the user. */
 [[nodiscard]] juce::String describe(const Refused& refused);

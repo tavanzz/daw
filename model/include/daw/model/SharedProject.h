@@ -52,6 +52,9 @@ namespace daw::model
 /** Every change made ready for a participant's copy in folder. */
 [[nodiscard]] ChangeSet localChanges(const ChangeSet& changes, const juce::File& folder);
 
+/** Takes every personal setting out of tree and the nodes under it. */
+void removePersonalSettings(juce::ValueTree& tree);
+
 /** Gives every node of tree that lacks a personal setting its default (as a new track or
     project has it), without an undo history. */
 void addDefaultPersonalSettings(juce::ValueTree& tree);
@@ -90,5 +93,8 @@ void setIdRange(juce::ValueTree projectState, std::optional<IdRange> range);
 */
 [[nodiscard]] juce::Result checkChange(const juce::ValueTree& projectRoot,
                                        const ProjectChange& change);
+
+/** Whether a whole project state is well formed in the same sense, every id once. */
+[[nodiscard]] juce::Result checkProject(const juce::ValueTree& projectRoot);
 
 } // namespace daw::model

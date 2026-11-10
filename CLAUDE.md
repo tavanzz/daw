@@ -28,7 +28,8 @@ Modules with one-way dependencies:
 | `appearance/` | theme values (colours, fonts, shapes, meter styles, effects) and animation settings, for every UI | non-GUI JUCE modules |
 | `services/`   | what the app needs around the audio: build information, user settings, log, updates, crash reports | non-GUI JUCE modules |
 | `net/`        | connections of co-op sessions: TLS 1.3 links, frames, a reliable channel | non-GUI JUCE modules, Mbed TLS |
-| `coop/`       | co-op sessions: the protocol, a participant's synchronisation, the server's sessions | model, net, non-GUI JUCE modules |
+| `coop/`       | co-op sessions: the protocol, a participant's synchronisation | model, net, non-GUI JUCE modules |
+| `server/`     | the co-op server: sessions, their one order, locks, invites, storage | model, net, coop, non-GUI JUCE modules |
 | `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, appearance, services, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, appearance, services, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
@@ -43,8 +44,9 @@ Modules with one-way dependencies:
   `engine/` and `model/` include each other or `controller/`, or if `appearance/` or
   `services/` includes another module or is included by `engine/`, `model/`,
   `controller/` (or each other), or if `net/` includes any other module, `coop/` the
-  engine, the controller, `appearance/` or `services/`, or `engine/`, `model/`,
-  `appearance/` or `services/` include `net/` or `coop/`.
+  engine, the controller, `appearance/` or `services/`, `server/` the engine, the
+  controller, `appearance/` or `services/`, or `engine/`, `model/`, `appearance/` or
+  `services/` include `net/`, `coop/` or `server/` (the controller includes no server).
 - Every module has public headers in `include/daw/<module>/` and private code in
   `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`,
   `daw::appearance`, `daw::services`, `daw::ui::desktop`.
@@ -343,6 +345,34 @@ Modules with one-way dependencies:
   unreliable messages go once. Tests run it over `tests/support/SimulatedNetwork` (a clock
   of its own, random delays, loss, duplicates, broken links) and TLS over loopback (a
   wrong fingerprint is refused, a client speaking HTTP does no harm).
+- The co-op server (Phase 9, `server/`): `server::Server` is its logic, deterministic, over
+  links it is given and a clock it is told (the program passes the wall clock). A
+  connection says `Hello` within 10 s: create a session (one of `ServerOptions::hostKeys`,
+  compared in constant time), join one (its invite code: 10 Crockford Base32 characters
+  from the system's random source, valid 24 h, `normaliseInviteCode()` forgives case,
+  dashes, O and I/L), or rejoin (session id and the participant's token, kept only as its
+  SHA-256); other protocol or project format versions are refused with `Refused`, and 10
+  failed attempts from one address in 10 minutes block it for 15. Each participant has a
+  `ReliableChannel` that outlives its connections: back after a drop, they get what they
+  missed (`Welcome::resumed`), else a `ProjectSnapshot` and `Welcome::lastTransaction`.
+  A session keeps its project in the shared form; a `Transaction` is dealt with once (by
+  its client sequence), refused if a scope it needs (`model::scopesOf()`) is held by
+  someone else, if it changes the tempo, the metre or an effect chain's structure while
+  anyone records, if a change is malformed (`model::checkChange()`, file paths that are
+  not `coop::isSafeSharedPath()`, "Audio/..." without "..") or does not find what it
+  expects; otherwise it is applied (all or nothing), the author takes its scopes' locks,
+  and it goes to everyone with the next sequence. Locks go after 30 s unused (not while
+  their holder records), 30 s after their holder dropped out, or at once when they leave.
+  The host renews or revokes the invite, removes participants, hands the role over (leaving
+  hands it to someone else), closes the session (everyone gets `SessionEnded`). Presence
+  goes on at most 20 times a second, `Ping` is answered at once, "Play for Everyone"
+  starts 0.3 s later on the server's clock. Sessions nobody joins for 30 days go.
+  `SessionStore` keeps each session in `<data>/sessions/<id>/`: `session.json`
+  (participants, invite, files), `project.bin` (sequence and project, exact) and
+  `journal.bin` (transactions accepted since), written through temporary files; joins,
+  uploads, removals and invites are saved at once, the rest every 5 s; a server that
+  crashes replays the journal. Its log has ids, numbers and reasons, never names, contents
+  or addresses. Tests drive it with `tests/support/TestPeer` over the simulated network.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2191,7 +2221,7 @@ work merged later, the mobile UI.
       ECDSA certificate and its fingerprint pinned by clients, frames, timeouts,
       keepalive; a simulated network (delay, loss, duplicates, reordering,
       disconnections, a virtual clock)
-- [ ] 4. Server logic (`server`): rooms, the authoritative project, one order,
+- [x] 4. Server logic (`server`): rooms, the authoritative project, one order,
       validation (locks, values before, ids, schema, recordings in progress), locks with
       timeout and grace, participants (colours, removal, closing, host role), invites and
       rejoin tokens, a log of changes and snapshots, storage on disk, limits and rate
