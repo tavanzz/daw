@@ -105,3 +105,32 @@ jobs:
       - name: Test (Linux, virtual display)
         if: runner.os == 'Linux'
         run: xvfb-run -a ctest --preset ${{ matrix.preset }}
+
+  # The co-op server's image (server/Dockerfile, docs/SERVER.md): built as the release
+  # workflow builds it, started, and reached over TLS the way the app reaches it.
+  server-image:
+    name: Server image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the image
+        run: docker build -f server/Dockerfile -t micinstation-server:ci .
+
+      - name: Start it and connect to it
+        run: |
+          docker run -d --name micinstation-ci -p 17443:7443 \
+            -e MICINSTATION_PUBLIC=127.0.0.1:17443 micinstation-server:ci
+          for attempt in $(seq 1 30); do
+            docker logs micinstation-ci 2>&1 | grep -q listening && break
+            sleep 1
+          done
+          docker logs micinstation-ci
+          link=$(docker exec micinstation-ci micinstation-server --links \
+                   | grep -o 'micinstation://server[^ ]*' | head -1)
+          test -n "$link"
+          docker run --rm --network host micinstation-server:ci --probe "$link"
+          docker run --rm micinstation-server:ci --version
+          docker stop micinstation-ci

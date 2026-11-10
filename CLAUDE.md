@@ -283,6 +283,9 @@ Modules with one-way dependencies:
   old one was DAW, take over the old copy's settings and pass the smoke test; on
   Windows, then uninstalled with nothing left). Files are named after `APP`, the
   workflow's product name.
+  `server-image` builds the co-op server's image natively on x86-64 and ARM runners,
+  probes it, and (tags only) pushes `ghcr.io/<owner>/micinstation-server:<version>-<arch>`;
+  `server-manifest` joins them into `<version>` (and `latest` for releases).
   `publish` (tags only) writes `update.json` (`tools/make_update_payload.py`, signed by
   `daw_update_tool`), `SHA256SUMS.txt`, uploads symbols to Sentry when configured and
   makes the GitHub Release; `check-feed` reads the published `update.json` as the app does
@@ -373,6 +376,18 @@ Modules with one-way dependencies:
   uploads, removals and invites are saved at once, the rest every 5 s; a server that
   crashes replays the journal. Its log has ids, numbers and reasons, never names, contents
   or addresses. Tests drive it with `tests/support/TestPeer` over the simulated network.
+- The server program (Phase 9, `server/program/`, `docs/SERVER.md`): `micinstation-server`
+  runs `server::Server` over a `TlsServer` with the wall clock (options or `MICINSTATION_*`
+  variables: data folder, port, bind and public address, limits). Its data folder holds
+  the identity, `host-keys.txt` (one per line, readable by its owner only; the first start
+  makes one and prints its host link once) and the sessions; `--links`, `--new-host-key`,
+  `--revoke-host-key` manage them, `--probe <link>` connects as the app does (a wrong host
+  key on purpose: a refusal proves TLS, the fingerprint and the protocol). The CMake option
+  `DAW_SERVER_ONLY` builds only model, net, coop and server with JUCE's core, events and
+  data structures (no curl, Monocypher, sentry or tests); `server/Dockerfile` builds that
+  on Ubuntu 24.04 (JUCE's juceaide still needs FreeType and Fontconfig to configure) into
+  an image that runs as a user of its own with `/data` as a volume;
+  `server/docker-compose.yml` maps port 443 to 7443.
 - A participant's copy (Phase 9, `coop::Client`): records the project's changes and sends
   them a transaction at a time (`setTransaction(name, undo step)`, `flush()`), shown in the
   copy at once; `mayEdit(scope)` is true when the scope is free or this participant's, the
@@ -1422,6 +1437,10 @@ ctest --preset debug            # run all tests
   checks of the app: `DAW --settings-dir=<folder> --smoke-test=new|scan|<project>
   --smoke-result=<json>`; `DAW --version`. Release notes: `python3 tools/release_notes.py
   <tag>`.
+- The co-op server alone: `cmake -S . -B build/server-only -G Ninja -DCMAKE_BUILD_TYPE=Release
+  -DDAW_SERVER_ONLY=ON`, then `cmake --build build/server-only --target daw_server_program`;
+  `build/debug/server/micinstation-server --data <folder> --public 127.0.0.1:7443` locally
+  (`docs/SERVER.md`); the image: `docker build -f server/Dockerfile .`.
 - Screenshots for checking the UI from a session: capture only the app's window
   (`screencapture -l <window number>`), never the whole screen. The app's
   `--show=previews,animations,mixer,editors,browser,plugins` option opens the theme
@@ -1440,7 +1459,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on ev
 push to `main`: configure, build and test with the `debug` preset on Linux (GCC),
 macOS (Apple Clang) and Windows (MSVC), plus the `release` preset on Linux, where
 optimiser-only warnings show up, and the `linux-rtsan` preset with Clang 22 from
-apt.llvm.org.
+apt.llvm.org. The `server-image` job builds the co-op server's Docker image, starts it and
+probes it over TLS with the host link it made.
 
 - Third-party actions are pinned by commit SHA, with the version in a comment.
 - The repository is public (since Phase 2), so standard runners cost nothing; still
@@ -2326,7 +2346,7 @@ work merged later, the mobile UI.
       uploaded, incoming clips; real-time checks while changes arrive from the network
 - [x] 9. Controller: plugins (the lock holder's state, editors of locked tracks, missing
       plugins), presence, rules while someone records
-- [ ] 10. The server program and Docker: `micinstation-server` (local mode), a
+- [x] 10. The server program and Docker: `micinstation-server` (local mode), a
       multi-architecture image published by the release workflow, a CI job that builds it
       and connects to it, `docs/SERVER.md`
 - [ ] 11. Desktop UI: the Co-op menu and windows (host, join, invite, participants,

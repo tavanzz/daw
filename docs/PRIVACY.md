@@ -2,7 +2,7 @@
 
 What MICINSTATION sends over the network, what it keeps on your computer, and how to change it.
 MICINSTATION has no accounts, no analytics and no advertising. Your projects, recordings and
-settings never leave your computer.
+settings never leave your computer, unless you host or join a co-op session (below).
 
 ## What MICINSTATION sends
 
@@ -40,6 +40,34 @@ A report never contains: your name, your user name, your computer's name, your e
 an identifier for you or your computer, the contents of memory, your projects, their
 names or file names, recordings, audio, your settings or your log. MICINSTATION asks Sentry not
 to store IP addresses.
+
+### Co-op sessions (only when you host or join one)
+
+A co-op session shares a project with the people in it, through a co-op server that one
+of you runs (`docs/SERVER.md`): MICINSTATION connects to it only while you are in a
+session, over TLS 1.3, and checks that it is the server the link names. What goes there:
+
+- the project as everyone sees it: tracks, clips, notes, mixer, effects, plugin states
+  and automation, and every change made to it, with the name of whoever made it; not
+  your personal settings (armed tracks, inputs, monitoring, solo, snap and grid,
+  metronome, count-in, punch, recording format);
+- the audio files the project uses (imports, recordings, samples), from your copy's
+  folder, so that the others can download them;
+- the name you chose for the session, where you are looking (your cursor, selection,
+  playhead and the track you look at) and when you play for everyone;
+- the version of MICINSTATION and, like any connection, your IP address.
+
+The server passes all of it on to the session's other participants. It keeps the
+project, its files and the participants' names until the host closes the session (or for
+30 days after the last time anyone joined it), and it logs what happens with random ids
+and numbers only: no names, no contents, no addresses. Whoever runs the server can read
+what it keeps; choose a server you trust. MICINSTATION's developer runs none and sees
+nothing of it.
+
+Your copy of a co-op project is an ordinary folder on your computer
+(`Documents/MICINSTATION/Co-op/`); its `.coop` folder holds what lets you rejoin the
+session (the server, your number in the session and its secret token), readable by you
+only.
 
 ## What MICINSTATION keeps on your computer
 

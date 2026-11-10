@@ -1,0 +1,25 @@
+# The MICINSTATION co-op server on a rented server (docs/SERVER.md):
+#
+#   MICINSTATION_PUBLIC=203.0.113.7:443 docker compose up -d
+#
+# Clients connect on port 443; the server keeps everything in the volume
+# micinstation-data. Logs are kept small.
+
+services:
+  micinstation-server:
+    image: ghcr.io/tavanzz/micinstation-server:latest
+    restart: unless-stopped
+    ports:
+      - "443:7443"
+    environment:
+      MICINSTATION_PUBLIC: "${MICINSTATION_PUBLIC:?set MICINSTATION_PUBLIC to this server's address and port, e.g. 203.0.113.7:443}"
+    volumes:
+      - micinstation-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  micinstation-data:

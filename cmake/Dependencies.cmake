@@ -79,7 +79,11 @@ set(DAW_MBEDTLS_CONFIG_DIR "${PROJECT_SOURCE_DIR}/net/mbedtls")
 set(TF_PSA_CRYPTO_USER_CONFIG_FILE "${DAW_MBEDTLS_CONFIG_DIR}/crypto_user_config.h"
     CACHE FILEPATH "" FORCE)
 
-FetchContent_MakeAvailable(JUCE Monocypher sentry mbedtls)
+if(DAW_SERVER_ONLY)
+    FetchContent_MakeAvailable(JUCE mbedtls)
+else()
+    FetchContent_MakeAvailable(JUCE Monocypher sentry mbedtls)
+endif()
 
 # The alternative threading header must be found by every part of Mbed TLS (it has
 # several internal libraries) and by whoever includes its headers.
@@ -122,6 +126,10 @@ if(APPLE)
             " version of it), so the app would make macOS ask for the microphone at launch."
             " ${juce_remedy} cmake/patches/README.md says more.")
     endif()
+endif()
+
+if(DAW_SERVER_ONLY)
+    return()
 endif()
 
 add_library(daw_monocypher STATIC
