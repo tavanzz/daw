@@ -426,6 +426,39 @@ Modules with one-way dependencies:
   on that exact sample: playback that runs fades out at once and waits there (so streamed
   audio loads), it does not wait for audio still loading, any other transport command
   cancels it, recording ignores it. Bit-identical for any block sizes (tested).
+- Co-op in the controller (Phase 9, `Collaboration.h`, `CoopSession.h`): a `Session` with a
+  `Collaboration` (`setCollaboration()`) asks it before every edit: each edit names the
+  scopes it touches (`startEdit(name, scopes)`; personal settings none; non-undoable
+  shared settings, the loop and automation modes, `startSharedSetting()`), an edit someone
+  else's lock forbids does nothing and says why (`takeEditProblem()`: "Ann is editing track
+  \"Bass\"."), and its changes are a transaction of the participant's undo step (a gesture
+  one step, sent every 100 ms: `Client::setFlushInterval()`); `undo()`, `redo()` and their
+  names are the collaboration's, and the Session's own UndoManager is emptied every update.
+  Imported files and samples are copied into the participant's folder of the copy
+  (`Audio/<participant>/`, `getOwnFilesFolder()`), hashed, and added once ready
+  (`hasEditsWaitingForFiles()`); recordings go there too, their tracks' locks are held
+  while they record, and the takes become clips once hashed. A plugin's state (other than
+  parameters) is written into the project, as a transaction that is not undoable, a second
+  after it settles, only by whoever holds its track (who keeps the lock meanwhile; saving
+  stores only those); another participant's state reaches this copy's plugin
+  (`setExtraState()`). A change in a plugin's editor on a track someone else holds goes
+  back to the project's value. Clip lengths are never filled in later in co-op. A file that
+  arrives loads again (`fileArrived()`). `CoopSession` (owned by the app or a test) is the
+  `Collaboration`: `host()` saves the open project into a folder of its own, copies every
+  file from elsewhere into `Audio/1`, reopens it there (the original untouched) and opens
+  the session; `join()` starts from an empty project the session's replaces; `rejoin()`
+  comes back with `.coop/session.json` (server, session, participant, token; readable by
+  its owner only); `leave()`. `update()` (before `Session::update()`) runs the client,
+  passes arrived files on, starts the transport for `TransportStart`s when following
+  (`streamSampleHeardAt()`, else at once), sends presence with the playhead, names plugins
+  missing here, and saves the copy every 30 s. Links: `inviteLink()` /
+  `parseInvite()` (`micinstation://join?server=host:port&key=<fingerprint>&code=...`),
+  `serverLink()` / `parseServerLink()` (`micinstation://server?...&host=<host key>`),
+  `tlsLinks()`. Tests (`tests/controller/CoopSessionTests.cpp`) run real Sessions and
+  engines on the simulated network: hosting and joining with files, locks and undo,
+  imports, a recording with a simulated sound card, presence, plugin states with the VST3
+  test plugin and a computer without it, rejoining after a restart, and the audio thread
+  never allocating while changes arrive.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2287,11 +2320,11 @@ work merged later, the mobile UI.
       twice, the server's store with quotas, hashes checked
 - [x] 7. Clocks and the shared transport: offsets estimated, playback started at an
       exact moment by the engine (output latency included), follow or listen alone
-- [ ] 8. Controller: `Session` edits go through the locks, remote changes take the
+- [x] 8. Controller: `Session` edits go through the locks, remote changes take the
       local path (tree, snapshot to the engine), personal undo and settings, the co-op
       copy (hosting collects its files, joining downloads them), imports and recordings
       uploaded, incoming clips; real-time checks while changes arrive from the network
-- [ ] 9. Controller: plugins (the lock holder's state, editors of locked tracks, missing
+- [x] 9. Controller: plugins (the lock holder's state, editors of locked tracks, missing
       plugins), presence, rules while someone records
 - [ ] 10. The server program and Docker: `micinstation-server` (local mode), a
       multi-architecture image published by the release workflow, a CI job that builds it

@@ -24,6 +24,7 @@ add_executable(daw_tests
     net/NetTests.cpp
     server/ServerTests.cpp
     controller/ArrangementBuilderTests.cpp
+    controller/CoopSessionTests.cpp
     controller/AutomationEditingTests.cpp
     controller/EffectSessionTests.cpp
     controller/MidiArrangementTests.cpp

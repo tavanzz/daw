@@ -36,6 +36,12 @@ void SampleCache::request(const juce::File& file)
     start(file);
 }
 
+void SampleCache::reload(const juce::File& file)
+{
+    if (file != juce::File())
+        start(file);
+}
+
 void SampleCache::requestAll(const model::Project& project)
 {
     for (int t = 0; t < project.getNumTracks(); ++t)
