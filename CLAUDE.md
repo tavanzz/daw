@@ -1290,8 +1290,8 @@ apt.llvm.org.
   useless; otherwise make it again if it no longer applies (the configure says so), and
   check again what it is for (the JUCE patch: no microphone request at launch).
 - Don't implement later phases (multiple takes and comping, CLAP, plugin sandboxing,
-  sidechain, presets, MPE, MIDI clock, mobile) beyond keeping the architecture ready
-  for them.
+  sidechain, presets, MPE, MIDI clock, mobile, editing one track together in co-op,
+  playing live together) beyond keeping the architecture ready for them.
 
 ## Status
 
@@ -2098,3 +2098,148 @@ Phase 8 decisions (agreed before starting):
   `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER_ID`), Sentry (`SENTRY_AUTH_TOKEN`,
   variables `SENTRY_ORG`, `SENTRY_PROJECT`, `DAW_SENTRY_DSN`), later SSL.com
   (`SSLCOM_USERNAME`, `SSLCOM_PASSWORD`, `SSLCOM_CREDENTIAL_ID`, `SSLCOM_TOTP_SECRET`).
+
+Phase 9 (in progress): co-op, first stage (a lock per track). Two or more people
+work on the same project from different computers. Audio never travels: each copy of
+the app plays the project it holds; only changes, presence and audio files go through
+a small connection server. The host opens a project in co-op and gets an invite (a
+code and a link); others join with a name and the code; the host can remove a
+participant and close the session. Presence: the participants with their colours,
+their cursors, selections and playheads on the timeline and in the piano roll, and
+which track each one looks at. Every controller transaction (the undo steps) reaches
+everyone in one order, so every copy of the project stays identical. Whoever starts
+editing a track (clips, notes, mixer, effects, automation) locks it; global changes
+(tempo, metre, loop, tracks added or removed) take the project lock; locks go after a
+while without edits or after a disconnection. Undo is personal. Recordings and imports
+are uploaded in the background, identified by the SHA-256 of their content, resumed
+after an interruption; their clips show as incoming meanwhile. A missing plugin shows
+the Phase 7 placeholder with a warning and keeps its state. "Play for Everyone" starts
+every follower from the same place at the same moment (clock offsets estimated). Who
+drops out comes back on their own, nothing lost or applied twice. Server in C++ in this
+repository (TLS, invite codes, limits, no project data in its logs), a Docker image and
+`docs/SERVER.md`, a local mode for free tests. Out of scope: editing the same track at
+once (second stage), chat and voice, playing live together, user accounts, offline
+work merged later, the mobile UI.
+
+- [x] 0. Plan (this list) and draft pull request
+- [ ] 1. Project changes as data (model): changes captured from the ValueTree with
+      their values before and after, addressed by ids, applied, inverted and checked;
+      scopes (track, bus, master, project), personal settings, file paths relative to
+      the copy, id ranges per participant, the children each node type allows
+- [ ] 2. Protocol (`coop`): exact binary encoding of values, trees and changes, every
+      message, the handshake (protocol and project format versions, clear refusals); a
+      golden test of the bytes
+- [ ] 3. TLS transport (`net`): Mbed TLS 4.1 LTS pinned, TLS 1.3, the server's own
+      ECDSA certificate and its fingerprint pinned by clients, frames, timeouts,
+      keepalive; a simulated network (delay, loss, duplicates, reordering,
+      disconnections, a virtual clock)
+- [ ] 4. Server logic (`server`): rooms, the authoritative project, one order,
+      validation (locks, values before, ids, schema, recordings in progress), locks with
+      timeout and grace, participants (colours, removal, closing, host role), invites and
+      rejoin tokens, a log of changes and snapshots, storage on disk, limits and rate
+      limits, logs without project data
+- [ ] 5. Client sync (`coop`): pending changes applied at once, rolled back when
+      refused, sent again without duplicates, catch-up after a disconnection, personal
+      undo; convergence of 2 to 5 simulated clients with thousands of random edits over
+      a lossy, reordering network, byte for byte
+- [ ] 6. Files: SHA-256, transfers in chunks on a second connection, resumed, never
+      twice, the server's store with quotas, hashes checked
+- [ ] 7. Clocks and the shared transport: offsets estimated, playback started at an
+      exact moment by the engine (output latency included), follow or listen alone
+- [ ] 8. Controller: `Session` edits go through the locks, remote changes take the
+      local path (tree, snapshot to the engine), personal undo and settings, the co-op
+      copy (hosting collects its files, joining downloads them), imports and recordings
+      uploaded, incoming clips; real-time checks while changes arrive from the network
+- [ ] 9. Controller: plugins (the lock holder's state, editors of locked tracks, missing
+      plugins), presence, rules while someone records
+- [ ] 10. The server program and Docker: `micinstation-server` (local mode), a
+      multi-architecture image published by the release workflow, a CI job that builds it
+      and connects to it, `docs/SERVER.md`
+- [ ] 11. Desktop UI: the Co-op menu and windows (host, join, invite, participants,
+      remove, close, leave, host role), the connection in the status bar, participant
+      colours in the three themes
+- [ ] 12. Desktop UI: presence on the timeline and in the piano roll, locks on tracks,
+      strips and editors, incoming clips, plugin warnings, Play for Everyone, Follow
+- [ ] 13. App: `micinstation://` links, co-op settings, rejoining after a restart, two
+      copies of the app on one computer
+- [ ] 14. Benchmark: bandwidth and delay of a typical session (`docs/PERFORMANCE.md`)
+- [ ] 15. UI tests in every theme, documents, practical tests in
+      `docs/LISTENING_TESTS.md` (two copies on one Mac with a local server, then a
+      friend far away); version 0.9.0
+
+Phase 9 decisions (agreed before starting):
+
+- Sync model: an authoritative server puts every transaction in one order. A client
+  applies its own edits at once and sends them; the server checks them against its copy
+  of the project and sends them on to everyone; a refused one (two people taking the same
+  free track at the same moment) is rolled back by its author. Locks make accepted
+  changes touch disjoint parts of the project, so no CRDT or operational transformation
+  is needed in this stage.
+- Changes are data in `model`: set a property, insert, remove or move a child, each
+  addressed by ids (never by position where an id exists) and carrying the value before
+  and after; binary values (notes) travel as the changed range. The server accepts a
+  change only if its value before equals what it holds, so a divergence cannot go
+  unnoticed. Ids come from a range per participant (still "the largest + 1", within the
+  range), so two people never make the same id.
+- Server: C++20 in this repository (`server/`), reusing `model` (and only JUCE's core,
+  events and data structures) to keep the authoritative copy, validate every transaction
+  and give joiners the whole project. Not a relay in another language (no validation, the
+  project's rules twice).
+- Network: TLS 1.3 with Mbed TLS 4.1 LTS (Apache 2.0) on clients and server, pinned by
+  SHA-256; our own binary protocol over TCP; port 443 on a rented server, 7443 locally;
+  one connection for changes and presence, a second for files. The server makes its own
+  certificate; the invite link carries the fingerprint of its key, which clients check
+  (no domain, no renewals).
+- Hosting sessions: only with the server's host key, which its owner hands to friends in
+  a "server link". Invites: a 10-character code, valid 24 h, reusable, revocable; a
+  `micinstation://` link; a rejoin token per participant. 10 failed attempts from one
+  address in 10 minutes block it for 15 minutes.
+- Locks: a track (clips, notes, mixer, effects, instrument, sends, automation), a bus,
+  the master, the project (tempo, metre, loop, adding, removing and ordering tracks and
+  buses). Taken by the first edit; released after 30 s without edits or 30 s after a
+  disconnection; held during a gesture and a recording. A global change that touches a
+  track someone else holds is refused.
+- Gestures (drags) are sent every 100 ms while they last, so others see a fader move;
+  they stay one undo step.
+- Personal settings, outside the shared project: arm, input and monitoring, MIDI input,
+  metronome, count-in, punch, recording format, snap and grid, solo. Everything else is
+  shared, mute and the loop included.
+- Undo undoes only one's own transactions; it is refused, with a message, when someone
+  else changed the same objects since or holds the track.
+- Files: SHA-256; `Audio/<participant number>/` in the co-op copy; sent as they are (no
+  compression); a transfer resumes where it stopped.
+- Plugins: the Phase 7 placeholder and a warning naming the plugin. The lock holder's
+  plugin state (other than parameters) is sent 1 s after its last change and when the
+  lock goes. Changes in the editor of a plugin on a track someone else holds are undone,
+  with a warning.
+- Shared transport: Play for Everyone and Stop for Everyone (Co-op menu); "Follow the
+  Shared Transport" on by default; playback starts about 0.3 s after the command (later
+  on a slow network), output latency compensated; no continuous drift correction; never
+  interrupts a recording.
+- While someone records, nobody changes the tempo, the metre or the structure of effect
+  chains (it would change the latency).
+- Disconnections: rejoining is automatic; pending changes are sent again, never applied
+  twice; while reconnecting one goes on with the tracks one holds; after 30 s the copy is
+  read-only until rejoined.
+- The host dropping out: the session goes on (the server holds the reference copy);
+  removing participants, inviting and closing wait for the host; the host can hand the
+  role over.
+- Reference copy: the server's. Everyone has a complete local copy kept up to date in
+  `Documents/MICINSTATION/Co-op/<project>/`, which opens on its own ("Save a Copy As..."
+  makes an ordinary project of it). Hosting makes the co-op copy and leaves the original
+  untouched. Closing a session deletes it from the server; sessions nobody joins for 30
+  days are deleted.
+- Hosting: a Hetzner Cloud CAX11 (EU, about 5-6 EUR a month with IPv4) by default; Fly.io
+  (about 6 USD a month) or one of us at home (free, port forwarding) are the alternatives.
+  The server ships as a multi-architecture Docker image on ghcr.io, made by the release
+  workflow, and builds from source for the local mode. Not inside the app.
+- Limits: 8 participants per session, 20 sessions, 20 GB per session and 100 GB in all,
+  64 connections (all configurable). The server logs random ids, numbers, sizes and
+  errors: no names, contents or addresses.
+- Presence: cursor, selection, playhead and the track looked at, at most 20 times a
+  second; the server gives each participant a colour.
+- Network protocol version stays 1 (no release ever used the network); every change
+  from v0.9.0 on bumps it. The project format stays 6: co-op data lives in `.coop/` next
+  to the copy (version 7 with a migration only if that proves necessary).
+- Accounts and server access are the user's: the Hetzner account and server, making the
+  image's package public on GitHub, handing out the server link (`docs/SERVER.md`).
