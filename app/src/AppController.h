@@ -2,6 +2,7 @@
 
 #include "CrashMarker.h"
 #include "SmokeTest.h"
+#include "daw/controller/CoopSession.h"
 #include "daw/controller/PluginInstances.h"
 #include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
@@ -72,6 +73,13 @@ public:
     /** Opens windows for reviewing the interface (see MainComponent::showForReview()). */
     void showForReview(const juce::StringArray& what);
 
+    /** A micinstation:// link (an invite or a server link) the system handed the app. */
+    void openLink(const juce::String& link);
+
+    /** Back into the co-op session the app was in when it quit, if any (and the copy still
+        belongs to it). */
+    void rejoinLastSession();
+
     /** Quits, after offering to save unsaved changes. */
     void requestQuit();
 
@@ -124,12 +132,14 @@ private:
     engine::Engine engine;
     engine::io::AudioDeviceHost deviceHost{engine};
     controller::Session session{engine, sessionOptions()};
+    std::unique_ptr<controller::CoopSession> coop; // the window shows it
     std::unique_ptr<services::UpdateChecker> updates;
     std::unique_ptr<ui::desktop::ThemeManager> themes; // the window draws with its looks
     std::unique_ptr<ui::desktop::MainWindow> window;
 
     juce::String shownTitle;
     juce::File shownProject; // the last one kept in the settings
+    juce::File shownCoopCopy; // the co-op copy kept in the settings
     bool shownUnsaved = false;
     juce::String loggedDevice, loggedMidiInputs;
     bool loggedScanning = false;

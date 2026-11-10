@@ -2,6 +2,7 @@
 
 #include "daw/model/FormatVersion.h"
 
+#include "FilePaths.h"
 #include "Identifiers.h"
 #include "ObjectIds.h"
 
@@ -285,28 +286,6 @@ constexpr std::array<FormatMigration, currentFormatVersion - 1> migrations{
     migrateVersion5To6};
 static_assert(migrations.size() + 1 == static_cast<std::size_t>(currentFormatVersion));
 
-juce::String pathForFile(const juce::File& file, const juce::File& projectDirectory)
-{
-    if (file == juce::File())
-        return {};
-
-    if (file.isAChildOf(projectDirectory))
-        return file.getRelativePathFrom(projectDirectory).replaceCharacter('\\', '/');
-
-    return file.getFullPathName();
-}
-
-juce::File fileForPath(const juce::String& path, const juce::File& projectDirectory)
-{
-    if (path.isEmpty())
-        return {};
-
-    if (juce::File::isAbsolutePath(path))
-        return juce::File(path);
-
-    return projectDirectory.getChildFile(path);
-}
-
 LoadedProject failure(int fileFormatVersion, const juce::String& message)
 {
     LoadedProject result;
@@ -351,7 +330,8 @@ juce::var effectToJson(const Effect& effect, const juce::File& projectDirectory)
     {
         auto filesObject = makeObject();
         for (const auto& [key, file] : files)
-            filesObject.getDynamicObject()->setProperty(key, pathForFile(file, projectDirectory));
+            filesObject.getDynamicObject()->setProperty(
+                key, detail::pathForFile(file, projectDirectory));
         object.getDynamicObject()->setProperty(json::files, filesObject);
     }
     if (const auto plugin = effect.getPlugin())
@@ -385,7 +365,7 @@ juce::var clipToJson(const Clip& clip, const juce::File& projectDirectory)
         auto object = makeObject({
             {json::id, clip.getId()},
             {json::kind, "audio"},
-            {json::audioFile, pathForFile(clip.getAudioFile(), projectDirectory)},
+            {json::audioFile, detail::pathForFile(clip.getAudioFile(), projectDirectory)},
             {json::position, clip.getPosition()},
             {json::offset, clip.getOffset()},
         });
@@ -718,7 +698,8 @@ juce::String readEffectFields(const juce::var& effectJson, const juce::File& pro
             if (!property.value.isString() ||
                 !key.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
                 return "a file of an effect is not valid";
-            fields.files.emplace_back(key, fileForPath(property.value.toString(), projectDirectory));
+            fields.files.emplace_back(
+                key, detail::fileForPath(property.value.toString(), projectDirectory));
         }
     }
 
@@ -1252,7 +1233,8 @@ LoadedProject detail::fromJson(const juce::String& text, const juce::File& proje
             if (!lengthJson.isVoid())
                 bounds.length = static_cast<Ticks>(lengthJson);
 
-            auto clip = track.addClip(fileForPath(audioFile.toString(), projectDirectory), bounds);
+            auto clip = track.addClip(
+                detail::fileForPath(audioFile.toString(), projectDirectory), bounds);
             juce::ValueTree(clip.getState())
                 .setProperty(ids::id, acceptId(clipJson, usedIds), nullptr);
         }

@@ -46,6 +46,9 @@ public:
     /** Starts loading the file, unless it is loaded or loading. */
     void request(const juce::File& file);
 
+    /** Loads the file again, whatever happened before (a file that arrived). */
+    void reload(const juce::File& file);
+
     /** Starts loading every file the project's instruments play. */
     void requestAll(const model::Project& project);
 

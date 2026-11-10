@@ -16,4 +16,8 @@ namespace daw::appearance
     whatever its hue. */
 [[nodiscard]] double lightness(Colour colour) noexcept;
 
+/** How different two opaque colours look: their distance in CIELAB (D65), CIE76's Delta E.
+    About 2.3 is just noticeable; colours told apart at a glance are tens apart. */
+[[nodiscard]] double colourDifference(Colour first, Colour second) noexcept;
+
 } // namespace daw::appearance

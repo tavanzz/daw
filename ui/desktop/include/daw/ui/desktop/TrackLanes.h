@@ -48,6 +48,7 @@ public:
     void mouseMove(const juce::MouseEvent& event) override;
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
+    void mouseExit(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
     void mouseDoubleClick(const juce::MouseEvent& event) override;
     void mouseWheelMove(const juce::MouseEvent& event,
@@ -93,6 +94,8 @@ private:
     [[nodiscard]] juce::Rectangle<float> rowBounds(int row) const;
     [[nodiscard]] juce::Rectangle<int> visibleArea() const;
     void paintContent(juce::Graphics& g, bool translucent) const;
+    void paintOthers(juce::Graphics& g) const;
+    void notePointer(juce::Point<float> position);
     void repaintPlayhead();
     void updateAnimations();
 

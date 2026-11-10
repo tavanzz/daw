@@ -12,6 +12,12 @@
 #     controller/ never include it
 #   - services/ (build information, settings, log, updates, crash reports) includes no
 #     other module; engine/, model/, controller/ and appearance/ never include it
+#   - net/ (TLS links, frames, a reliable channel) includes no other module; engine/,
+#     model/, appearance/ and services/ never include it
+#   - coop/ (co-op sessions: protocol and synchronisation) uses model/ and net/ only;
+#     engine/, model/, net/, appearance/ and services/ never include it
+#   - server/ (the co-op server) uses model/, net/ and coop/ only; no other module
+#     includes it
 
 if(NOT DAW_SOURCE_DIR)
     message(FATAL_ERROR "DAW_SOURCE_DIR is not set")
@@ -67,14 +73,20 @@ function(check_module module_dir)
 endfunction()
 
 check_module(engine ${gui_includes} "daw/model/" "daw/controller/" "daw/appearance/"
-    "daw/services/")
+    "daw/services/" "daw/coop/" "daw/net/" "daw/server/")
 check_module(model ${gui_includes} "daw/engine/" "daw/controller/" "daw/appearance/"
-    "daw/services/")
-check_module(controller ${gui_includes} "daw/appearance/" "daw/services/")
+    "daw/services/" "daw/coop/" "daw/net/" "daw/server/")
+check_module(controller ${gui_includes} "daw/appearance/" "daw/services/" "daw/server/")
 check_module(appearance ${gui_includes} "daw/engine/" "daw/model/" "daw/controller/"
-    "daw/services/")
+    "daw/services/" "daw/coop/" "daw/net/" "daw/server/")
 check_module(services ${gui_includes} "daw/engine/" "daw/model/" "daw/controller/"
-    "daw/appearance/")
+    "daw/appearance/" "daw/coop/" "daw/net/" "daw/server/")
+check_module(net ${gui_includes} "daw/engine/" "daw/model/" "daw/controller/"
+    "daw/appearance/" "daw/services/" "daw/coop/" "daw/server/")
+check_module(coop ${gui_includes} "daw/engine/" "daw/controller/" "daw/appearance/"
+    "daw/services/" "daw/server/")
+check_module(server ${gui_includes} "daw/engine/" "daw/controller/" "daw/appearance/"
+    "daw/services/")
 
 if(violations)
     message(FATAL_ERROR "Module dependency rules violated (see CLAUDE.md, Architecture):${violations}")

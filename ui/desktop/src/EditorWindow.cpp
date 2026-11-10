@@ -63,4 +63,13 @@ WindowPositions WindowPositions::fromJson(const juce::var& json)
     return read;
 }
 
+void EditorWindow::showEditedBy(const juce::String& name)
+{
+    if (baseTitle.isEmpty())
+        baseTitle = getName();
+    const auto title = name.isEmpty() ? baseTitle : baseTitle + "  (" + name + " is editing this track)";
+    if (title != getName())
+        setName(title);
+}
+
 } // namespace daw::ui::desktop

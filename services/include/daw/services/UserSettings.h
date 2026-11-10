@@ -47,6 +47,17 @@ struct UpdatePreferences
     bool operator==(const UpdatePreferences&) const = default;
 };
 
+/** Co-op sessions (Phase 9): what the Co-op windows remember. */
+struct CoopPreferences
+{
+    juce::String name;     ///< what the others see
+    juce::String hostLink; ///< the server link last hosted with (it holds a host key)
+    bool follow = true;    ///< follow the shared transport
+    juce::File lastCopy;   ///< the copy of the session the app was in when it quit
+
+    bool operator==(const CoopPreferences&) const = default;
+};
+
 /**
     The user's settings (not a project's): one file per user, `DAW.settings`, in the
     settings folder (`defaultFolder()`, or a folder of its own for diagnostic runs).
@@ -121,6 +132,9 @@ public:
 
     [[nodiscard]] UpdatePreferences getUpdatePreferences() const;
     void setUpdatePreferences(const UpdatePreferences& preferences);
+
+    [[nodiscard]] CoopPreferences getCoopPreferences() const;
+    void setCoopPreferences(const CoopPreferences& preferences);
 
 private:
     void migrate();

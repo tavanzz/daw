@@ -65,6 +65,16 @@
         "bodyAlpha": 0.14,
         "headerAlpha": 0.95
     },
+    "participants": [
+        "acid",
+        "red",
+        "blue",
+        "#FF9F1C",
+        "#FF5FD2",
+        "#3DFFA8",
+        "#B394FF",
+        "text"
+    ],
     "fonts": {
         "title": { "family": "Space Grotesk", "style": "Bold", "size": 15, "tracking": 0.06, "uppercase": true },
         "heading": { "family": "Space Grotesk", "style": "Medium", "size": 14, "tracking": 0.02, "uppercase": false },

@@ -1,0 +1,6 @@
+# What the server's image is built from: the sources, not build folders or downloads.
+build/
+.cache/
+.claude/
+.git/
+**/.DS_Store

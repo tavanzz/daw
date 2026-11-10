@@ -24,6 +24,7 @@ struct AppServices
     juce::File logFolder;      ///< Help > Open Log Folder
     juce::File licencesFolder; ///< the licences shipped with the app (About)
     juce::String signature;    ///< how this copy is signed, for the About window
+    juce::File coopFolder;     ///< where co-op copies go (empty: Documents/<app>/Co-op)
 
     services::UserSettings* settings = nullptr;          ///< update and crash-report choices
     services::UpdateChecker* updates = nullptr;          ///< Help > Check for Updates...

@@ -2,6 +2,7 @@
 
 #include "daw/ui/desktop/ArrangeState.h"
 #include "daw/ui/desktop/AutomationLanes.h"
+#include "daw/ui/desktop/CoopPanels.h"
 #include "daw/ui/desktop/LevelMeter.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
 #include "daw/ui/desktop/TrackInputControls.h"
@@ -179,6 +180,43 @@ public:
             resized();
     }
 
+    /** Co-op: who else holds this track, and who looks at it. */
+    void showCoop(std::optional<controller::CoopPeer> holder, std::vector<controller::CoopPeer> lookers)
+    {
+        std::vector<std::pair<int, juce::String>> marks;
+        if (holder)
+            marks.emplace_back(holder->colour, holder->name);
+        for (const auto& peer : lookers)
+            marks.emplace_back(peer.colour, peer.name);
+        const auto holderColour = holder ? std::optional<int>(holder->colour) : std::nullopt;
+        if (marks == coopMarks && holderColour == lockColour)
+            return;
+        coopMarks = std::move(marks);
+        lockColour = holderColour;
+        name.setTooltip(holder ? holder->name + " is editing this track: it changes only when they are done."
+                               : juce::String("Double-click to rename"));
+        resized();
+        repaint();
+    }
+
+    void paintOverChildren(juce::Graphics& g) override
+    {
+        if (coopMarks.empty())
+            return;
+        const auto& look = ThemedLookAndFeel::get(*this);
+        if (lockColour)
+        {
+            g.setColour(look.participantColour(*lockColour));
+            g.fillRect(0, 0, 3, getHeight());
+        }
+        auto chip = juce::Rectangle<float>(static_cast<float>(name.getRight() + 4), 9.0f, 16.0f, 16.0f);
+        for (const auto& [colour, who] : coopMarks)
+        {
+            drawParticipantChip(g, *this, chip, colour, who);
+            chip.translate(chip.getWidth() + 3.0f, 0.0f);
+        }
+    }
+
     void updateMeter(double elapsedSeconds)
     {
         if (!inputMeter.isVisible())
@@ -192,7 +230,8 @@ public:
         auto area = getLocalBounds().reduced(8, 6);
         inputMeter.setBounds(area.removeFromRight(10));
         area.removeFromRight(6);
-        name.setBounds(area.removeFromTop(24));
+        // Room for the co-op marks after the name.
+        name.setBounds(area.removeFromTop(24).withTrimmedRight(static_cast<int>(coopMarks.size()) * 19));
         area.removeFromTop(6);
 
         auto row = area.removeFromTop(24);
@@ -247,6 +286,8 @@ private:
     AutomationControls automation;
     bool laidOutForAutomation = false;
     LevelMeter inputMeter;
+    std::vector<std::pair<int, juce::String>> coopMarks; // colour and name: the holder first
+    std::optional<int> lockColour;
 };
 
 TrackHeaderList::TrackHeaderList(ArrangeState& sharedState)
@@ -280,8 +321,20 @@ void TrackHeaderList::refresh()
         resized();
     }
 
+    const auto others = state.inCoop() ? state.coop->getOthers() : std::vector<controller::CoopPeer>{};
     for (int i = 0; i < project.getNumTracks(); ++i)
-        headers[static_cast<std::size_t>(i)]->show(project.getTrack(i), project.isTrackAudible(i));
+    {
+        auto& header = *headers[static_cast<std::size_t>(i)];
+        header.show(project.getTrack(i), project.isTrackAudible(i));
+        const auto id = project.getTrack(i).getId();
+        const auto holder =
+            state.inCoop() ? state.coop->findOtherHolder(model::EditScope::track(id)) : std::nullopt;
+        std::vector<controller::CoopPeer> lookers; // apart from the holder, shown already
+        for (const auto& peer : others)
+            if (peer.connected && peer.presence.track == id && (!holder || holder->number != peer.number))
+                lookers.push_back(peer);
+        header.showCoop(holder, std::move(lookers));
+    }
 
     // The buses' and the master's rows, in the automation view.
     std::vector<controller::ChainOwner> owners;

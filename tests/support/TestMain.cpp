@@ -2,12 +2,15 @@
 // Some JUCE classes (the AudioDeviceManager, for one) must be used from the message
 // thread, and JUCE's singletons must be cleaned up before exit.
 
+#include "support/NoCrashDialogs.h"
+
 #include <juce_events/juce_events.h>
 
 #include <catch2/catch_session.hpp>
 
 int main(int argc, char* argv[])
 {
+    daw::test::reportCrashesWithoutDialogs();
     juce::MessageManager::getInstance()->setCurrentThreadAsMessageThread();
 
     const int result = Catch::Session().run(argc, argv);

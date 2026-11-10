@@ -167,6 +167,31 @@ juce::StringArray contrastProblems(const Theme& theme)
                   minimumContrast(ContrastKind::graphic));
     }
 
+    // Co-op participants: cursors, playheads and lock marks over the lanes, the piano roll's
+    // rows and the panels; their names on chips of their colour; and each tells apart from
+    // the others.
+    for (std::size_t index = 0; index < theme.participants.size(); ++index)
+    {
+        const auto colour = opaque(theme.participants[index], windowColour);
+        const auto who = "participant colour " + juce::String(static_cast<int>(index) + 1);
+        for (const auto backgroundRole : {lane, laneAlt, keyRow, panel, panelAlt, raised, inset})
+            check(problems, who + " on " + nameOf(backgroundRole), colour,
+                  opaque(theme.colour(backgroundRole), windowColour),
+                  minimumContrast(ContrastKind::graphic));
+        check(problems, who + ", name on it", theme.colour(textRoleOn(theme, colour)), colour,
+              minimumContrast(ContrastKind::text));
+
+        for (std::size_t other = index + 1; other < theme.participants.size(); ++other)
+        {
+            const double difference =
+                colourDifference(colour, opaque(theme.participants[other], windowColour));
+            if (difference < minimumParticipantDifference)
+                problems.add(who + " and " + juce::String(static_cast<int>(other) + 1) + ": Delta E "
+                             + juce::String(difference, 1) + " apart, needs "
+                             + juce::String(minimumParticipantDifference, 0));
+        }
+    }
+
     // Meters: every level the bar can show, against the unlit track.
     const auto track = opaque(theme.colour(meterTrack), windowColour);
     for (int decibels = 0; decibels >= -60; --decibels)

@@ -514,6 +514,78 @@ jobs:
             *-symbols.zip
             build/release/tools/daw_update_tool
 
+  # The co-op server's Docker image (server/Dockerfile, docs/SERVER.md) for x86-64 and ARM
+  # servers, each built natively and checked as CI checks it; pushed to the GitHub
+  # Container Registry by tags, then joined into one image for both (latest: releases only).
+  server-image:
+    name: Server image (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the image
+        run: docker build -f server/Dockerfile -t micinstation-server:${{ matrix.arch }} .
+
+      - name: Start it and connect to it
+        run: |
+          docker run -d --name micinstation-check -p 17443:7443 \
+            -e MICINSTATION_PUBLIC=127.0.0.1:17443 micinstation-server:${{ matrix.arch }}
+          for attempt in $(seq 1 30); do
+            docker logs micinstation-check 2>&1 | grep -q listening && break
+            sleep 1
+          done
+          link=$(docker exec micinstation-check micinstation-server --links \
+                   | grep -o 'micinstation://server[^ ]*' | head -1)
+          test -n "$link"
+          docker run --rm --network host micinstation-server:${{ matrix.arch }} --probe "$link"
+          docker stop micinstation-check
+
+      - name: Push it
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/micinstation-server
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag "micinstation-server:${{ matrix.arch }}" "$IMAGE:$VERSION-${{ matrix.arch }}"
+          docker push "$IMAGE:$VERSION-${{ matrix.arch }}"
+
+  server-manifest:
+    name: Server image (both architectures)
+    needs: [prepare, server-image]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    steps:
+      - name: One image for both architectures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/micinstation-server
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          tags=(-t "$IMAGE:$VERSION")
+          if [ "$PRERELEASE" != "true" ]; then tags+=(-t "$IMAGE:latest"); fi
+          docker buildx imagetools create "${tags[@]}" "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          echo "Pushed $IMAGE:$VERSION ($([ "$PRERELEASE" != "true" ] && echo "and latest"))" >> "$GITHUB_STEP_SUMMARY"
+
   publish:
     name: Publish the release
     needs: [prepare, macos, windows, linux]

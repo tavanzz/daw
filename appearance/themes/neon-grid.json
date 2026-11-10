@@ -67,6 +67,16 @@
         "bodyAlpha": 0.16,
         "headerAlpha": 0.95
     },
+    "participants": [
+        "cyan",
+        "magenta",
+        "yellow",
+        "violet",
+        "#FF8A3D",
+        "#4DFF9A",
+        "#FF5C7A",
+        "#6FA8FF"
+    ],
     "fonts": {
         "title": { "family": "Chakra Petch", "style": "SemiBold", "size": 16, "tracking": 0.08, "uppercase": true },
         "heading": { "family": "Chakra Petch", "style": "SemiBold", "size": 14, "tracking": 0.04, "uppercase": false },

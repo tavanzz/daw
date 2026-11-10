@@ -75,6 +75,12 @@ Colour ClipLook::colourFor(int trackIndex) const noexcept
     return colours[static_cast<std::size_t>(((trackIndex % count) + count) % count)];
 }
 
+Colour Theme::participantColour(int index) const noexcept
+{
+    constexpr auto count = static_cast<int>(participantColourCount);
+    return participants[static_cast<std::size_t>(((index % count) + count) % count)];
+}
+
 Colour Theme::colour(ColourRole role) const noexcept
 {
     return colours[static_cast<std::size_t>(role)];

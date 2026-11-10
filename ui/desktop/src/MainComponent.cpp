@@ -126,7 +126,308 @@ void MainComponent::showForReview(const juce::StringArray& what)
 void MainComponent::setAppServices(AppServices servicesToUse)
 {
     appServices = std::move(servicesToUse);
+    if (coop != nullptr && appServices.settings != nullptr)
+        coop->setFollowing(appServices.settings->getCoopPreferences().follow);
     commandManager.commandStatusChanged();
+}
+
+void MainComponent::setCoopSession(controller::CoopSession* coopToUse)
+{
+    coop = coopToUse;
+    statusBar.setCoop(coop);
+    arrangeView.setCoop(coop);
+    pianoRoll.setCoop(coop);
+    mixerView.setCoop(coop);
+    effectEditors.setCoop(coop);
+    if (coop != nullptr && appServices.settings != nullptr)
+        coop->setFollowing(appServices.settings->getCoopPreferences().follow);
+    commandManager.commandStatusChanged();
+}
+
+juce::File MainComponent::coopFolder() const
+{
+    if (appServices.coopFolder != juce::File())
+        return appServices.coopFolder;
+    return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+        .getChildFile(services::buildInfo().productName)
+        .getChildFile("Co-op");
+}
+
+void MainComponent::showCoopStart(CoopStartPanel::Mode mode, const juce::String& link)
+{
+    if (coop == nullptr)
+        return;
+    if (coop->isActive())
+    {
+        showCoopSession();
+        return;
+    }
+    coopStartWindow.reset(); // a host window may become a join window, with a new link
+
+    const auto preferences = appServices.settings != nullptr ? appServices.settings->getCoopPreferences()
+                                                             : services::CoopPreferences{};
+    const auto shownLink = link.isNotEmpty() ? link
+                           : mode == CoopStartPanel::Mode::host ? preferences.hostLink
+                                                                : juce::String();
+    auto name = preferences.name;
+    if (name.isEmpty())
+        name = juce::SystemStats::getFullUserName().upToFirstOccurrenceOf(" ", false, false);
+
+    const juce::Component::SafePointer<MainComponent> self(this);
+    CoopStartPanel::Actions actions;
+    actions.start = [self, mode](const juce::String& text, const juce::String& who,
+                                 std::function<void(juce::Result)> started) {
+        if (self != nullptr)
+            self->startCoop(mode, text, who, std::move(started));
+    };
+    actions.connected = [self] {
+        juce::MessageManager::callAsync([self] {
+            if (self == nullptr)
+                return;
+            self->coopStartWindow.reset();
+            self->showCoopSession();
+        });
+    };
+    actions.giveUp = [self] {
+        if (self != nullptr && self->coop != nullptr && self->coop->isActive())
+        {
+            self->coop->leave();
+            juce::Logger::writeToLog("Co-op: gave up connecting");
+            self->commandManager.commandStatusChanged();
+        }
+    };
+    actions.close = [self] {
+        juce::MessageManager::callAsync([self] {
+            if (self != nullptr)
+                self->coopStartWindow.reset();
+        });
+    };
+    showPanel(coopStartWindow, mode == CoopStartPanel::Mode::host ? "Host a Session" : "Join a Session",
+              [&] { return std::make_unique<CoopStartPanel>(mode, *coop, shownLink, name, actions); });
+}
+
+void MainComponent::startCoop(CoopStartPanel::Mode mode, const juce::String& link, const juce::String& name,
+                              std::function<void(juce::Result)> started)
+{
+    if (coop == nullptr || session.isRecording())
+    {
+        started(juce::Result::fail("Stop recording first."));
+        return;
+    }
+
+    // Hosting replaces the open project by its co-op copy, joining by the session's: what
+    // is not saved would be lost to the original.
+    const juce::Component::SafePointer<MainComponent> self(this);
+    auto finish = std::make_shared<std::function<void(juce::Result)>>(std::move(started));
+    askToSaveChanges([self, mode, link, name, finish] {
+        if (self == nullptr || self->coop == nullptr)
+            return;
+        auto& coopSession = *self->coop;
+        juce::Result result = juce::Result::ok();
+        if (mode == CoopStartPanel::Mode::host)
+        {
+            const auto serverLink = controller::parseServerLink(link);
+            const auto project = self->session.getProjectFile();
+            const auto title = project != juce::File() ? project.getFileNameWithoutExtension() : juce::String("Session");
+            result = serverLink ? coopSession.host(*serverLink, name, controller::newCopyFolder(self->coopFolder(), title))
+                                : juce::Result::fail("That is not a server link.");
+        }
+        else
+        {
+            const auto invite = controller::parseInvite(link);
+            result = invite ? coopSession.join(*invite, name,
+                                               controller::newCopyFolder(self->coopFolder(), invite->title))
+                            : juce::Result::fail("That is not an invite.");
+        }
+
+        if (result.wasOk() && self->appServices.settings != nullptr)
+        {
+            auto preferences = self->appServices.settings->getCoopPreferences();
+            preferences.name = name;
+            if (mode == CoopStartPanel::Mode::host)
+                preferences.hostLink = link;
+            self->appServices.settings->setCoopPreferences(preferences);
+            self->appServices.settings->save();
+        }
+        juce::Logger::writeToLog(juce::String(mode == CoopStartPanel::Mode::host ? "Co-op: hosting" : "Co-op: joining")
+                                 + (result.wasOk() ? juce::String() : " failed: " + result.getErrorMessage()));
+        self->commandManager.commandStatusChanged();
+        (*finish)(result);
+    });
+}
+
+void MainComponent::openCoopLink(const juce::String& link)
+{
+    if (controller::parseInvite(link))
+        showCoopStart(CoopStartPanel::Mode::join, link);
+    else if (controller::parseServerLink(link))
+        showCoopStart(CoopStartPanel::Mode::host, link);
+    else
+        showError("Not a co-op link", "This link cannot be opened: " + link.substring(0, 80));
+}
+
+juce::Result MainComponent::rejoinCoop(const juce::File& copyFolder)
+{
+    if (coop == nullptr)
+        return juce::Result::fail("Co-op is not available.");
+    effectEditors.closeAll();
+    const auto result = coop->rejoin(copyFolder);
+    juce::Logger::writeToLog(result.wasOk() ? juce::String("Co-op: rejoining the session of a copy")
+                                            : "Co-op: cannot rejoin: " + result.getErrorMessage());
+    if (result.wasOk())
+    {
+        arrangeView.zoomToFit();
+        commandManager.commandStatusChanged();
+    }
+    return result;
+}
+
+void MainComponent::showCoopSession()
+{
+    if (coop == nullptr || coop->findClient() == nullptr)
+        return;
+    const juce::Component::SafePointer<MainComponent> self(this);
+    CoopSessionPanel::Actions actions;
+    actions.leave = [self] {
+        if (self == nullptr)
+            return;
+        if (self->coop != nullptr && self->coop->isActive())
+            self->confirmLeaveCoop();
+        else
+            juce::MessageManager::callAsync([self] {
+                if (self != nullptr)
+                    self->coopSessionWindow.reset();
+            });
+    };
+    actions.closeSession = [self] {
+        if (self != nullptr)
+            self->confirmCloseCoop();
+    };
+    actions.follow = [self](bool follow) {
+        if (self == nullptr || self->appServices.settings == nullptr)
+            return;
+        auto preferences = self->appServices.settings->getCoopPreferences();
+        preferences.follow = follow;
+        self->appServices.settings->setCoopPreferences(preferences);
+        self->commandManager.commandStatusChanged();
+    };
+    showPanel(coopSessionWindow, "Co-op Session",
+              [&] { return std::make_unique<CoopSessionPanel>(*coop, actions); });
+}
+
+CoopStartPanel* MainComponent::findCoopStartPanel() const
+{
+    return coopStartWindow != nullptr ? dynamic_cast<CoopStartPanel*>(coopStartWindow->getContentComponent())
+                                      : nullptr;
+}
+
+CoopSessionPanel* MainComponent::findCoopSessionPanel() const
+{
+    return coopSessionWindow != nullptr ? dynamic_cast<CoopSessionPanel*>(coopSessionWindow->getContentComponent())
+                                        : nullptr;
+}
+
+void MainComponent::confirmLeaveCoop()
+{
+    if (coop == nullptr || !coop->isActive())
+        return;
+    const juce::Component::SafePointer<MainComponent> self(this);
+    showAlert(juce::MessageBoxOptions()
+                  .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                  .withTitle("Leave the co-op session?")
+                  .withMessage("Your copy stays in " + coop->getCopyFolder().getFullPathName()
+                               + ", as an ordinary project. To come back you need a new invite from the host.")
+                  .withButton("Leave")
+                  .withButton("Cancel")
+                  .withAssociatedComponent(this),
+              [self](int button) {
+                  if (self == nullptr || button != 0 || self->coop == nullptr)
+                      return;
+                  self->coop->leave();
+                  juce::Logger::writeToLog("Co-op: left the session");
+                  self->commandManager.commandStatusChanged();
+                  if (auto* panel = self->findCoopSessionPanel())
+                      panel->refresh();
+              });
+}
+
+void MainComponent::confirmCloseCoop()
+{
+    if (coop == nullptr || !coop->isActive() || !coop->getClient().isHost())
+        return;
+    const juce::Component::SafePointer<MainComponent> self(this);
+    showAlert(juce::MessageBoxOptions()
+                  .withIconType(juce::MessageBoxIconType::WarningIcon)
+                  .withTitle("Close the session for everyone?")
+                  .withMessage("Everyone's copy stays on their computer, as an ordinary project, and the "
+                               "server deletes the session and its files. Nobody can join it again.")
+                  .withButton("Close Session")
+                  .withButton("Cancel")
+                  .withAssociatedComponent(this),
+              [self](int button) {
+                  if (self == nullptr || button != 0 || self->coop == nullptr || !self->coop->isActive())
+                      return;
+                  self->coop->getClient().sendHostCommand({coop::HostCommand::Kind::close, 0});
+                  juce::Logger::writeToLog("Co-op: closing the session");
+              });
+}
+
+void MainComponent::refreshCoop()
+{
+    if (coop == nullptr)
+        return;
+
+    juce::StringArray notices = coop->takeNotices();
+    if (const auto* client = coop->findClient())
+    {
+        const auto status = client->getStatus();
+        if (status != lastCoopStatus)
+        {
+            juce::Logger::writeToLog("Co-op: " + juce::String(status == coop::Client::Status::connected      ? "connected"
+                                                              : status == coop::Client::Status::reconnecting ? "reconnecting"
+                                                              : status == coop::Client::Status::ended        ? "ended"
+                                                                                                             : "connecting"));
+            // The end of a session is worth an alert, unless this copy left on purpose
+            // (that ends nothing on screen) or the start window says why it could not join.
+            if (status == coop::Client::Status::ended && lastCoopStatus != coop::Client::Status::idle
+                && lastCoopStatus != coop::Client::Status::connecting && coopStartWindow == nullptr)
+            {
+                showError("The co-op session ended", client->getProblem() + "\n\nYour copy stays in "
+                                                         + coop->getCopyFolder().getFullPathName()
+                                                         + ", as an ordinary project.");
+                notices.clear();
+            }
+            lastCoopStatus = status;
+            commandManager.commandStatusChanged();
+        }
+        if (client->getRevision() != lastCoopRevision)
+        {
+            lastCoopRevision = client->getRevision();
+            commandManager.commandStatusChanged();
+            if (mixerVisible && showingPianoRoll)
+                pianoRoll.repaint(); // the others' pointers and selections
+        }
+    }
+
+    // What this participant looks at, for the others (sent when it changes, at most 20
+    // times a second).
+    if (coop->isActive())
+    {
+        auto presence = arrangeView.getPresence();
+        if (mixerVisible && showingPianoRoll && pianoRoll.getClip() != 0)
+        {
+            pianoRoll.fillPresence(presence);
+            if (const auto location = session.getProject().findClip(pianoRoll.getClip()))
+                presence.track = session.getProject().getTrack(location->trackIndex).getId();
+        }
+        coop->setPresence(std::move(presence));
+    }
+    if (!notices.isEmpty())
+    {
+        for (const auto& notice : notices)
+            juce::Logger::writeToLog("Co-op notice: " + notice.upToFirstOccurrenceOf("\"", false, false));
+        statusBar.showWarning(notices.joinIntoString("  "));
+    }
 }
 
 void MainComponent::showFirstLaunch(services::FirstLaunchPages pages,
@@ -276,6 +577,10 @@ void MainComponent::timerCallback()
 
     if (const auto problem = session.takeRecordingProblem(); problem.isNotEmpty())
         showError("Recording stopped", problem);
+    // Edits refused (someone else's lock, a recording) say why, unless a view did.
+    if (const auto problem = session.takeEditProblem(); problem.isNotEmpty())
+        statusBar.showWarning(problem);
+    refreshCoop();
     if (session.takeDropouts() > 0)
     {
         juce::Logger::writeToLog("Dropouts: the disk was too slow, some audio was missing");
@@ -453,6 +758,11 @@ void MainComponent::togglePlayPause()
 
 void MainComponent::openProjectFile(const juce::File& file, bool withPlugins)
 {
+    // The copy of a co-op session goes back into its session.
+    if (coop != nullptr && !coop->isActive() && controller::readMembership(file.getParentDirectory()))
+        if (rejoinCoop(file.getParentDirectory()).wasOk())
+            return;
+
     effectEditors.closeAll();
     const auto result = session.openProject(file, withPlugins);
     if (result.failed() && result.getErrorMessage().contains(model::newerFormatMessage) &&
@@ -703,7 +1013,9 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
                        toggleAllAnimations, newMidiTrack, duplicate, togglePianoRoll,
                        quantiseNotes,    exportMidi,      panic, togglePluginBrowser, openWithoutPlugins, showPluginManager,
                        openLogFolder, showAbout, checkForUpdates, toggleCheckAtLaunch,
-                       toggleIncludePreReleases, toggleCrashReports, showPrivacy});
+                       toggleIncludePreReleases, toggleCrashReports, showPrivacy, coopHost, coopJoin,
+                       coopShowSession, coopCopyInvite, coopPlayForEveryone, coopStopForEveryone,
+                       coopToggleFollow, coopLeave, coopClose});
 
     const auto numThemes = static_cast<int>(themes.getLibrary().getThemes().size());
     for (int index = 0; index < std::min(numThemes, lastTheme - firstTheme + 1); ++index)
@@ -938,6 +1250,47 @@ void MainComponent::getCommandInfo(juce::CommandID commandId, juce::ApplicationC
     case showPrivacy:
         result.setInfo("Privacy...", "What the app sends and what it keeps on this computer", "Help", 0);
         break;
+    case coopHost:
+        result.setInfo("Host a Session...", "Opens a copy of this project in a co-op session, to work on "
+                       "it with others", "Co-op", 0);
+        result.setActive(coop != nullptr && !coop->isActive() && !recording);
+        break;
+    case coopJoin:
+        result.setInfo("Join a Session...", "Joins someone's co-op session with their invite", "Co-op", 0);
+        result.setActive(coop != nullptr && !coop->isActive() && !recording);
+        break;
+    case coopShowSession:
+        result.setInfo("Session...", "The co-op session: its invite and participants", "Co-op", 0);
+        result.setActive(coop != nullptr && coop->findClient() != nullptr);
+        break;
+    case coopCopyInvite:
+        result.setInfo("Copy Invite Link", "Copies the session's invite, to paste in a message", "Co-op", 0);
+        result.setActive(coop != nullptr && coop->isActive() && coop->getInviteLink().isNotEmpty());
+        break;
+    case coopPlayForEveryone:
+        result.setInfo("Play for Everyone", "Starts everyone who follows from the playhead, at the same moment",
+                       "Co-op", 0);
+        result.setActive(coop != nullptr && coop->isActive() && !recording);
+        break;
+    case coopStopForEveryone:
+        result.setInfo("Stop for Everyone", "Stops everyone who follows", "Co-op", 0);
+        result.setActive(coop != nullptr && coop->isActive());
+        break;
+    case coopToggleFollow:
+        result.setInfo("Follow the Shared Transport", "Plays and stops when someone plays or stops for "
+                       "everyone", "Co-op", 0);
+        result.setActive(coop != nullptr);
+        result.setTicked(coop != nullptr && coop->isFollowing());
+        break;
+    case coopLeave:
+        result.setInfo("Leave Session...", "Leaves the co-op session; the copy stays, as an ordinary project",
+                       "Co-op", 0);
+        result.setActive(coop != nullptr && coop->isActive() && !recording);
+        break;
+    case coopClose:
+        result.setInfo("Close Session...", "Ends the co-op session for everyone (the host only)", "Co-op", 0);
+        result.setActive(coop != nullptr && coop->isActive() && coop->getClient().isHost() && !recording);
+        break;
     case openLogFolder:
         result.setInfo("Open Log Folder", "Shows the folder of the app's logs, to send them when "
                        "something went wrong", "Help", 0);
@@ -1152,6 +1505,47 @@ bool MainComponent::perform(const InvocationInfo& info)
         break;
     case showPrivacy:
         juce::URL(services::buildInfo().repositoryUrl + "/blob/main/docs/PRIVACY.md").launchInDefaultBrowser();
+        break;
+    case coopHost:
+        showCoopStart(CoopStartPanel::Mode::host);
+        break;
+    case coopJoin:
+        showCoopStart(CoopStartPanel::Mode::join);
+        break;
+    case coopShowSession:
+        showCoopSession();
+        break;
+    case coopCopyInvite:
+        if (coop != nullptr)
+            juce::SystemClipboard::copyTextToClipboard(coop->getInviteLink());
+        break;
+    case coopPlayForEveryone:
+        if (coop != nullptr)
+            coop->playForEveryone(session.getPlayhead());
+        break;
+    case coopStopForEveryone:
+        if (coop != nullptr)
+            coop->stopForEveryone();
+        break;
+    case coopToggleFollow:
+        if (coop != nullptr)
+        {
+            coop->setFollowing(!coop->isFollowing());
+            if (appServices.settings != nullptr)
+            {
+                auto preferences = appServices.settings->getCoopPreferences();
+                preferences.follow = coop->isFollowing();
+                appServices.settings->setCoopPreferences(preferences);
+            }
+            if (auto* panel = findCoopSessionPanel())
+                panel->refresh();
+        }
+        break;
+    case coopLeave:
+        confirmLeaveCoop();
+        break;
+    case coopClose:
+        confirmCloseCoop();
         break;
     case toggleMetronome:
         session.setMetronomeEnabled(!session.getProject().isMetronomeEnabled());

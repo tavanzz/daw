@@ -46,6 +46,10 @@ inline const juce::Identifier countInBars{"countInBars"};
 inline const juce::Identifier punchEnabled{"punchEnabled"};
 inline const juce::Identifier recordingBitsPerSample{"recordingBitsPerSample"};
 
+// Co-op sessions (Phase 9): where this copy makes new ids. Personal, never saved.
+inline const juce::Identifier idRangeFirst{"idRangeFirst"};
+inline const juce::Identifier idRangeLast{"idRangeLast"};
+
 // Tracks and clips
 inline const juce::Identifier id{"id"};
 inline const juce::Identifier pluginFormat{"format"};

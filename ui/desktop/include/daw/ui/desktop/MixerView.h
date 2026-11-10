@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/CoopSession.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/LevelMeter.h"
 
@@ -35,6 +36,9 @@ public:
         reader takes them, so they are read in one place) and the time passed. */
     void refresh(float masterLeftPeak, float masterRightPeak, double elapsedSeconds);
 
+    /** The co-op session whose locks the strips show (null: none). */
+    void setCoop(const controller::CoopSession* coopToShow) noexcept { coop = coopToShow; }
+
     void resized() override;
     void paint(juce::Graphics& g) override;
 
@@ -49,6 +53,7 @@ private:
     std::vector<std::unique_ptr<Strip>> strips;
     std::unique_ptr<Strip> masterStrip;
     juce::uint64 shownRevision = 0;
+    const controller::CoopSession* coop = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MixerView)
 };

@@ -152,6 +152,11 @@ juce::Colour ThemedLookAndFeel::colour(ColourRole role) const noexcept
     return toJuce(theme.colour(role));
 }
 
+juce::Colour ThemedLookAndFeel::participantColour(int index) const noexcept
+{
+    return toJuce(theme.participantColour(index));
+}
+
 juce::Font ThemedLookAndFeel::font(FontRole role) const
 {
     return fonts.font(theme.font(role));
@@ -1433,6 +1438,23 @@ void ThemedLookAndFeel::drawStatusBar(juce::Graphics& g, juce::Rectangle<float> 
         g.setColour(colour(ColourRole::textSecondary));
         g.drawText(line.details, text.removeFromRight(width + 4.0f),
                    juce::Justification::centredRight, false);
+    }
+
+    if (line.coop.isNotEmpty())
+    {
+        // "CO-OP 3 here" and a dot per participant connected, in their colours.
+        text.removeFromRight(16.0f);
+        const float width = juce::GlyphArrangement::getStringWidth(textFont, line.coop);
+        g.setColour(colour(line.coopRole));
+        g.drawText(line.coop, text.removeFromRight(width + 4.0f), juce::Justification::centredRight, false);
+        const float dot = 8.0f;
+        for (auto person = line.coopPeople.rbegin(); person != line.coopPeople.rend(); ++person)
+        {
+            auto place = text.removeFromRight(dot + 3.0f);
+            g.setColour(participantColour(*person));
+            g.fillEllipse(place.withSizeKeepingCentre(dot, dot));
+        }
+        text.removeFromRight(4.0f);
     }
 
     if (prompt)

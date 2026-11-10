@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/CoopSession.h"
 #include "daw/controller/Session.h"
 #include "daw/controller/TimelineViewport.h"
 
@@ -8,7 +9,9 @@
 #include <cmath>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
+#include <utility>
 
 namespace daw::ui::desktop
 {
@@ -28,6 +31,16 @@ struct ArrangeState
     controller::Session& session;
     controller::TimelineViewport viewport;
     std::set<model::ObjectId> selection;
+
+    /** The co-op session (null: none): the lanes show where the others are, the headers
+        who holds a track. */
+    const controller::CoopSession* coop = nullptr;
+    /** Where the pointer is over the lanes (a track and a position), for the others. */
+    std::optional<std::pair<model::ObjectId, model::Ticks>> pointer;
+    /** The track looked at: under the pointer, or the last one clicked. */
+    model::ObjectId lookedAt = 0;
+
+    [[nodiscard]] bool inCoop() const { return coop != nullptr && coop->isActive(); }
 
     /** Automation view: each row shows one target's lane over its clips, and the
         buses and the master get rows of their own after the tracks. */

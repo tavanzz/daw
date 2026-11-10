@@ -19,7 +19,7 @@ else()
 endif()
 option(DAW_HOST_LV2 "Host LV2 plugins" ${lv2_by_default})
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT DAW_SERVER_ONLY)
     # Only curl's header is needed to build: the library is opened at run time.
     find_path(DAW_CURL_INCLUDE_DIR curl/curl.h)
     if(NOT DAW_CURL_INCLUDE_DIR)
@@ -31,21 +31,33 @@ endif()
 add_library(daw_juce STATIC)
 add_library(daw::juce ALIAS daw_juce)
 
-target_link_libraries(daw_juce
-    PRIVATE
-        juce::juce_core
-        juce::juce_cryptography
-        juce::juce_events
-        juce::juce_data_structures
-        juce::juce_audio_basics
-        juce::juce_audio_formats
-        juce::juce_audio_devices
-        juce::juce_graphics
-        juce::juce_gui_basics
-        juce::juce_audio_utils
-        juce::juce_audio_processors
-        juce::juce_audio_processors_headless
-        juce::juce_recommended_config_flags)
+if(DAW_SERVER_ONLY)
+    # The co-op server (its Docker image): no audio, no graphics, no network library of
+    # JUCE's (TLS is Mbed TLS), so the image needs nothing but the C++ runtime.
+    target_link_libraries(daw_juce
+        PRIVATE
+            juce::juce_core
+            juce::juce_cryptography
+            juce::juce_events
+            juce::juce_data_structures
+            juce::juce_recommended_config_flags)
+else()
+    target_link_libraries(daw_juce
+        PRIVATE
+            juce::juce_core
+            juce::juce_cryptography
+            juce::juce_events
+            juce::juce_data_structures
+            juce::juce_audio_basics
+            juce::juce_audio_formats
+            juce::juce_audio_devices
+            juce::juce_graphics
+            juce::juce_gui_basics
+            juce::juce_audio_utils
+            juce::juce_audio_processors
+            juce::juce_audio_processors_headless
+            juce::juce_recommended_config_flags)
+endif()
 
 target_compile_definitions(daw_juce
     PUBLIC
@@ -57,7 +69,7 @@ target_compile_definitions(daw_juce
         # HTTPS (updates, crash reports): macOS and Windows have their own; on Linux
         # JUCE uses libcurl, loaded only when first needed, so the app still starts on
         # a system without it (the network then fails, nothing else).
-        JUCE_USE_CURL=$<IF:$<PLATFORM_ID:Linux>,1,0>
+        JUCE_USE_CURL=$<IF:$<AND:$<PLATFORM_ID:Linux>,$<NOT:$<BOOL:${DAW_SERVER_ONLY}>>>,1,0>
         JUCE_LOAD_CURL_SYMBOLS_LAZILY=1
         JUCE_JACK=0
         JUCE_PLUGINHOST_LADSPA=0

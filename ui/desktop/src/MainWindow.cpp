@@ -102,7 +102,7 @@ void MainWindow::closeButtonPressed()
 
 juce::StringArray MainWindow::getMenuBarNames()
 {
-    return {"File", "Edit", "Track", "Transport", "View", "Help"};
+    return {"File", "Edit", "Track", "Transport", "View", "Co-op", "Help"};
 }
 
 juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
@@ -186,6 +186,19 @@ juce::PopupMenu MainWindow::getMenuForIndex(int menuIndex, const juce::String&)
         add(MainComponent::toggleAllAnimations);
         break;
     case 5:
+        add(MainComponent::coopHost);
+        add(MainComponent::coopJoin);
+        add(MainComponent::coopShowSession);
+        add(MainComponent::coopCopyInvite);
+        menu.addSeparator();
+        add(MainComponent::coopPlayForEveryone);
+        add(MainComponent::coopStopForEveryone);
+        add(MainComponent::coopToggleFollow);
+        menu.addSeparator();
+        add(MainComponent::coopLeave);
+        add(MainComponent::coopClose);
+        break;
+    case 6:
 #if !JUCE_MAC
         add(MainComponent::showAbout);
         menu.addSeparator();

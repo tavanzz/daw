@@ -47,6 +47,11 @@ TEST_CASE("Contrast ratios and lightness match the WCAG and CIELAB references", 
     CHECK(lightness(white) == Catch::Approx(100.0).margin(1e-6));
     CHECK(lightness(hex("#777777")) == Catch::Approx(50.03).margin(0.01));
     CHECK(lightness(hex("#010101")) == Catch::Approx(0.27).margin(0.01)); // the linear part
+
+    // sRGB red is L* 53.24, a* 80.09, b* 67.20 in CIELAB (D65).
+    CHECK(colourDifference(black, white) == Catch::Approx(100.0).margin(1e-6));
+    CHECK(colourDifference(hex("#FF0000"), black) == Catch::Approx(117.33).margin(0.05));
+    CHECK(colourDifference(hex("#FF0000"), hex("#FF0000")) == 0.0);
 }
 
 TEST_CASE("Every built-in theme meets the contrast rules for every text and background pair",
@@ -134,6 +139,31 @@ TEST_CASE("A dim meter colour and an unreadable clip name are reported", "[appea
 
     CHECK(problems.contains("meter at -60 dB: 1.14:1, needs 3.00:1"));
     CHECK(problems.joinIntoString("\n").contains("clip colour 2 on lane, name"));
+}
+
+TEST_CASE("Participant colours that look alike or vanish on a lane are reported", "[appearance]")
+{
+    auto theme = copyOfNeonGrid();
+    theme.participants[5] = theme.participants[1].mixedWith(hex("#FFFFFF"), 0.05f);
+    theme.participants[7] = hex("#221E36");
+
+    const auto problems = contrastProblems(theme).joinIntoString("\n");
+    INFO(problems.toStdString());
+
+    CHECK(problems.contains("participant colour 2 and 6: Delta E"));
+    CHECK(problems.contains("participant colour 8 on lane"));
+}
+
+TEST_CASE("Every built-in theme has eight participant colours told apart at a glance", "[appearance]")
+{
+    for (const auto& theme : ThemeLibrary::builtIn().getThemes())
+        for (std::size_t first = 0; first < participantColourCount; ++first)
+            for (std::size_t second = first + 1; second < participantColourCount; ++second)
+            {
+                INFO(theme.id << " " << first << " " << second);
+                CHECK(colourDifference(theme.participants[first], theme.participants[second])
+                      >= minimumParticipantDifference);
+            }
 }
 
 TEST_CASE("Text on a fill takes whichever text colour reads better", "[appearance]")

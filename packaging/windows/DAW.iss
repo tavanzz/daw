@@ -104,6 +104,12 @@ Root: HKA; Subkey: "Software\Classes\{#AppName}.Project\DefaultIcon"; ValueType:
 Root: HKA; Subkey: "Software\Classes\{#AppName}.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""
 Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".micin"; ValueData: ""; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".dawproject"; ValueData: ""; Flags: uninsdeletekey
+; Links of co-op sessions (micinstation://join?..., micinstation://server?...) open the app,
+; which hands them to the copy already running.
+Root: HKA; Subkey: "Software\Classes\micinstation"; ValueType: string; ValueName: ""; ValueData: "URL:{#AppName} link"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\micinstation"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\micinstation\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe},0"
+Root: HKA; Subkey: "Software\Classes\micinstation\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""
 ; What the app registered under its previous name.
 Root: HKA; Subkey: "Software\Classes\.dawproject\OpenWithProgids"; ValueType: none; ValueName: "{#PreviousName}.Project"; Flags: deletevalue
 Root: HKA; Subkey: "Software\Classes\{#PreviousName}.Project"; ValueType: none; Flags: deletekey

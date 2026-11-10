@@ -2,6 +2,7 @@
 
 #include "daw/controller/ArrangementBuilder.h"
 #include "daw/controller/ChainOwner.h"
+#include "daw/controller/Collaboration.h"
 #include "daw/controller/ClipEditing.h"
 #include "daw/controller/EffectInstances.h"
 #include "daw/controller/FadeOutKeeper.h"
@@ -399,8 +400,14 @@ public:
 
     bool undo();
     bool redo();
-    [[nodiscard]] bool canUndo() const { return undoManager.canUndo(); }
-    [[nodiscard]] bool canRedo() const { return undoManager.canRedo(); }
+    [[nodiscard]] bool canUndo() const
+    {
+        return collaboration != nullptr ? collaboration->canUndo() : undoManager.canUndo();
+    }
+    [[nodiscard]] bool canRedo() const
+    {
+        return collaboration != nullptr ? collaboration->canRedo() : undoManager.canRedo();
+    }
     [[nodiscard]] juce::String getUndoDescription() const;
     [[nodiscard]] juce::String getRedoDescription() const;
 
@@ -517,13 +524,45 @@ public:
     void pause();
     void stop();
     void seek(model::Ticks position);
+    /** Starts playback from position on the engine's stream sample streamIndex (several
+        computers starting together; see Engine::playAt()). Not while recording. */
+    void playAt(model::Ticks position, juce::int64 streamIndex);
     [[nodiscard]] model::Ticks getPlayhead() const;
     [[nodiscard]] engine::TransportState getTransportState() const;
 
     [[nodiscard]] engine::Engine& getEngine() noexcept { return engine; }
 
+    // Co-op ------------------------------------------------------------------------------
+
+    /** Makes the session part of a co-op session (null: on its own again). Edits then go
+        through its locks (an edit someone else's lock forbids is refused, with a reason
+        in takeEditProblem()) and its personal undo; imported files and recordings go into
+        the participant's folder and are added once hashed; plugin states follow the
+        participant who holds their track. */
+    void setCollaboration(Collaboration* collaborationToUse);
+    [[nodiscard]] Collaboration* getCollaboration() const noexcept { return collaboration; }
+
+    /** A file of the project arrived (downloaded): its clips and samples load it again. */
+    void fileArrived(const juce::File& file);
+
+    /** Edits waiting for their files to be hashed (imports, samples, recordings). */
+    [[nodiscard]] bool hasEditsWaitingForFiles() const noexcept
+    {
+        return !waitingImports.empty() || !waitingSamples.empty() || waitingRecording.has_value();
+    }
+
 private:
-    void startEdit(const juce::String& name);
+    [[nodiscard]] bool startEdit(const juce::String& name, const std::vector<model::EditScope>& scopes);
+    [[nodiscard]] bool startSharedSetting(const juce::String& name, const model::EditScope& scope);
+    [[nodiscard]] static model::EditScope scopeOf(const ChainOwner& owner);
+    [[nodiscard]] std::vector<model::EditScope> scopesOfClips(const std::vector<model::ObjectId>& clipIds) const;
+    [[nodiscard]] std::vector<model::EditScope> scopesOfEffect(model::ObjectId effectId) const;
+    void importLater(const juce::Array<juce::File>& files, model::Ticks position,
+                     std::optional<model::ObjectId> ontoTrack);
+    void loadSampleLater(model::ObjectId effectId, const juce::String& key, const juce::File& file);
+    [[nodiscard]] juce::File copyIntoOwnFolder(const juce::File& file);
+    void addWaitingEdits();
+    void syncPluginStates();
     void sendPreviewOffs();
     void takePluginChanges();
     void takePluginLoads();
@@ -601,6 +640,25 @@ private:
     int deviceInputLatency = 0;
     int deviceOutputLatency = 0;
     int latencyOffset = 0;
+
+    Collaboration* collaboration = nullptr;
+    struct WaitingImport
+    {
+        juce::Array<juce::File> files; // in the participant's folder
+        model::Ticks position = 0;
+        std::optional<model::ObjectId> ontoTrack;
+    };
+    std::vector<WaitingImport> waitingImports;
+    struct WaitingSample
+    {
+        model::ObjectId effectId = 0;
+        juce::String key;
+        juce::File file;
+    };
+    std::vector<WaitingSample> waitingSamples;
+    std::optional<RecordingOutcome> waitingRecording;
+    bool importingReadyFiles = false;
+    std::map<model::ObjectId, juce::uint32> pluginStatesChanged; // not sent yet, since when
 
     juce::uint64 revision = 1;
     bool arrangementOutOfDate = true;

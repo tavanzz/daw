@@ -3,9 +3,11 @@
 #include "daw/services/UserSettings.h"
 #include "daw/ui/desktop/AppServices.h"
 
+#include "daw/controller/CoopSession.h"
 #include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/ArrangeView.h"
+#include "daw/ui/desktop/CoopPanels.h"
 #include "daw/ui/desktop/EffectEditorWindow.h"
 #include "daw/ui/desktop/HazardBand.h"
 #include "daw/ui/desktop/LevelMeter.h"
@@ -88,6 +90,15 @@ public:
         toggleIncludePreReleases,
         toggleCrashReports,
         showPrivacy,
+        coopHost,
+        coopJoin,
+        coopShowSession,
+        coopCopyInvite,
+        coopPlayForEveryone,
+        coopStopForEveryone,
+        coopToggleFollow,
+        coopLeave,
+        coopClose,
         // One command per theme of the library, in menu order (Cmd+1, Cmd+2, ...).
         firstTheme = 0x2100,
         lastTheme = firstTheme + 8
@@ -111,6 +122,26 @@ public:
     /** What the app provides for the Help menu (log folder, ...). */
     void setAppServices(AppServices servicesToUse);
 
+    /** The app's co-op session (null: the Co-op menu is off). The app updates it before
+        the session, at the same rate. */
+    void setCoopSession(controller::CoopSession* coopToUse);
+
+    /** Co-op > Host a Session... or Join a Session..., with a link filled in (the app's
+        micinstation:// links). */
+    void showCoopStart(CoopStartPanel::Mode mode, const juce::String& link = {});
+    void showCoopSession();
+
+    /** A micinstation:// link the system handed the app: an invite opens Join a Session,
+        a server link Host a Session, with the link filled in. */
+    void openCoopLink(const juce::String& link);
+
+    /** Opens the co-op copy in this folder and goes back into its session. */
+    juce::Result rejoinCoop(const juce::File& copyFolder);
+
+    /** The co-op windows' content, when they are open (tests). */
+    [[nodiscard]] CoopStartPanel* findCoopStartPanel() const;
+    [[nodiscard]] CoopSessionPanel* findCoopSessionPanel() const;
+
     /** Shows the update panel (the app does when a check at launch found a release). */
     void showUpdatePanel();
 
@@ -133,6 +164,7 @@ public:
     [[nodiscard]] EffectEditors& getEffectEditorsForTesting() noexcept { return effectEditors; }
     [[nodiscard]] PluginBrowserPanel& getPluginBrowserForTesting() noexcept { return pluginBrowser; }
     [[nodiscard]] MixerView& getMixerForTesting() noexcept { return mixerView; }
+    [[nodiscard]] StatusBar& getStatusBarForTesting() noexcept { return statusBar; }
 
     /** Where plugin editor windows were last; the app keeps them in the user settings. */
     [[nodiscard]] WindowPositions& getPluginWindowPositions() noexcept { return pluginWindows; }
@@ -177,6 +209,12 @@ private:
     void toggleRecording();
     void startRecording();
     void confirmDiscardRecording();
+    void startCoop(CoopStartPanel::Mode mode, const juce::String& link, const juce::String& name,
+                   std::function<void(juce::Result)> started);
+    void confirmLeaveCoop();
+    void confirmCloseCoop();
+    void refreshCoop();
+    [[nodiscard]] juce::File coopFolder() const;
 
     controller::Session& session;
     juce::AudioDeviceManager& deviceManager;
@@ -205,6 +243,11 @@ private:
     std::unique_ptr<PanelWindow> aboutWindow;
     std::unique_ptr<PanelWindow> updateWindow;
     std::unique_ptr<PanelWindow> firstLaunchWindow;
+    std::unique_ptr<PanelWindow> coopStartWindow;
+    std::unique_ptr<PanelWindow> coopSessionWindow;
+    controller::CoopSession* coop = nullptr;
+    std::uint64_t lastCoopRevision = 0;
+    coop::Client::Status lastCoopStatus = coop::Client::Status::idle;
     StatusBar statusBar{session};
     PluginBrowserPanel pluginBrowser;
     bool browserVisible = false;

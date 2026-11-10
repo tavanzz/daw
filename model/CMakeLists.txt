@@ -4,6 +4,7 @@
 add_library(daw_model STATIC
     src/Automation.cpp
     src/Bus.cpp
+    src/ChangeRecorder.cpp
     src/Clip.cpp
     src/MidiClip.cpp
     src/NetworkProtocol.cpp
@@ -12,8 +13,10 @@ add_library(daw_model STATIC
     src/Grid.cpp
     src/ObjectIds.cpp
     src/Project.cpp
+    src/ProjectChanges.cpp
     src/ProjectFile.cpp
     src/Send.cpp
+    src/SharedProject.cpp
     src/TempoMap.cpp
     src/TimelineTime.cpp
     src/Track.cpp)

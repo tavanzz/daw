@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.25)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
 
 project(daw
-    VERSION 0.8.0
+    VERSION 0.9.0
     DESCRIPTION "Cross-platform digital audio workstation"
     LANGUAGES C CXX)
 
@@ -53,6 +53,10 @@ if(DAW_SENTRY_DSN AND NOT DAW_SENTRY_DSN MATCHES "^https://[0-9a-f]+@[^/]+/[0-9]
 endif()
 
 option(DAW_BUILD_TESTS "Build the unit tests" ON)
+option(DAW_SERVER_ONLY "Build only the co-op server program (its Docker image): no audio, UI or tests" OFF)
+if(DAW_SERVER_ONLY)
+    set(DAW_BUILD_TESTS OFF)
+endif()
 option(DAW_RELEASE_SYMBOLS "Debug symbols in optimised builds (releases keep them for crash reports)" OFF)
 option(DAW_ENABLE_RTSAN "Build with Clang's RealtimeSanitizer (Clang 20 or newer)" OFF)
 
@@ -92,8 +96,19 @@ include(Warnings)
 include(Dependencies)
 include(JuceLibrary)
 
+if(DAW_SERVER_ONLY)
+    add_subdirectory(model)
+    add_subdirectory(net)
+    add_subdirectory(coop)
+    add_subdirectory(server)
+    return()
+endif()
+
 add_subdirectory(engine)
 add_subdirectory(model)
+add_subdirectory(net)
+add_subdirectory(coop)
+add_subdirectory(server)
 add_subdirectory(controller)
 add_subdirectory(appearance)
 add_subdirectory(services)

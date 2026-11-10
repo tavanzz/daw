@@ -6,6 +6,7 @@ add_library(daw_controller STATIC
     src/ArrangementBuilder.cpp
     src/AutomationEditing.cpp
     src/ClipEditing.cpp
+    src/CoopSession.cpp
     src/EffectInstances.cpp
     src/ExportJob.cpp
     src/FadeOutKeeper.cpp
@@ -25,11 +26,12 @@ add_library(daw_controller STATIC
     src/RecordingJournal.cpp
     src/SampleCache.cpp
     src/Session.cpp
+    src/SharedTransport.cpp
     src/TempoBeatGrid.cpp
     src/TimelineViewport.cpp)
 add_library(daw::controller ALIAS daw_controller)
 
 target_include_directories(daw_controller PUBLIC include PRIVATE src)
 target_compile_features(daw_controller PUBLIC cxx_std_20)
-target_link_libraries(daw_controller PUBLIC daw::engine daw::model daw::juce)
+target_link_libraries(daw_controller PUBLIC daw::engine daw::model daw::coop daw::net daw::juce)
 daw_enable_warnings(daw_controller)

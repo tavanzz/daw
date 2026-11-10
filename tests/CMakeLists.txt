@@ -4,6 +4,8 @@ add_subdirectory(plugins)
 
 add_executable(daw_tests
     support/Phase3Mixer.cpp
+    support/RandomProjectEdits.cpp
+    support/SimulatedNetwork.cpp
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
     support/SimulatedDevice.cpp
@@ -16,7 +18,13 @@ add_executable(daw_tests
     appearance/ContrastTests.cpp
     appearance/ThemeFileTests.cpp
     appearance/ThemeLibraryTests.cpp
+    coop/ClientTests.cpp
+    coop/FileTests.cpp
+    coop/MessageTests.cpp
+    net/NetTests.cpp
+    server/ServerTests.cpp
     controller/ArrangementBuilderTests.cpp
+    controller/CoopSessionTests.cpp
     controller/AutomationEditingTests.cpp
     controller/EffectSessionTests.cpp
     controller/MidiArrangementTests.cpp
@@ -31,6 +39,7 @@ add_executable(daw_tests
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp
+    controller/SharedTransportTests.cpp
     controller/StreamingTests.cpp
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
@@ -64,6 +73,7 @@ add_executable(daw_tests
     engine/RecorderTests.cpp
     engine/RecordingWriterTests.cpp
     engine/SamplerTests.cpp
+    engine/ScheduledStartTests.cpp
     engine/ResamplerTests.cpp
     engine/ReverbTests.cpp
     engine/SourcePoolTests.cpp
@@ -74,6 +84,7 @@ add_executable(daw_tests
     engine/WaveformPeaksTests.cpp
     model/FormatVersionTests.cpp
     model/NetworkProtocolTests.cpp
+    model/ProjectChangeTests.cpp
     model/ProjectFileTests.cpp
     model/ProjectTests.cpp
     model/TimelineTests.cpp
@@ -87,8 +98,8 @@ add_executable(daw_tests
     services/UserSettingsTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::engine daw::model
-    daw::services Catch2::Catch2)
+target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::coop daw::engine
+    daw::model daw::net daw::server daw::services Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 # The test plugins are built with the tests, which find them here.
 add_dependencies(daw_tests daw_test_plugins)
@@ -112,11 +123,13 @@ target_compile_definitions(daw_tests PRIVATE "DAW_CRASH_PROBE=\"$<TARGET_FILE:da
 # UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
 # Linux CI, on a virtual display).
 add_executable(daw_ui_tests
+    support/SimulatedNetwork.cpp
     support/TestAudioFiles.cpp
     support/UiTestMain.cpp
     support/WindowManagerAtoms.cpp
     ui/AlertsTests.cpp
     ui/AnimationClockTests.cpp
+    ui/CoopUiTests.cpp
     ui/HelpPanelsTests.cpp
     ui/MidiUiTests.cpp
     ui/PanelsTests.cpp
@@ -128,7 +141,7 @@ add_executable(daw_ui_tests
 
 target_include_directories(daw_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_ui_tests PRIVATE daw::ui_desktop daw::appearance daw::controller
-    daw::engine daw::model daw::juce Catch2::Catch2)
+    daw::engine daw::model daw::server daw::coop daw::net daw::services daw::juce Catch2::Catch2)
 daw_enable_warnings(daw_ui_tests)
 # The VST3 test plugins (support/TestPlugins.h, its inline parts only).
 add_dependencies(daw_ui_tests daw_test_plugins)
@@ -154,6 +167,13 @@ daw_enable_warnings(daw_stream_bench)
 add_executable(daw_fx_bench bench/EffectBenchmark.cpp)
 target_link_libraries(daw_fx_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_fx_bench)
+
+# Bandwidth, delay and CPU of a co-op session (the real server and clients on the
+# simulated network).
+add_executable(daw_coop_bench bench/CoopBenchmark.cpp support/SimulatedNetwork.cpp)
+target_include_directories(daw_coop_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(daw_coop_bench PRIVATE daw::server daw::coop daw::net daw::model daw::juce)
+daw_enable_warnings(daw_coop_bench)
 
 add_executable(daw_instrument_bench bench/InstrumentBenchmark.cpp)
 target_link_libraries(daw_instrument_bench PRIVATE daw::engine)
@@ -233,6 +253,31 @@ add_test(NAME architecture.detects_services_include_in_controller
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_services_include_in_controller PROPERTIES
     PASS_REGULAR_EXPRESSION "controller/src/UsesServices\\.cpp: <daw/services/BuildInfo\\.h>")
+
+add_test(NAME architecture.detects_controller_include_in_coop
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_controller_include_in_coop PROPERTIES
+    PASS_REGULAR_EXPRESSION "coop/src/UsesController\\.cpp: <daw/controller/Session\\.h>")
+
+add_test(NAME architecture.detects_model_include_in_net
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_model_include_in_net PROPERTIES
+    PASS_REGULAR_EXPRESSION "net/src/UsesModel\\.cpp: <daw/model/Project\\.h>")
+
+add_test(NAME architecture.detects_engine_include_in_server
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_engine_include_in_server PROPERTIES
+    PASS_REGULAR_EXPRESSION "server/src/UsesEngine\\.cpp: <daw/engine/Engine\\.h>")
+
+add_test(NAME architecture.detects_server_include_in_controller
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_server_include_in_controller PROPERTIES
+    PASS_REGULAR_EXPRESSION "controller/src/UsesServer\\.cpp: <daw/server/Server\\.h>")
+
+add_test(NAME architecture.detects_coop_include_in_engine
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_coop_include_in_engine PROPERTIES
+    PASS_REGULAR_EXPRESSION "engine/src/UsesCoop\\.cpp: <daw/coop/Messages\\.h>")
 
 add_test(NAME architecture.detects_plugin_editors_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")

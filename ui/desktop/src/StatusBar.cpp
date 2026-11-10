@@ -35,6 +35,12 @@ void StatusBar::showWarning(const juce::String& text)
     refresh();
 }
 
+void StatusBar::setCoop(const controller::CoopSession* coopToShow)
+{
+    coop = coopToShow;
+    refresh();
+}
+
 void StatusBar::lookAndFeelChanged()
 {
     // Only a prompt has a cursor to blink.
@@ -89,8 +95,39 @@ void StatusBar::refresh()
                         ? juce::String("32-bit float")
                         : juce::String(project.getRecordingBitsPerSample()) + "-bit");
 
+    next.coop = {};
+    next.coopRole = ColourRole::textSecondary;
+    next.coopPeople.clear();
+    if (const auto* client = coop != nullptr && coop->isActive() ? coop->findClient() : nullptr)
+    {
+        using Status = coop::Client::Status;
+        switch (client->getStatus())
+        {
+        case Status::connected:
+        {
+            for (const auto& participant : client->getParticipants())
+                if (participant.connected)
+                    next.coopPeople.push_back(participant.colour);
+            next.coop = "Co-op: " + juce::String(static_cast<int>(next.coopPeople.size())) + " here";
+            break;
+        }
+        case Status::idle:
+        case Status::connecting:
+            next.coop = "Co-op: connecting...";
+            next.coopRole = ColourRole::warning;
+            break;
+        case Status::reconnecting:
+            next.coop = "Co-op: reconnecting...";
+            next.coopRole = ColourRole::warning;
+            break;
+        case Status::ended:
+            break;
+        }
+    }
+
     if (next.message != line.message || next.messageRole != line.messageRole ||
-        next.details != line.details || next.projectName != line.projectName)
+        next.details != line.details || next.projectName != line.projectName ||
+        next.coop != line.coop || next.coopRole != line.coopRole || next.coopPeople != line.coopPeople)
     {
         line = next;
         repaint();

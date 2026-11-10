@@ -3,7 +3,9 @@
 How many tracks the engine mixes within the time of one audio callback (Phase 2),
 how many stream from disk and record at once (Phase 3), what effects cost and how
 many tracks with effects fit (Phase 4), what the interface costs in each theme
-and animation level (Phase 5), and what each instrument's voice costs (Phase 6).
+and animation level (Phase 5), what each instrument's voice costs (Phase 6), what hosting
+a plugin costs (Phase 7), and the bandwidth, delay and processor time of a co-op session
+(Phase 9).
 
 ```bash
 cmake --preset release && cmake --build --preset release
@@ -363,3 +365,79 @@ What this means:
 - The time each call takes is also measured in the app, per plugin
   (`PluginEffect::takeLoad()`), against the block's duration: a plugin whose average
   exceeds half the budget, or that overruns a block, is flagged.
+
+## Co-op (Phase 9)
+
+```bash
+cmake --preset release && cmake --build --preset release --target daw_coop_bench
+build/release/tests/daw_coop_bench
+```
+
+`tests/bench/CoopBenchmark.cpp` runs the real server (`server::Server`) and four real
+participants (`coop::Client`, each with its copy of the project) on the simulated
+network of the tests: delays of 20 to 40 ms each way (about what two friends in Europe
+see through a server in Germany), frames in order as TCP keeps them, no loss. The
+project: 12 audio tracks with 8 takes each, 4 MIDI tracks with 4 clips of 200 notes,
+two effects on every track, two buses. Each participant works on tracks of their own,
+so no edit is refused. For each scenario, 120 s of session:
+
+- Idle: everyone connected, nobody does anything (pings every 2 s, acknowledgements).
+- Everyone moves the pointer: all four move the mouse over the lanes all the time (60
+  moves a second, sent at most 20 times a second), one of them plays (the playhead).
+- Everyone edits: a clip moved, a note moved in a 200-note clip, a pan changed, one of
+  them every 2 s on average, and a fader dragged for a second every 10 s (sent every
+  100 ms while it moves).
+- Typical: the pointer moving half the time, someone playing half the time, an edit
+  every 5 s and a fader drag every 20 s each.
+
+The counts are the frames the app sends and receives (both of a participant's
+connections; audio files are not in them: they go as fast as the network allows, see
+below). On the wire each frame also costs its length, a TLS record and, at worst, a TCP
+packet of its own: about 78 bytes, counted in the "wire" columns as an upper bound
+(several frames often share a packet). The server's column is everything it sends and
+receives, on the wire. CPU: milliseconds of processor time per second of session, of the
+server and of one participant's synchronisation (not the audio, the interface or TLS).
+
+Apple M3 Pro, macOS 15.6.1, Release build, 2026-11-10, with the code of Phase 9 step 14.
+Bytes per second per participant:
+
+| Scenario | Up | Down | Up, wire | Down, wire | Server, wire | Server CPU | Client CPU |
+|----------|---:|-----:|---------:|-----------:|-------------:|-----------:|-----------:|
+| Idle | 6 | 10 | 45 | 49 | 376 | 0.08 ms/s | 0.006 ms/s |
+| Everyone moves the pointer | 422 | 1258 | 1927 | 5692 | 30474 | 0.27 ms/s | 0.03 ms/s |
+| Everyone edits | 962 | 3780 | 1579 | 4575 | 24618 | 0.18 ms/s | 0.04 ms/s |
+| Typical | 662 | 2353 | 1716 | 5142 | 27431 | 0.21 ms/s | 0.03 ms/s |
+
+An edit reaches the other copies (from the moment its author's copy sends it to the
+moment each other copy has applied it), over 90 arrivals: shortest 55 ms, median 70 ms,
+90 % within 80 ms, longest 85 ms, with 40 to 80 ms of that spent on the two network
+legs (author to server, server to the others).
+
+The project a participant gets when joining (or after the server restarted), zlib
+compressed, and the time to encode it:
+
+| Project | Bytes | Encoding |
+|---------|------:|---------:|
+| 16 tracks, 96 takes, 16 MIDI clips of 200 notes | 15435 | 1.0 ms |
+| 64 tracks, 384 takes, 64 MIDI clips of 1000 notes | 281251 | 11.4 ms |
+
+What this means:
+
+- A typical session costs each participant about 2 KB/s up and 5 KB/s down on the wire,
+  at most: 0.02 and 0.04 Mbit/s, nothing next to any home connection or a phone's
+  hotspot; the server of a session of four uses about 27 KB/s, some 70 GB a month if
+  they played around the clock, far below the traffic a rented server includes. What
+  takes bandwidth is the audio files, and they travel once.
+- Presence (pointers and playheads) is most of the traffic: up to 20 small updates a
+  second from each, which the server passes on to every other participant. Edits are
+  small too: a moved note in a 200-note clip travels as the bytes that changed, not as
+  the clip.
+- Edits arrive in the time the network takes, plus a few milliseconds: with these delays
+  a fader someone drags moves on the others' screens about a tenth of a second behind
+  (it is sent every 100 ms while it moves).
+- Joining is quick: even a large project is a few hundred kilobytes before the audio
+  files, which then come at the speed of the slower of the two connections (the uploads
+  of whoever recorded them, the download of whoever joins), resumed if it breaks.
+- The server needs next to no processor time: a fraction of a millisecond per second for
+  a busy session, so a small server holds the 20 sessions it allows by default with room
+  to spare; TLS adds its encryption of a few kilobytes a second.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/CoopSession.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/EditorWindow.h"
 
@@ -61,7 +62,11 @@ public:
     /** The open window of an effect; null if none. */
     [[nodiscard]] EditorWindow* find(model::ObjectId effectId) const noexcept;
 
+    /** The co-op session whose locks the windows' titles show (null: none). */
+    void setCoop(const controller::CoopSession* coopToShow) noexcept { coop = coopToShow; }
+
 private:
+    const controller::CoopSession* coop = nullptr;
     controller::Session& session;
     WindowPositions& positions;
     std::vector<std::unique_ptr<EditorWindow>> windows;

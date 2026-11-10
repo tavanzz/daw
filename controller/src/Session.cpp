@@ -62,6 +62,22 @@ void Session::update()
 {
     sendPreviewOffs();
 
+    if (collaboration != nullptr)
+    {
+        // Undo is the participant's own (the collaboration's): this history stays empty.
+        undoManager.clearUndoHistory();
+        addWaitingEdits();
+        if (recording.isActive() || waitingRecording)
+        {
+            std::vector<model::EditScope> armed;
+            for (int t = 0; t < project.getNumTracks(); ++t)
+                if (project.getTrack(t).isArmed())
+                    armed.push_back(model::EditScope::track(project.getTrack(t).getId()));
+            collaboration->holdLocks(armed);
+        }
+        syncPluginStates();
+    }
+
     if (pluginInstances != nullptr)
     {
         if (pluginInstances->update())
@@ -219,7 +235,8 @@ juce::Result Session::recoverRecordings()
             continue;
 
         if (!started)
-            startEdit("Recover Recordings");
+            if (!startEdit("Recover Recordings", {model::EditScope::project()}))
+                return juce::Result::fail(takeEditProblem());
         started = true;
 
         auto track = findTrack(entry.trackId);
@@ -411,22 +428,240 @@ void Session::beginGesture(const juce::String& name)
 {
     undoManager.beginNewTransaction(name);
     inGesture = true;
+    if (collaboration != nullptr)
+        collaboration->beginGesture();
 }
 
 void Session::endGesture()
 {
     inGesture = false;
+    if (collaboration != nullptr)
+        collaboration->endGesture();
 }
 
-void Session::startEdit(const juce::String& name)
+bool Session::startEdit(const juce::String& name, const std::vector<model::EditScope>& scopes)
 {
-    if (!inGesture)
-        undoManager.beginNewTransaction(name);
+    if (collaboration == nullptr)
+    {
+        if (!inGesture)
+            undoManager.beginNewTransaction(name);
+        return true;
+    }
+
+    juce::String why;
+    if (!collaboration->mayEdit(scopes, why))
+    {
+        editProblem = why;
+        return false;
+    }
+    collaboration->beginTransaction(name, true, inGesture);
+    return true;
+}
+
+bool Session::startSharedSetting(const juce::String& name, const model::EditScope& scope)
+{
+    if (collaboration == nullptr)
+        return true;
+
+    juce::String why;
+    if (!collaboration->mayEdit({scope}, why))
+    {
+        editProblem = why;
+        return false;
+    }
+    collaboration->beginTransaction(name, false, false);
+    return true;
+}
+
+model::EditScope Session::scopeOf(const ChainOwner& owner)
+{
+    switch (owner.kind)
+    {
+    case ChainOwner::Kind::track:
+        return model::EditScope::track(owner.id);
+    case ChainOwner::Kind::bus:
+        return model::EditScope::bus(owner.id);
+    case ChainOwner::Kind::master:
+        break;
+    }
+    return model::EditScope::master();
+}
+
+std::vector<model::EditScope> Session::scopesOfClips(const std::vector<model::ObjectId>& clipIds) const
+{
+    std::vector<model::EditScope> scopes;
+    for (const auto clipId : clipIds)
+        if (const auto location = project.findClip(clipId))
+        {
+            const auto scope = model::EditScope::track(project.getTrack(location->trackIndex).getId());
+            if (std::find(scopes.begin(), scopes.end(), scope) == scopes.end())
+                scopes.push_back(scope);
+        }
+    return scopes;
+}
+
+std::vector<model::EditScope> Session::scopesOfEffect(model::ObjectId effectId) const
+{
+    if (const auto location = findEffect(effectId))
+        return {scopeOf(location->owner)};
+    return {};
+}
+
+void Session::setCollaboration(Collaboration* collaborationToUse)
+{
+    collaboration = collaborationToUse;
+    waitingImports.clear();
+    waitingSamples.clear();
+    waitingRecording.reset();
+    pluginStatesChanged.clear();
+    undoManager.clearUndoHistory();
+    ++revision;
+}
+
+void Session::fileArrived(const juce::File& file)
+{
+    sources.reload(file);
+    instrumentSamples.reload(file);
+    arrangementOutOfDate = true;
+    ++revision;
+}
+
+juce::File Session::copyIntoOwnFolder(const juce::File& file)
+{
+    const auto folder = collaboration->getOwnFilesFolder();
+    if (file.isAChildOf(folder))
+        return file;
+    if (!folder.createDirectory())
+        return {};
+    const auto copy = folder.getNonexistentChildFile(file.getFileNameWithoutExtension(),
+                                                     file.getFileExtension(), false);
+    return file.copyFileTo(copy) ? copy : juce::File();
+}
+
+void Session::importLater(const juce::Array<juce::File>& files, model::Ticks position,
+                          std::optional<model::ObjectId> ontoTrack)
+{
+    WaitingImport import;
+    import.position = position;
+    import.ontoTrack = ontoTrack;
+    for (const auto& file : files)
+    {
+        const auto copy = copyIntoOwnFolder(file);
+        if (copy == juce::File())
+        {
+            editProblem = "\"" + file.getFileName() + "\" could not be copied into the session's folder.";
+            continue;
+        }
+        collaboration->addOwnFile(copy);
+        sources.request(copy); // its length is needed for the clip
+        import.files.add(copy);
+    }
+    if (!import.files.isEmpty())
+        waitingImports.push_back(std::move(import));
+}
+
+void Session::loadSampleLater(model::ObjectId effectId, const juce::String& key, const juce::File& file)
+{
+    const auto copy = copyIntoOwnFolder(file);
+    if (copy == juce::File())
+    {
+        editProblem = "\"" + file.getFileName() + "\" could not be copied into the session's folder.";
+        return;
+    }
+    collaboration->addOwnFile(copy);
+    waitingSamples.push_back({effectId, key, copy});
+}
+
+void Session::addWaitingEdits()
+{
+    const juce::ScopedValueSetter<bool> ready(importingReadyFiles, true);
+
+    for (auto import = waitingImports.begin(); import != waitingImports.end();)
+    {
+        bool allReady = true;
+        bool failed = false;
+        for (const auto& file : import->files)
+        {
+            const auto* source = sources.find(file);
+            failed = failed || (source != nullptr && source->status == engine::io::PooledSource::Status::failed);
+            allReady = allReady && collaboration->isFileReady(file) && getFileLength(file).has_value();
+        }
+        if (failed)
+        {
+            editProblem = "An imported file could not be read as audio.";
+            import = waitingImports.erase(import);
+            continue;
+        }
+        if (!allReady)
+        {
+            ++import;
+            continue;
+        }
+        [[maybe_unused]] const auto clips = importAudio(import->files, import->position, import->ontoTrack);
+        import = waitingImports.erase(import);
+    }
+
+    for (auto sample = waitingSamples.begin(); sample != waitingSamples.end();)
+    {
+        if (!collaboration->isFileReady(sample->file))
+        {
+            ++sample;
+            continue;
+        }
+        setInstrumentFile(sample->effectId, sample->key, sample->file);
+        sample = waitingSamples.erase(sample);
+    }
+
+    if (waitingRecording)
+    {
+        const bool allReady = std::all_of(waitingRecording->takes.begin(), waitingRecording->takes.end(),
+                                          [this](const auto& take)
+                                          { return !take.file.existsAsFile() || collaboration->isFileReady(take.file); });
+        if (allReady)
+        {
+            const auto outcome = std::move(*waitingRecording);
+            waitingRecording.reset();
+            addRecording(outcome);
+        }
+    }
+}
+
+void Session::syncPluginStates()
+{
+    if (pluginInstances == nullptr)
+        return;
+
+    const auto now = juce::Time::getMillisecondCounter();
+    for (auto changed = pluginStatesChanged.begin(); changed != pluginStatesChanged.end();)
+    {
+        const auto scopes = scopesOfEffect(changed->first);
+        auto* plugin = pluginInstances->findPlugin(changed->first);
+        // Only whoever holds its track sends a plugin's state; others keep the sender's.
+        if (scopes.empty() || plugin == nullptr || !collaboration->holds(scopes.front()))
+        {
+            changed = pluginStatesChanged.erase(changed);
+            continue;
+        }
+        collaboration->holdLocks(scopes); // the state goes before the lock may
+        if (now - changed->second < 1000)
+        {
+            ++changed;
+            continue;
+        }
+        if (auto effect = getEffect(changed->first))
+        {
+            collaboration->beginTransaction("Plugin State", false, false);
+            const juce::ScopedValueSetter<bool> writing(writingFromPlugin, true);
+            effect->setExtraState(plugin->getExtraState());
+        }
+        changed = pluginStatesChanged.erase(changed);
+    }
 }
 
 model::ObjectId Session::addTrack(const juce::String& name)
 {
-    startEdit("Add Track");
+    if (!startEdit("Add Track", {model::EditScope::project()}))
+        return 0;
     const auto trackName =
         name.isNotEmpty() ? name : "Track " + juce::String(project.getNumTracks() + 1);
     return project.addTrack(trackName, &undoManager).getId();
@@ -434,7 +669,8 @@ model::ObjectId Session::addTrack(const juce::String& name)
 
 model::ObjectId Session::addMidiTrack(const juce::String& name, const juce::String& instrumentType)
 {
-    startEdit("Add MIDI Track");
+    if (!startEdit("Add MIDI Track", {model::EditScope::project()}))
+        return 0;
     const auto trackName =
         name.isNotEmpty() ? name : "MIDI " + juce::String(project.getNumTracks() + 1);
     auto track = project.addTrack(trackName, model::TrackKind::midi, &undoManager);
@@ -447,7 +683,8 @@ void Session::setTrackMidiInput(model::ObjectId trackId, const model::MidiInput&
 {
     if (auto track = findTrack(trackId); track && track->isMidi() && track->getMidiInput() != input)
     {
-        startEdit("MIDI Input");
+        if (!startEdit("MIDI Input", {})) // personal: each participant's own
+            return;
         track->setMidiInput(input, &undoManager);
     }
 }
@@ -456,7 +693,8 @@ void Session::setTrackMidiChannel(model::ObjectId trackId, int channel)
 {
     if (auto track = findTrack(trackId); track && track->isMidi() && track->getMidiChannel() != channel)
     {
-        startEdit("MIDI Channel");
+        if (!startEdit("MIDI Channel", {model::EditScope::track(trackId)}))
+            return;
         track->setMidiChannel(channel, &undoManager);
     }
 }
@@ -484,7 +722,8 @@ model::ObjectId Session::setInstrument(model::ObjectId trackId, const juce::Stri
                                       oldInstance != nullptr ? oldInstance->getLatency() : 0)))
         return 0;
 
-    startEdit("Instrument: " + probe->getDescription().name);
+    if (!startEdit("Instrument: " + probe->getDescription().name, {model::EditScope::track(trackId)}))
+        return 0;
     if (old)
         keepPluginState(*old);
     return track->setInstrument(type, {}, &undoManager).getId();
@@ -497,7 +736,8 @@ void Session::removeInstrument(model::ObjectId trackId)
         const auto instance = effectInstances.find(track->getInstrument()->getId());
         if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
             return;
-        startEdit("Remove Instrument");
+        if (!startEdit("Remove Instrument", {model::EditScope::track(trackId)}))
+            return;
         keepPluginState(*track->getInstrument());
         track->removeInstrument(&undoManager);
     }
@@ -507,7 +747,8 @@ void Session::removeTrack(model::ObjectId trackId)
 {
     if (const int index = project.indexOfTrack(trackId); index >= 0)
     {
-        startEdit("Delete Track");
+        if (!startEdit("Delete Track", {model::EditScope::project(), model::EditScope::track(trackId)}))
+            return;
         const auto track = project.getTrack(index);
         keepPluginStates(track.getEffects());
         if (const auto instrument = track.getInstrument())
@@ -520,7 +761,8 @@ void Session::renameTrack(model::ObjectId trackId, const juce::String& name)
 {
     if (auto track = findTrack(trackId))
     {
-        startEdit("Rename Track");
+        if (!startEdit("Rename Track", {model::EditScope::track(trackId)}))
+            return;
         track->setName(name, &undoManager);
     }
 }
@@ -529,7 +771,8 @@ void Session::setTrackVolume(model::ObjectId trackId, double gain)
 {
     if (auto track = findTrack(trackId))
     {
-        startEdit("Volume");
+        if (!startEdit("Volume", {model::EditScope::track(trackId)}))
+            return;
         track->setVolume(gain, &undoManager);
     }
 }
@@ -538,7 +781,8 @@ void Session::setTrackPan(model::ObjectId trackId, double pan)
 {
     if (auto track = findTrack(trackId))
     {
-        startEdit("Pan");
+        if (!startEdit("Pan", {model::EditScope::track(trackId)}))
+            return;
         track->setPan(pan, &undoManager);
     }
 }
@@ -547,7 +791,8 @@ void Session::setTrackMuted(model::ObjectId trackId, bool muted)
 {
     if (auto track = findTrack(trackId))
     {
-        startEdit(muted ? "Mute" : "Unmute");
+        if (!startEdit(muted ? "Mute" : "Unmute", {model::EditScope::track(trackId)}))
+            return;
         track->setMuted(muted, &undoManager);
     }
 }
@@ -556,7 +801,8 @@ void Session::setTrackSoloed(model::ObjectId trackId, bool soloed)
 {
     if (auto track = findTrack(trackId))
     {
-        startEdit(soloed ? "Solo" : "Unsolo");
+        if (!startEdit(soloed ? "Solo" : "Unsolo", {})) // personal
+            return;
         track->setSoloed(soloed, &undoManager);
     }
 }
@@ -565,7 +811,8 @@ void Session::setTrackInput(model::ObjectId trackId, model::TrackInput input)
 {
     if (auto track = findTrack(trackId); track && track->getInput() != input.normalised())
     {
-        startEdit("Track Input");
+        if (!startEdit("Track Input", {})) // personal
+            return;
         track->setInput(input, &undoManager);
     }
 }
@@ -574,14 +821,16 @@ void Session::setTrackMonitoring(model::ObjectId trackId, model::MonitoringMode 
 {
     if (auto track = findTrack(trackId); track && track->getMonitoring() != mode)
     {
-        startEdit("Input Monitoring");
+        if (!startEdit("Input Monitoring", {})) // personal
+            return;
         track->setMonitoring(mode, &undoManager);
     }
 }
 
 void Session::setMasterVolume(double gain)
 {
-    startEdit("Master Volume");
+    if (!startEdit("Master Volume", {model::EditScope::master()}))
+        return;
     project.setMasterVolume(gain, &undoManager);
 }
 
@@ -593,10 +842,18 @@ std::vector<model::ObjectId> Session::importAudio(const juce::Array<juce::File>&
     if (files.isEmpty())
         return clipIds;
 
-    startEdit(files.size() == 1 ? "Import Audio File" : "Import Audio Files");
     const bool onExistingTrack = files.size() == 1 && ontoTrack &&
                                  project.indexOfTrack(*ontoTrack) >= 0 &&
                                  !project.getTrack(project.indexOfTrack(*ontoTrack)).isMidi();
+    if (collaboration != nullptr && !importingReadyFiles)
+    {
+        // The files go into this participant's folder of the copy first, and in once hashed.
+        importLater(files, position, onExistingTrack ? ontoTrack : std::nullopt);
+        return clipIds;
+    }
+    if (!startEdit(files.size() == 1 ? "Import Audio File" : "Import Audio Files",
+                   {onExistingTrack ? model::EditScope::track(*ontoTrack) : model::EditScope::project()}))
+        return clipIds;
 
     for (const auto& file : files)
     {
@@ -626,7 +883,11 @@ Session::MidiImport Session::importMidi(const juce::File& file, model::Ticks pos
         return import;
     }
 
-    startEdit("Import MIDI File");
+    if (!startEdit("Import MIDI File", {model::EditScope::project()}))
+    {
+        import.result = juce::Result::fail(takeEditProblem());
+        return import;
+    }
 
     // An empty project takes the file's tempo and metre; the positions follow them.
     if (project.getNumTracks() == 0 && (content.hasTempo || content.hasTimeSignature))
@@ -683,7 +944,8 @@ void Session::moveClip(model::ObjectId clipId, model::ObjectId toTrackId, model:
         track.getClip(location->clipIndex).getPosition() == position)
         return; // nothing would change
 
-    startEdit("Move Clip");
+    if (!startEdit("Move Clip", {model::EditScope::track(track.getId()), model::EditScope::track(toTrackId)}))
+        return;
     project.moveClip(clipId, trackIndex, position, &undoManager);
 }
 
@@ -691,7 +953,8 @@ void Session::setClipBounds(model::ObjectId clipId, const model::ClipBounds& bou
 {
     if (const auto location = project.findClip(clipId))
     {
-        startEdit("Trim Clip");
+        if (!startEdit("Trim Clip", {model::EditScope::track(project.getTrack(location->trackIndex).getId())}))
+            return;
         project.getTrack(location->trackIndex)
             .getClip(location->clipIndex)
             .setBounds(bounds, &undoManager);
@@ -700,6 +963,15 @@ void Session::setClipBounds(model::ObjectId clipId, const model::ClipBounds& bou
 
 void Session::deleteClips(const std::vector<model::ObjectId>& clipIds)
 {
+    if (collaboration != nullptr)
+    {
+        juce::String why;
+        if (!collaboration->mayEdit(scopesOfClips(clipIds), why))
+        {
+            editProblem = why;
+            return;
+        }
+    }
     bool started = false;
     for (const auto clipId : clipIds)
     {
@@ -707,7 +979,8 @@ void Session::deleteClips(const std::vector<model::ObjectId>& clipIds)
             continue;
 
         if (!started)
-            startEdit(clipIds.size() == 1 ? "Delete Clip" : "Delete Clips");
+            [[maybe_unused]] const bool allowed =
+                startEdit(clipIds.size() == 1 ? "Delete Clip" : "Delete Clips", scopesOfClips(clipIds));
         started = true;
         project.removeClip(clipId, &undoManager);
     }
@@ -716,6 +989,15 @@ void Session::deleteClips(const std::vector<model::ObjectId>& clipIds)
 std::vector<model::ObjectId> Session::duplicateClips(const std::vector<model::ObjectId>& clipIds)
 {
     std::vector<model::ObjectId> copies;
+    if (collaboration != nullptr)
+    {
+        juce::String why;
+        if (!collaboration->mayEdit(scopesOfClips(clipIds), why))
+        {
+            editProblem = why;
+            return copies;
+        }
+    }
     bool started = false;
     for (const auto clipId : clipIds)
     {
@@ -729,7 +1011,8 @@ std::vector<model::ObjectId> Session::duplicateClips(const std::vector<model::Ob
             continue; // its length is not known yet
 
         if (!started)
-            startEdit(clipIds.size() == 1 ? "Duplicate Clip" : "Duplicate Clips");
+            [[maybe_unused]] const bool allowed = startEdit(
+                clipIds.size() == 1 ? "Duplicate Clip" : "Duplicate Clips", scopesOfClips(clipIds));
         started = true;
         copies.push_back(track.addCopyOf(clip, *end, &undoManager).getId());
     }
@@ -749,7 +1032,8 @@ model::ObjectId Session::copyClip(model::ObjectId clipId, model::ObjectId toTrac
     if (track.getKind() != project.getTrack(location->trackIndex).getKind())
         return 0;
 
-    startEdit("Copy Clip");
+    if (!startEdit("Copy Clip", {model::EditScope::track(toTrackId)}))
+        return 0;
     return track.addCopyOf(clip, std::max(model::Ticks{0}, position), &undoManager).getId();
 }
 
@@ -760,7 +1044,8 @@ model::ObjectId Session::addMidiClip(model::ObjectId trackId, model::Ticks posit
     if (!track || !track->isMidi())
         return 0;
 
-    startEdit("New MIDI Clip");
+    if (!startEdit("New MIDI Clip", {model::EditScope::track(trackId)}))
+        return 0;
     return track
         ->addMidiClip(track->getName(),
                       {std::max(model::Ticks{0}, position), 0, std::max(model::Clip::minimumLength, length)},
@@ -775,7 +1060,8 @@ void Session::renameClip(model::ObjectId clipId, const juce::String& name)
         auto clip = project.getTrack(location->trackIndex).getClip(location->clipIndex);
         if (clip.isMidi() && clip.getName() != name)
         {
-            startEdit("Rename Clip");
+            if (!startEdit("Rename Clip", {model::EditScope::track(project.getTrack(location->trackIndex).getId())}))
+                return;
             clip.setName(name, &undoManager);
         }
     }
@@ -798,7 +1084,8 @@ void Session::setNotes(model::ObjectId clipId, std::vector<model::Note> notes,
         model::normalise(notes);
         if (notes == clip->getNotes())
             return;
-        startEdit(actionName);
+        if (!startEdit(actionName, scopesOfClips({clipId})))
+            return;
         clip->setNotes(std::move(notes), &undoManager);
     }
 }
@@ -845,31 +1132,37 @@ void Session::setControllerEvents(model::ObjectId clipId, const model::Controlle
         model::normalise(events);
         if (events == clip->getControllerEvents(type))
             return;
-        startEdit(actionName);
+        if (!startEdit(actionName, scopesOfClips({clipId})))
+            return;
         clip->setControllerEvents(type, std::move(events), &undoManager);
     }
 }
 
 void Session::setTempo(double quarterNotesPerMinute)
 {
-    startEdit("Tempo");
+    if (!startEdit("Tempo", {model::EditScope::project()}))
+        return;
     project.setTempo(quarterNotesPerMinute, &undoManager);
 }
 
 void Session::setTimeSignature(model::TimeSignature timeSignature)
 {
-    startEdit("Time Signature");
+    if (!startEdit("Time Signature", {model::EditScope::project()}))
+        return;
     project.setTimeSignature(timeSignature, &undoManager);
 }
 
 void Session::setLoopRange(model::Ticks start, model::Ticks end)
 {
-    startEdit("Loop Region");
+    if (!startEdit("Loop Region", {model::EditScope::project()}))
+        return;
     project.setLoopRange(start, end, &undoManager);
 }
 
 void Session::setLoopEnabled(bool shouldLoop)
 {
+    if (!startSharedSetting(shouldLoop ? "Loop On" : "Loop Off", model::EditScope::project()))
+        return;
     project.setLoopEnabled(shouldLoop);
     engine.setLooping(shouldLoop);
 }
@@ -944,22 +1237,26 @@ void Session::setRecordingBitsPerSample(int bitsPerSample)
 
 juce::String Session::getUndoDescription() const
 {
-    return undoManager.getUndoDescription();
+    return collaboration != nullptr ? collaboration->getUndoName() : undoManager.getUndoDescription();
 }
 
 juce::String Session::getRedoDescription() const
 {
-    return undoManager.getRedoDescription();
+    return collaboration != nullptr ? collaboration->getRedoName() : undoManager.getRedoDescription();
 }
 
 bool Session::undo()
 {
+    if (collaboration != nullptr)
+        return collaboration->undo();
     inGesture = false;
     return undoManager.undo();
 }
 
 bool Session::redo()
 {
+    if (collaboration != nullptr)
+        return collaboration->redo();
     inGesture = false;
     return undoManager.redo();
 }
@@ -1014,14 +1311,31 @@ juce::Result Session::record()
                 {track.getId(), track.getName(), input.channel, input.getNumChannels()});
     }
 
+    // In co-op the recorded tracks must be free or this participant's, and stay so.
+    if (collaboration != nullptr)
+    {
+        std::vector<model::EditScope> scopes;
+        for (const auto& target : request.tracks)
+            scopes.push_back(model::EditScope::track(target.trackId));
+        for (const auto& target : request.midiTracks)
+            scopes.push_back(model::EditScope::track(target.trackId));
+        juce::String why;
+        if (!collaboration->mayEdit(scopes, why))
+            return juce::Result::fail(why);
+        collaboration->holdLocks(scopes);
+    }
+
     // Audio needs the microphone and a folder for its files; MIDI neither.
     if (!request.tracks.empty() || request.midiTracks.empty())
     {
         if (inputAccess == InputAccess::denied)
             return juce::Result::fail(microphoneDeniedMessage);
-        if (projectFile == juce::File())
+        if (collaboration != nullptr)
+            request.folder = collaboration->getOwnFilesFolder();
+        else if (projectFile == juce::File())
             return juce::Result::fail("Save the project first: recordings go into its folder.");
-        request.folder = projectFile.getParentDirectory().getChildFile(recordingsFolderName);
+        else
+            request.folder = projectFile.getParentDirectory().getChildFile(recordingsFolderName);
     }
 
     const auto start = getPlayhead();
@@ -1049,6 +1363,8 @@ juce::Result Session::record()
     recordingProblem.clear();
     if (const auto started = recording.start(request); started.failed())
         return started;
+    if (collaboration != nullptr)
+        collaboration->setRecording(true);
 
     // Written down before the first sample, so that a crash leaves it recoverable.
     const auto keepStart = model::samplesToTicks(
@@ -1147,7 +1463,20 @@ std::optional<LatencyMeasurement::Result> Session::takeLatencyResult()
 
 void Session::addRecording(const RecordingOutcome& outcome)
 {
-    if (outcome.problem.isNotEmpty())
+    if (collaboration != nullptr && !importingReadyFiles)
+    {
+        // The takes are hashed (and sent) before the clips refer to them.
+        collaboration->setRecording(false);
+        if (outcome.problem.isNotEmpty())
+            recordingProblem = outcome.problem;
+        for (const auto& take : outcome.takes)
+            if (take.file.existsAsFile())
+                collaboration->addOwnFile(take.file);
+        waitingRecording = outcome;
+        return;
+    }
+
+    if (outcome.problem.isNotEmpty() && collaboration == nullptr)
         recordingProblem = outcome.problem;
 
     const double rate = engineRate();
@@ -1168,7 +1497,7 @@ void Session::addRecording(const RecordingOutcome& outcome)
         }
 
         if (!started)
-            startEdit("Record");
+            [[maybe_unused]] const bool allowed = startEdit("Record", {}); // its tracks are held
         started = true;
 
         const auto position = model::samplesToTicks(start, rate);
@@ -1196,7 +1525,7 @@ void Session::addRecording(const RecordingOutcome& outcome)
             continue;
 
         if (!started)
-            startEdit("Record");
+            [[maybe_unused]] const bool allowed = startEdit("Record", {}); // its tracks are held
         started = true;
 
         const auto position = model::samplesToTicks(start, rate);
@@ -1231,6 +1560,15 @@ void Session::seek(model::Ticks position)
     engine.seek(target);
 }
 
+void Session::playAt(model::Ticks position, juce::int64 streamIndex)
+{
+    if (recording.isActive())
+        return;
+    const auto target = model::ticksToSamples(std::max(model::Ticks{0}, position), engineRate());
+    seekCue.store(target); // the read-ahead loads it before the start
+    engine.playAt(target, streamIndex);
+}
+
 model::Ticks Session::getPlayhead() const
 {
     return model::samplesToTicks(engine.getPlayheadPosition(), engineRate());
@@ -1263,6 +1601,10 @@ void Session::sourceChanged(const juce::File& file)
 
 void Session::resolveLengths(const juce::File& file)
 {
+    // In co-op every clip comes with its length (a change here would be everyone's).
+    if (collaboration != nullptr)
+        return;
+
     const auto length = getFileLength(file);
     if (!length)
         return;
@@ -1428,7 +1770,8 @@ model::ObjectId Session::addEffect(const ChainOwner& owner, const juce::String& 
         (type == "delay" || type == "reverb"))
         parameters.emplace_back("mix", 100.0);
 
-    startEdit("Add " + probe->getDescription().name);
+    if (!startEdit("Add " + probe->getDescription().name, {scopeOf(owner)}))
+        return 0;
     return getEffects(owner).add(type, index, parameters, &undoManager).getId();
 }
 
@@ -1447,7 +1790,8 @@ bool Session::removeEffect(model::ObjectId effectId)
     if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
         return false;
 
-    startEdit("Remove Effect");
+    if (!startEdit("Remove Effect", {scopeOf(location->owner)}))
+        return false;
     auto effects = getEffects(location->owner);
     keepPluginState(effects.getEffect(location->index));
     effects.remove(location->index, &undoManager);
@@ -1464,9 +1808,10 @@ bool Session::moveEffect(model::ObjectId effectId, int toIndex)
     if (refusesLatencyChange(instance != nullptr ? instance->getLatency() : 0))
         return false;
 
+    if (!startEdit("Move Effect", {scopeOf(location->owner)}))
+        return false;
     auto effects = getEffects(location->owner);
     effectInstances.markMoved(effectId);
-    startEdit("Move Effect");
     effects.move(location->index, std::clamp(toIndex, 0, effects.getNumEffects() - 1), &undoManager);
     return true;
 }
@@ -1475,7 +1820,8 @@ void Session::setEffectBypassed(model::ObjectId effectId, bool bypassed)
 {
     if (auto effect = getEffect(effectId))
     {
-        startEdit(bypassed ? "Bypass Effect" : "Enable Effect");
+        if (!startEdit(bypassed ? "Bypass Effect" : "Enable Effect", scopesOfEffect(effectId)))
+            return;
         effect->setBypassed(bypassed, &undoManager);
     }
 }
@@ -1485,7 +1831,8 @@ void Session::setEffectParameter(model::ObjectId effectId, const juce::String& p
 {
     if (auto effect = getEffect(effectId))
     {
-        startEdit("Change " + parameterId);
+        if (!startEdit("Change " + parameterId, scopesOfEffect(effectId)))
+            return;
         // A plugin hears of it from the model (pushToPlugin()), as it does of undo.
         effect->setParameter(parameterId, value, &undoManager);
     }
@@ -1496,7 +1843,14 @@ void Session::setInstrumentFile(model::ObjectId effectId, const juce::String& ke
 {
     if (auto effect = getEffect(effectId); effect && effect->getFile(key) != file)
     {
-        startEdit(file == juce::File() ? "Remove Sample" : "Load Sample");
+        if (collaboration != nullptr && file != juce::File() && !importingReadyFiles)
+        {
+            // Into this participant's folder of the copy first, and in once hashed.
+            loadSampleLater(effectId, key, file);
+            return;
+        }
+        if (!startEdit(file == juce::File() ? "Remove Sample" : "Load Sample", scopesOfEffect(effectId)))
+            return;
         effect->setFile(key, file, &undoManager);
         instrumentSamples.request(file);
     }
@@ -1516,7 +1870,8 @@ std::optional<model::Bus> Session::findBus(model::ObjectId busId) const
 
 model::ObjectId Session::addBus(const juce::String& name)
 {
-    startEdit("New Bus");
+    if (!startEdit("New Bus", {model::EditScope::project()}))
+        return 0;
     const auto busName = name.isNotEmpty() ? name : "Bus " + juce::String(project.getNumBuses() + 1);
     return project.addBus(busName, &undoManager).getId();
 }
@@ -1525,7 +1880,12 @@ void Session::removeBus(model::ObjectId busId)
 {
     if (const int index = project.indexOfBus(busId); index >= 0)
     {
-        startEdit("Delete Bus");
+        std::vector<model::EditScope> scopes{model::EditScope::project(), model::EditScope::bus(busId)};
+        for (int t = 0; t < project.getNumTracks(); ++t)
+            if (project.getTrack(t).indexOfSendTo(busId) >= 0)
+                scopes.push_back(model::EditScope::track(project.getTrack(t).getId()));
+        if (!startEdit("Delete Bus", scopes))
+            return;
         keepPluginStates(project.getBus(index).getEffects());
         project.removeBus(index, &undoManager);
     }
@@ -1535,7 +1895,8 @@ void Session::renameBus(model::ObjectId busId, const juce::String& name)
 {
     if (auto bus = findBus(busId))
     {
-        startEdit("Rename Bus");
+        if (!startEdit("Rename Bus", {model::EditScope::bus(busId)}))
+            return;
         bus->setName(name, &undoManager);
     }
 }
@@ -1544,7 +1905,8 @@ void Session::setBusVolume(model::ObjectId busId, double gain)
 {
     if (auto bus = findBus(busId))
     {
-        startEdit("Bus Volume");
+        if (!startEdit("Bus Volume", {model::EditScope::bus(busId)}))
+            return;
         bus->setVolume(gain, &undoManager);
     }
 }
@@ -1553,7 +1915,8 @@ void Session::setBusPan(model::ObjectId busId, double pan)
 {
     if (auto bus = findBus(busId))
     {
-        startEdit("Bus Pan");
+        if (!startEdit("Bus Pan", {model::EditScope::bus(busId)}))
+            return;
         bus->setPan(pan, &undoManager);
     }
 }
@@ -1562,7 +1925,8 @@ void Session::setBusMuted(model::ObjectId busId, bool muted)
 {
     if (auto bus = findBus(busId))
     {
-        startEdit(muted ? "Mute Bus" : "Unmute Bus");
+        if (!startEdit(muted ? "Mute Bus" : "Unmute Bus", {model::EditScope::bus(busId)}))
+            return;
         bus->setMuted(muted, &undoManager);
     }
 }
@@ -1581,7 +1945,8 @@ model::ObjectId Session::addSend(model::ObjectId trackId, model::ObjectId busId)
     if (const int existing = track->indexOfSendTo(busId); existing >= 0)
         return track->getSend(existing).getId();
 
-    startEdit("Add Send");
+    if (!startEdit("Add Send", {model::EditScope::track(trackId)}))
+        return 0;
     return track->addSend(busId, &undoManager).getId();
 }
 
@@ -1590,7 +1955,8 @@ void Session::removeSend(model::ObjectId trackId, model::ObjectId sendId)
     if (auto track = findTrack(trackId))
         if (const int index = track->indexOfSend(sendId); index >= 0)
         {
-            startEdit("Remove Send");
+            if (!startEdit("Remove Send", {model::EditScope::track(trackId)}))
+                return;
             track->removeSend(index, &undoManager);
         }
 }
@@ -1600,7 +1966,8 @@ void Session::setSendLevel(model::ObjectId trackId, model::ObjectId sendId, doub
     if (auto track = findTrack(trackId))
         if (const int index = track->indexOfSend(sendId); index >= 0)
         {
-            startEdit("Send Level");
+            if (!startEdit("Send Level", {model::EditScope::track(trackId)}))
+                return;
             track->getSend(index).setLevel(gain, &undoManager);
         }
 }
@@ -1610,7 +1977,8 @@ void Session::setSendPreFader(model::ObjectId trackId, model::ObjectId sendId, b
     if (auto track = findTrack(trackId))
         if (const int index = track->indexOfSend(sendId); index >= 0)
         {
-            startEdit(preFader ? "Pre-Fader Send" : "Post-Fader Send");
+            if (!startEdit(preFader ? "Pre-Fader Send" : "Post-Fader Send", {model::EditScope::track(trackId)}))
+                return;
             track->getSend(index).setPreFader(preFader, &undoManager);
         }
 }
@@ -1630,13 +1998,17 @@ model::Automation Session::getAutomation(const ChainOwner& owner) const
 
 void Session::setAutomationMode(const ChainOwner& owner, model::AutomationMode mode)
 {
+    if (!startSharedSetting(mode == model::AutomationMode::read ? "Automation Read" : "Automation Off",
+                            scopeOf(owner)))
+        return;
     getAutomation(owner).setMode(mode);
 }
 
 int Session::addAutomationPoint(const ChainOwner& owner, const model::AutomationTarget& target,
                                 model::AutomationPointData point)
 {
-    startEdit("Add Automation Point");
+    if (!startEdit("Add Automation Point", {scopeOf(owner)}))
+        return -1;
     return getAutomation(owner).getOrAddLane(target, &undoManager).addPoint(point, &undoManager);
 }
 
@@ -1648,7 +2020,8 @@ int Session::setAutomationPoint(const ChainOwner& owner, const model::Automation
     if (lane < 0)
         return -1;
 
-    startEdit("Move Automation Point");
+    if (!startEdit("Move Automation Point", {scopeOf(owner)}))
+        return index;
     return automation.getLane(lane).setPoint(index, point, &undoManager);
 }
 
@@ -1658,7 +2031,8 @@ void Session::removeAutomationPoint(const ChainOwner& owner, const model::Automa
     auto automation = getAutomation(owner);
     if (const int lane = automation.indexOfLane(target); lane >= 0)
     {
-        startEdit("Delete Automation Point");
+        if (!startEdit("Delete Automation Point", {scopeOf(owner)}))
+            return;
         automation.getLane(lane).removePoint(index, &undoManager);
     }
 }
@@ -1668,7 +2042,8 @@ void Session::clearAutomation(const ChainOwner& owner, const model::AutomationTa
     auto automation = getAutomation(owner);
     if (const int lane = automation.indexOfLane(target); lane >= 0)
     {
-        startEdit("Clear Automation");
+        if (!startEdit("Clear Automation", {scopeOf(owner)}))
+            return;
         automation.removeLane(lane, &undoManager);
     }
 }
@@ -1702,6 +2077,22 @@ void Session::projectChanged()
 void Session::valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier& property)
 {
     pushToPlugin(tree, property);
+
+    static const juce::Identifier loopEnabled("loopEnabled"), data("data"), effectType("Effect"),
+        filesType("Files");
+    if (tree == project.getState() && property == loopEnabled)
+        engine.setLooping(project.isLoopEnabled());
+    else if (tree.hasType(filesType))
+        instrumentSamples.request(juce::File(tree[property].toString()));
+    else if (tree.hasType(effectType) && property == data && !writingFromPlugin
+             && collaboration != nullptr && pluginInstances != nullptr)
+    {
+        // Another participant's plugin state: this copy's plugin takes it.
+        const model::Effect effect(tree);
+        if (auto* plugin = pluginInstances->findPlugin(effect.getId()))
+            plugin->setExtraState(effect.getExtraState());
+    }
+
     projectChanged();
 }
 
@@ -1709,6 +2100,7 @@ void Session::valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&)
 {
     // A clip or track added (or brought back by undo) may use a file not loaded yet.
     requestAllSources();
+    instrumentSamples.requestAll(project);
     projectChanged();
 }
 
@@ -1738,7 +2130,8 @@ model::ObjectId Session::addPlugin(const ChainOwner& owner, const juce::PluginDe
         return 0;
     }
 
-    startEdit("Add " + plugin.name);
+    if (!startEdit("Add " + plugin.name, {scopeOf(owner)}))
+        return 0;
     auto effect = getEffects(owner).add(model::pluginEffectType, index, {}, &undoManager);
     effect.setPlugin(PluginInstances::referenceTo(plugin), &undoManager);
     return effect.getId();
@@ -1755,7 +2148,8 @@ model::ObjectId Session::setInstrumentPlugin(model::ObjectId trackId, const juce
         return 0;
     }
 
-    startEdit("Instrument: " + plugin.name);
+    if (!startEdit("Instrument: " + plugin.name, {model::EditScope::track(trackId)}))
+        return 0;
     if (const auto old = track->getInstrument())
         keepPluginState(*old);
     auto instrument = track->setInstrument(model::pluginEffectType, {}, &undoManager);
@@ -1849,6 +2243,8 @@ void Session::takePluginChanges()
         {
             unsavedChanges = true;
             ++revision;
+            if (collaboration != nullptr)
+                pluginStatesChanged[effectId] = now; // sent a second after it settles
         }
 
         plugin->takeParameterReports(pluginReports);
@@ -1870,7 +2266,20 @@ void Session::takePluginChanges()
             // most).
             const bool sameEdit = pluginEdit.effectId == effectId && pluginEdit.index == report.index &&
                                   (pluginEdit.gesture || now - pluginEdit.lastChange < 500);
-            if (!sameEdit)
+            if (collaboration != nullptr)
+            {
+                juce::String why;
+                if (!collaboration->mayEdit(scopesOfEffect(effectId), why))
+                {
+                    // Someone else holds its track: the plugin goes back to the project.
+                    const auto value = effect->getParameter(info.id);
+                    plugin->setParameter(report.index, value ? static_cast<float>(*value) : info.defaultValue);
+                    editProblem = why + " Changes in this plugin's editor are undone.";
+                    continue;
+                }
+                collaboration->beginTransaction("Change " + info.name, true, sameEdit);
+            }
+            else if (!sameEdit)
                 undoManager.beginNewTransaction("Change " + info.name);
 
             writingFromPlugin = true;
@@ -1909,6 +2318,7 @@ void Session::keepPluginState(const model::Effect& effect)
 {
     // Not undoable itself: undoing the removal brings the effect back with the state
     // it had when it went (undoing this too would bring back an older one).
+    const juce::ScopedValueSetter<bool> writing(writingFromPlugin, true);
     if (auto* plugin = findPlugin(effect.getId()))
         model::Effect(effect).setExtraState(plugin->getExtraState());
 }
@@ -1921,13 +2331,24 @@ void Session::keepPluginStates(const model::EffectList& effects)
 
 void Session::storePluginStates()
 {
-    // Not an edit: the file gets what each plugin holds now.
+    // Not an edit: the file gets what each plugin holds now. In co-op only those of tracks
+    // this participant holds (the others' come from whoever holds theirs).
     if (pluginInstances == nullptr)
         return;
     writingFromPlugin = true;
     for (const auto& [effectId, plugin] : pluginInstances->getPlugins())
         if (auto effect = getEffect(effectId))
+        {
+            if (collaboration != nullptr)
+            {
+                const auto scopes = scopesOfEffect(effectId);
+                if (scopes.empty() || !collaboration->holds(scopes.front())
+                    || effect->getExtraState() == plugin->getExtraState())
+                    continue;
+                collaboration->beginTransaction("Plugin State", false, false);
+            }
             effect->setExtraState(plugin->getExtraState());
+        }
     writingFromPlugin = false;
 }
 

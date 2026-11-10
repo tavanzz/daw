@@ -17,6 +17,7 @@ shows them all. The app's own code is not open source (`LICENSE.txt`).
 | ↳ [jsmn](https://github.com/zserge/jsmn) | as sentry-native ships it | MIT | inside sentry-native |
 | ↳ [stb_sprintf](https://github.com/nothings/stb) | as sentry-native ships it | public domain or MIT | inside sentry-native |
 | ↳ [libunwind](https://www.nongnu.org/libunwind/) | as sentry-native ships it | MIT | inside sentry-native, Linux only |
+| [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) with TF-PSA-Crypto | 4.1.1 | Apache 2.0 (also offered under the GPL 2.0 or later, which this project does not use) | the encrypted connections of co-op sessions (TLS 1.3), the server's certificate, SHA-256 of shared files |
 | [Catch2](https://github.com/catchorg/Catch2) | 3.16.1 | Boost Software License 1.0 | unit tests only, not in the app |
 
 They are downloaded when the build is configured, at pinned versions verified by

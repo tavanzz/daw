@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+using daw::services::CoopPreferences;
 using daw::services::CrashReportConsent;
 using daw::services::UpdateChannel;
 using daw::services::UpdatePreferences;
@@ -106,6 +107,7 @@ TEST_CASE("Every setting reads back what was written, also after reopening", "[s
     updates.checkAtLaunch = false;
     updates.channel = UpdateChannel::preRelease;
     updates.skippedVersion = "0.9.1";
+    const CoopPreferences coop{"Ann", "micinstation://server?x", false, directory.file("Co-op/Song")};
 
     {
         UserSettings settings(folder, "DAW");
@@ -121,6 +123,8 @@ TEST_CASE("Every setting reads back what was written, also after reopening", "[s
         settings.setThemeChosen();
         settings.setCrashReportConsent(CrashReportConsent::refused);
         settings.setUpdatePreferences(updates);
+        CHECK(settings.getCoopPreferences() == CoopPreferences{});
+        settings.setCoopPreferences(coop);
     }
 
     UserSettings settings(folder, "DAW");
@@ -134,6 +138,7 @@ TEST_CASE("Every setting reads back what was written, also after reopening", "[s
     CHECK(settings.isThemeChosen());
     CHECK(settings.getCrashReportConsent() == CrashReportConsent::refused);
     CHECK(settings.getUpdatePreferences() == updates);
+    CHECK(settings.getCoopPreferences() == coop);
 
     settings.setCrashReportConsent(CrashReportConsent::allowed);
     CHECK(settings.getCrashReportConsent() == CrashReportConsent::allowed);

@@ -25,7 +25,12 @@ stays green.
      `MICINSTATION-X.Y.Z-Windows-x64-Setup.exe`, `MICINSTATION-X.Y.Z-Linux-x86_64.AppImage`
      (up to v0.8.0-rc.4, when the app was called DAW: `DAW-...`);
    - `update.json`, the signed update information every installed copy reads;
-   - `SHA256SUMS.txt`, and the debug symbols of each platform (`*-symbols.zip`).
+   - `SHA256SUMS.txt`, and the debug symbols of each platform (`*-symbols.zip`);
+   - and, apart from the release, the co-op server's Docker image
+     `ghcr.io/tavanzz/micinstation-server:X.Y.Z` (x86-64 and ARM; `latest` for releases,
+     not release candidates). The first time, make its package public: your GitHub
+     profile > Packages > micinstation-server > Package settings > Change visibility >
+     Public (`docs/SERVER.md`).
 4. The notes are the subjects of the commits since the previous release (merges and
    "CI:" commits left out). Edit them on GitHub if you want; the update panel shows the
    text in `update.json`, written when the release was made.

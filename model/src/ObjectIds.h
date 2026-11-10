@@ -12,7 +12,10 @@ namespace daw::model::detail
 
     Ids are not stored as a counter: undoing an addition and adding again may reuse
     an id, but only after the object that had it is gone from the project and from
-    the redo history (a new edit clears it), so two objects never share one. */
+    the redo history (a new edit clears it), so two objects never share one.
+
+    In a co-op session each participant makes ids in a range of their own
+    (SharedProject.h): one more than the largest id in that range. */
 [[nodiscard]] ObjectId nextObjectId(const juce::ValueTree& node);
 
 } // namespace daw::model::detail
