@@ -1478,7 +1478,8 @@ ctest --preset debug            # run all tests
   `build/release/tests/daw_stream_bench` (streaming and recording),
   `build/release/tests/daw_fx_bench` (effects), `build/release/tests/daw_instrument_bench`
   (instruments: cost per voice, voices per budget), `build/release/tests/daw_plugin_bench`
-  (what hosting a plugin costs per block) and the interface's cost per theme and
+  (what hosting a plugin costs per block), `build/release/tests/daw_coop_bench` (a co-op
+  session's bandwidth, delay and CPU on the simulated network) and the interface's cost per theme and
   animation level, `"build/release/tests/daw_ui_bench_artefacts/Release/DAW UI
   Bench.app/Contents/MacOS/DAW UI Bench"` (opens a window, always on top, for about
   four minutes); results in `docs/PERFORMANCE.md`.
@@ -2407,7 +2408,7 @@ work merged later, the mobile UI.
       strips and editors, incoming clips, plugin warnings, Play for Everyone, Follow
 - [x] 13. App: `micinstation://` links, co-op settings, rejoining after a restart, two
       copies of the app on one computer
-- [ ] 14. Benchmark: bandwidth and delay of a typical session (`docs/PERFORMANCE.md`)
+- [x] 14. Benchmark: bandwidth and delay of a typical session (`docs/PERFORMANCE.md`)
 - [ ] 15. UI tests in every theme, documents, practical tests in
       `docs/LISTENING_TESTS.md` (two copies on one Mac with a local server, then a
       friend far away); version 0.9.0

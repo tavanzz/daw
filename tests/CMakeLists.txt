@@ -168,6 +168,13 @@ add_executable(daw_fx_bench bench/EffectBenchmark.cpp)
 target_link_libraries(daw_fx_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_fx_bench)
 
+# Bandwidth, delay and CPU of a co-op session (the real server and clients on the
+# simulated network).
+add_executable(daw_coop_bench bench/CoopBenchmark.cpp support/SimulatedNetwork.cpp)
+target_include_directories(daw_coop_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(daw_coop_bench PRIVATE daw::server daw::coop daw::net daw::model daw::juce)
+daw_enable_warnings(daw_coop_bench)
+
 add_executable(daw_instrument_bench bench/InstrumentBenchmark.cpp)
 target_link_libraries(daw_instrument_bench PRIVATE daw::engine)
 daw_enable_warnings(daw_instrument_bench)
