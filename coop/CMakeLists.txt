@@ -8,5 +8,5 @@ add_library(daw::coop ALIAS daw_coop)
 
 target_include_directories(daw_coop PUBLIC include PRIVATE src)
 target_compile_features(daw_coop PUBLIC cxx_std_20)
-target_link_libraries(daw_coop PUBLIC daw::model daw::juce)
+target_link_libraries(daw_coop PUBLIC daw::model daw::net daw::juce)
 daw_enable_warnings(daw_coop)

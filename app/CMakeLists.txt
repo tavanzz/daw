@@ -56,8 +56,8 @@ add_custom_command(TARGET daw_app POST_BUILD
 
 # The licences of what the app contains travel with it: the app's own (LICENSE.txt), the
 # fonts' (the SIL Open Font License asks for it), those of the plugin SDKs JUCE compiles
-# in, of Monocypher and of sentry-native with its vendored parts (MIT, ISC and BSD ask for
-# their notices), in the bundle's Resources on macOS, in a Licences folder next to the
+# in, of Monocypher, of Mbed TLS and of sentry-native with its vendored parts (MIT, ISC,
+# BSD and Apache 2.0 ask for their notices), in the bundle's Resources on macOS, in a Licences folder next to the
 # executable elsewhere. Each entry: the folder under Licences, then the file.
 set(format_types "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types")
 set(licences "")
@@ -67,6 +67,8 @@ endforeach()
 list(APPEND licences "VST3_SDK|${format_types}/VST3_SDK/LICENSE.txt")
 list(APPEND licences "Monocypher|${monocypher_SOURCE_DIR}/LICENCE.md")
 list(APPEND licences "sentry-native|${sentry_SOURCE_DIR}/LICENSE")
+list(APPEND licences "Mbed-TLS|${mbedtls_SOURCE_DIR}/LICENSE")
+list(APPEND licences "TF-PSA-Crypto|${mbedtls_SOURCE_DIR}/tf-psa-crypto/LICENSE")
 # sentry-native's vendored mpack and jsmn carry their licence in their header's leading
 # comment: it is written out as a file.
 foreach(vendored IN ITEMS mpack jsmn)

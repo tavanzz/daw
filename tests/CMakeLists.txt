@@ -5,6 +5,7 @@ add_subdirectory(plugins)
 add_executable(daw_tests
     support/Phase3Mixer.cpp
     support/RandomProjectEdits.cpp
+    support/SimulatedNetwork.cpp
     support/RealtimeCheck.cpp
     support/RealtimeCheckTests.cpp
     support/SimulatedDevice.cpp
@@ -18,6 +19,7 @@ add_executable(daw_tests
     appearance/ThemeFileTests.cpp
     appearance/ThemeLibraryTests.cpp
     coop/MessageTests.cpp
+    net/NetTests.cpp
     controller/ArrangementBuilderTests.cpp
     controller/AutomationEditingTests.cpp
     controller/EffectSessionTests.cpp
@@ -91,7 +93,7 @@ add_executable(daw_tests
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::coop daw::engine
-    daw::model daw::services Catch2::Catch2)
+    daw::model daw::net daw::services Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 # The test plugins are built with the tests, which find them here.
 add_dependencies(daw_tests daw_test_plugins)
@@ -241,6 +243,11 @@ add_test(NAME architecture.detects_controller_include_in_coop
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_controller_include_in_coop PROPERTIES
     PASS_REGULAR_EXPRESSION "coop/src/UsesController\\.cpp: <daw/controller/Session\\.h>")
+
+add_test(NAME architecture.detects_model_include_in_net
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_model_include_in_net PROPERTIES
+    PASS_REGULAR_EXPRESSION "net/src/UsesModel\\.cpp: <daw/model/Project\\.h>")
 
 add_test(NAME architecture.detects_coop_include_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")

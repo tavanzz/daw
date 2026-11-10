@@ -94,6 +94,7 @@ include(JuceLibrary)
 
 add_subdirectory(engine)
 add_subdirectory(model)
+add_subdirectory(net)
 add_subdirectory(coop)
 add_subdirectory(controller)
 add_subdirectory(appearance)

@@ -62,7 +62,43 @@ set(SENTRY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(SENTRY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SENTRY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(JUCE Monocypher sentry)
+# TLS for co-op sessions (net/): Mbed TLS 4.1 LTS (supported until March 2029) with its
+# TF-PSA-Crypto, Apache 2.0. Thread safe through our own mutexes (net/mbedtls/).
+FetchContent_Declare(mbedtls
+    URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2
+    URL_HASH SHA256=3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c
+    DOWNLOAD_DIR "${DAW_DEPENDENCY_CACHE_DIR}"
+    DOWNLOAD_NAME mbedtls-4.1.1.tar.bz2
+    SYSTEM)
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(TF_PSA_CRYPTO_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
+set(DAW_MBEDTLS_CONFIG_DIR "${PROJECT_SOURCE_DIR}/net/mbedtls")
+set(TF_PSA_CRYPTO_USER_CONFIG_FILE "${DAW_MBEDTLS_CONFIG_DIR}/crypto_user_config.h"
+    CACHE FILEPATH "" FORCE)
+
+FetchContent_MakeAvailable(JUCE Monocypher sentry mbedtls)
+
+# The alternative threading header must be found by every part of Mbed TLS (it has
+# several internal libraries) and by whoever includes its headers.
+function(daw_targets_in directory result)
+    get_property(found DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    get_property(subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+    foreach(subdirectory IN LISTS subdirectories)
+        daw_targets_in("${subdirectory}" more)
+        list(APPEND found ${more})
+    endforeach()
+    set(${result} ${found} PARENT_SCOPE)
+endfunction()
+daw_targets_in("${mbedtls_SOURCE_DIR}" mbedtls_targets)
+foreach(mbedtls_target IN LISTS mbedtls_targets)
+    get_target_property(mbedtls_target_type ${mbedtls_target} TYPE)
+    if(mbedtls_target_type MATCHES "LIBRARY$" AND NOT mbedtls_target_type STREQUAL "INTERFACE_LIBRARY")
+        target_include_directories(${mbedtls_target} SYSTEM PUBLIC "${DAW_MBEDTLS_CONFIG_DIR}")
+    endif()
+endforeach()
 
 # FetchContent runs the patch step only when it extracts the sources, and never on sources
 # given with FETCHCONTENT_SOURCE_DIR_JUCE: this makes sure every macOS build has the patch.

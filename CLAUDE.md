@@ -27,7 +27,8 @@ Modules with one-way dependencies:
 | `controller/` | maps the model onto the engine: session, undo, loading, export, timeline view math | engine, model, non-GUI JUCE |
 | `appearance/` | theme values (colours, fonts, shapes, meter styles, effects) and animation settings, for every UI | non-GUI JUCE modules |
 | `services/`   | what the app needs around the audio: build information, user settings, log, updates, crash reports | non-GUI JUCE modules |
-| `coop/`       | co-op sessions: the protocol, a participant's synchronisation, the server's sessions | model, non-GUI JUCE modules |
+| `net/`        | connections of co-op sessions: TLS 1.3 links, frames, a reliable channel | non-GUI JUCE modules, Mbed TLS |
+| `coop/`       | co-op sessions: the protocol, a participant's synchronisation, the server's sessions | model, net, non-GUI JUCE modules |
 | `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, appearance, services, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, appearance, services, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
@@ -41,9 +42,9 @@ Modules with one-way dependencies:
   or `appearance/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, if
   `engine/` and `model/` include each other or `controller/`, or if `appearance/` or
   `services/` includes another module or is included by `engine/`, `model/`,
-  `controller/` (or each other), or if `coop/` includes the engine, the controller,
-  `appearance/` or `services/`, or `engine/`, `model/`, `appearance/` or `services/`
-  include `coop/`.
+  `controller/` (or each other), or if `net/` includes any other module, `coop/` the
+  engine, the controller, `appearance/` or `services/`, or `engine/`, `model/`,
+  `appearance/` or `services/` include `net/` or `coop/`.
 - Every module has public headers in `include/daw/<module>/` and private code in
   `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`,
   `daw::appearance`, `daw::services`, `daw::ui::desktop`.
@@ -323,6 +324,25 @@ Modules with one-way dependencies:
   index is the tag: append only). Project trees in uploads and snapshots are compressed
   (zlib), decompressed in pieces up to the announced size. A golden test fixes the bytes
   of the handshake.
+- Connections (Phase 9, `net/`): Mbed TLS 4.1.1 LTS with TF-PSA-Crypto (pinned by SHA-256,
+  built by its own CMake; thread safe through `net/mbedtls/`: `MBEDTLS_THREADING_ALT` with
+  std::mutex, the same on every platform; `initialiseTls()` once). `ServerIdentity` is an
+  ECDSA P-256 key and a self-signed certificate valid for a century (`loadOrCreate()`
+  keeps them in a folder, the key readable by its owner only); clients pin the SHA-256 of
+  its public key (`getFingerprint()`, Base64url, 43 characters) instead of asking
+  certificate authorities, so a server needs no domain. `Link` is one end of a connection
+  carrying frames, polled by its owner. `TlsClientLink` and `TlsServer` (TLS 1.3 only)
+  run each connection on a thread of its own over JUCE's sockets: connect in 2 s attempts
+  (so closing never waits long), handshake, the fingerprint check, then frames (`FrameReader`:
+  32-bit length, then the bytes; empty frames keep a quiet link alive) written in pieces of
+  64 KB between short reads, so two peers sending much at once never wait for each other;
+  silence for 20 s closes a link; problems are written for the user. `TlsServer` accepts at
+  most 64 connections and wakes its owner's loop (`getActivity()`). `ReliableChannel`
+  numbers messages, delivers them once and in order, keeps early ones aside, acknowledges,
+  sends again after 1 s and at once on a new link (`resume()` with what the peer has);
+  unreliable messages go once. Tests run it over `tests/support/SimulatedNetwork` (a clock
+  of its own, random delays, loss, duplicates, broken links) and TLS over loopback (a
+  wrong fingerprint is refused, a client speaking HTTP does no harm).
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2167,7 +2187,7 @@ work merged later, the mobile UI.
 - [x] 2. Protocol (`coop`): exact binary encoding of values, trees and changes, every
       message, the handshake (protocol and project format versions, clear refusals); a
       golden test of the bytes
-- [ ] 3. TLS transport (`net`): Mbed TLS 4.1 LTS pinned, TLS 1.3, the server's own
+- [x] 3. TLS transport (`net`): Mbed TLS 4.1 LTS pinned, TLS 1.3, the server's own
       ECDSA certificate and its fingerprint pinned by clients, frames, timeouts,
       keepalive; a simulated network (delay, loss, duplicates, reordering,
       disconnections, a virtual clock)
