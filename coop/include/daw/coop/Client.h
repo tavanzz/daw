@@ -117,6 +117,10 @@ public:
         else holds (or while the copy is read-only) is undone at once, with a notice. */
     void flush();
 
+    /** At most one transaction this often from update() (a drag in progress: 0.1 s), so
+        that a gesture is a few transactions, not one per mouse move; 0: every update. */
+    void setFlushInterval(double seconds) noexcept { flushInterval = seconds; }
+
     [[nodiscard]] bool mayEdit(const model::EditScope& scope) const;
     /** Who holds a scope (0: nobody). */
     [[nodiscard]] ParticipantNumber holderOf(const model::EditScope& scope) const;
@@ -229,7 +233,9 @@ private:
     void sendPending(const Pending& transaction);
     void submit(Pending transaction);
 
-    bool applyToCopy(const model::ChangeSet& changes);
+    /** checked: each change must also keep the project well formed (model::checkChange()),
+        for this participant's own changes applied again on top of others'. */
+    bool applyToCopy(const model::ChangeSet& changes, bool checked = false);
     void takeBackPending(std::size_t from);
     void applyPendingAgain(std::size_t from);
     void notify(const juce::String& text);
@@ -279,6 +285,8 @@ private:
     FileSync files;
     bool uploadWaiting = false; ///< the host's project goes once its files are hashed
 
+    double flushInterval = 0.0;
+    double flushedAt = -1.0e9;
     juce::String transactionName;
     std::uint64_t transactionStep = 0;
     std::uint64_t lastUndoStep = 0;

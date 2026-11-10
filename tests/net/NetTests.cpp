@@ -7,6 +7,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#if !JUCE_WINDOWS
+ #include <sys/stat.h>
+#endif
+
 #include <functional>
 
 using namespace daw;
@@ -176,6 +180,12 @@ TEST_CASE("A server identity has a stable fingerprint", "[net]")
     REQUIRE(made.has_value());
     const auto loaded = net::ServerIdentity::loadOrCreate(folder);
     REQUIRE(loaded.has_value());
+#if !JUCE_WINDOWS
+    // The key is readable by its owner only.
+    struct stat info{};
+    REQUIRE(stat(folder.getChildFile("private-key.pem").getFullPathName().toRawUTF8(), &info) == 0);
+    CHECK((info.st_mode & 0077) == 0);
+#endif
     CHECK(loaded->getFingerprint() == made->getFingerprint());
     CHECK(made->getFingerprint() != fingerprint);
     folder.deleteRecursively();

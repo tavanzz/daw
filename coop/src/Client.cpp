@@ -211,8 +211,11 @@ void Client::update(double time)
             linkLost("The server did not answer.");
     }
 
-    if (synced)
+    if (synced && now - flushedAt >= flushInterval)
+    {
         flush();
+        flushedAt = now;
+    }
 
     if (link == nullptr || !welcomed)
         return;
@@ -470,7 +473,7 @@ void Client::handleSnapshot(const ProjectSnapshot& snapshot)
         pending.pop_front();
     for (auto transaction = pending.begin(); transaction != pending.end();)
     {
-        if (applyToCopy(transaction->changes))
+        if (applyToCopy(transaction->changes, true))
         {
             transaction->applied = true;
             sendPending(*transaction);
@@ -529,6 +532,10 @@ void Client::handleAccepted(const AcceptedChange& change)
             return;
         }
     }
+
+    // Edits not sent yet go first, so that taking back what waits takes them too.
+    if (recorder.hasChanges())
+        flush();
 
     const auto local = model::localChanges(change.changes, folder);
     const auto scopes = model::scopesOf(local);
@@ -608,10 +615,25 @@ void Client::handleRejection(const Rejection& rejection)
 
 // Applying ---------------------------------------------------------------------------------
 
-bool Client::applyToCopy(const model::ChangeSet& changes)
+bool Client::applyToCopy(const model::ChangeSet& changes, bool checked)
 {
     const model::ChangeRecorder::Pause pause(recorder);
-    return model::applyChanges(state, changes).wasOk();
+    if (!checked)
+        return model::applyChanges(state, changes).wasOk();
+
+    // One at a time, each checked on the project as it is then (an insertion's index may
+    // no longer be where items go); all or nothing.
+    for (std::size_t index = 0; index < changes.size(); ++index)
+    {
+        if (model::checkChange(state, changes[index]).wasOk()
+            && model::applyChanges(state, {changes[index]}).wasOk())
+            continue;
+        const model::ChangeSet done(changes.begin(), changes.begin() + static_cast<std::ptrdiff_t>(index));
+        [[maybe_unused]] const auto undone = model::applyChanges(state, model::inverted(done));
+        jassert(undone.wasOk());
+        return false;
+    }
+    return true;
 }
 
 void Client::takeBackPending(std::size_t from)
@@ -632,7 +654,7 @@ void Client::applyPendingAgain(std::size_t from)
 {
     for (auto index = from; index < pending.size(); ++index)
         if (pending[index].applied)
-            pending[index].applied = applyToCopy(pending[index].changes);
+            pending[index].applied = applyToCopy(pending[index].changes, true);
 }
 
 // Local edits ------------------------------------------------------------------------------

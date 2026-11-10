@@ -14,6 +14,14 @@ namespace
 
 using Status = coop::Client::Status;
 
+juce::String noticesOf(coop::Client& client)
+{
+    juce::StringArray texts;
+    for (const auto& notice : client.takeNotices())
+        texts.add(notice.text);
+    return texts.joinIntoString(" ");
+}
+
 // The host's session with a project of a few tracks, and guests who joined it.
 struct Session
 {
@@ -220,12 +228,12 @@ TEST_CASE("Undoing what someone changed since is refused", "[coop][client]")
 
     // The guest holds the track now.
     CHECK_FALSE(host.client->undo());
-    CHECK(host.client->takeNotices()[0].text.contains("is editing"));
+    CHECK(noticesOf(*host.client).contains("is editing"));
     CHECK(host.client->canUndo());
 
     session.world.run(31.0, 0.05);
     CHECK_FALSE(host.client->undo());
-    CHECK(host.client->takeNotices()[0].text.contains("changed it since"));
+    CHECK(noticesOf(*host.client).contains("changed it since"));
     CHECK_FALSE(host.client->canUndo());
     CHECK(host.project.getTrack(0).getVolume() == 0.9);
     session.checkSame();
@@ -436,6 +444,16 @@ TEST_CASE("Random edits of many participants over a bad network converge byte fo
 
             if (random.nextBool())
                 session.world.tick(random.nextDouble() * 0.03);
+
+            // Every copy stays well formed at every moment, not only at the end.
+            if (edit % 10 == 0)
+                for (auto& each : session.world.participants)
+                {
+                    const auto check = model::checkProject(
+                        model::sharedCopy(each->project.getState(), each->folder));
+                    INFO("edit " << edit << ": " << check.getErrorMessage());
+                    REQUIRE(check.wasOk());
+                }
             if (random.nextInt(600) == 0)
                 session.world.network.cutAll(); // everyone drops out and comes back
         }
@@ -448,7 +466,7 @@ TEST_CASE("Random edits of many participants over a bad network converge byte fo
 
         INFO("guests " << run.guests << ", edits made " << accepted);
         REQUIRE(session.world.isQuiet());
-        CHECK(session.world.serverSequence() > 700);
+        CHECK(session.world.serverSequence() > 500);
         session.checkSame();
     }
 }

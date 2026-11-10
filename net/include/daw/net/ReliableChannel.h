@@ -64,6 +64,12 @@ public:
 
     [[nodiscard]] std::uint64_t getDelivered() const noexcept { return delivered; }
     [[nodiscard]] std::uint64_t getSent() const noexcept { return nextNumber - 1; }
+    /** Messages the peer has acknowledged: a peer that has fewer cannot resume (they are
+        gone from here). */
+    [[nodiscard]] std::uint64_t getAcknowledged() const noexcept
+    {
+        return unacknowledged.empty() ? nextNumber - 1 : unacknowledged.front().number - 1;
+    }
     [[nodiscard]] std::size_t getUnacknowledged() const noexcept { return unacknowledged.size(); }
     /** True when too much waits for an acknowledgement: the peer is gone too long. */
     [[nodiscard]] bool isOverwhelmed() const noexcept

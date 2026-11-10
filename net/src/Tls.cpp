@@ -81,12 +81,14 @@ bool generateKey(Pk& pk)
 
 bool writePrivately(const juce::File& file, const juce::String& text)
 {
-    if (!file.create())
+    // Written whole first (replaceWithText() makes a new file), then made private.
+    if (!file.replaceWithText(text, false, false, "\n"))
         return false;
 #if !JUCE_WINDOWS
-    chmod(file.getFullPathName().toRawUTF8(), S_IRUSR | S_IWUSR);
+    return chmod(file.getFullPathName().toRawUTF8(), S_IRUSR | S_IWUSR) == 0;
+#else
+    return true;
 #endif
-    return file.replaceWithText(text, false, false, "\n");
 }
 
 } // namespace

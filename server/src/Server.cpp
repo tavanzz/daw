@@ -274,7 +274,9 @@ struct Server::Impl
             connection.closing = true;
             connection.closeAt = afterDelay ? now + closingDelay : now;
         }
-        detach(connection);
+        // Closing after a delay, its last messages (a refusal, SessionEnded) still go out.
+        if (!afterDelay)
+            detach(connection);
     }
 
     // The participant no longer has this connection.
@@ -646,7 +648,10 @@ struct Server::Impl
         if (participant.connection != 0)
             closeConnection(participant.connection, false); // an old connection, not dead yet
 
-        const bool resumed = participant.channelValid && delivered <= participant.channel.getSent();
+        // Resumable while the server still holds everything after what the client has (a
+        // client that started again has a fresh channel: it gets a snapshot).
+        const bool resumed = participant.channelValid && delivered <= participant.channel.getSent()
+                             && delivered >= participant.channel.getAcknowledged();
         if (resumed)
             participant.channel.resume(delivered);
         else
@@ -1225,6 +1230,7 @@ struct Server::Impl
         {
             if (connection->second.closing && now >= connection->second.closeAt)
             {
+                detach(connection->second);
                 connection->second.link->close();
                 connection = connections.erase(connection);
             }

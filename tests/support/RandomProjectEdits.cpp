@@ -57,8 +57,10 @@ juce::String editEffects(juce::Random& random, model::EffectList effects,
 
     if (choice == 0)
     {
-        effects.add(effectTypes[static_cast<std::size_t>(random.nextInt(4))],
-                    random.nextInt(count + 1), {}, undoManager);
+        // One random number at a time: argument order differs between compilers.
+        const auto* type = effectTypes[static_cast<std::size_t>(random.nextInt(4))];
+        const int at = random.nextInt(count + 1);
+        effects.add(type, at, {}, undoManager);
         return "add an effect";
     }
 
@@ -66,8 +68,11 @@ juce::String editEffects(juce::Random& random, model::EffectList effects,
     switch (choice)
     {
     case 1:
-        effect.setParameter(parameterIds[static_cast<std::size_t>(random.nextInt(3))],
-                            random.nextDouble(), undoManager);
+    {
+        const auto* parameter = parameterIds[static_cast<std::size_t>(random.nextInt(3))];
+        const auto value = random.nextDouble();
+        effect.setParameter(parameter, value, undoManager);
+    }
         return "set a parameter";
     case 2:
         effect.setBypassed(!effect.isBypassed(), undoManager);
@@ -146,9 +151,11 @@ juce::String editAutomation(juce::Random& random, model::Automation automation,
         return "add an automation point";
     case 4:
         if (points > 0)
-            lane.setPoint(random.nextInt(points),
-                          {random.nextInt(100) * 28'224'000LL, random.nextDouble(), 0.0},
+        {
+            const int index = random.nextInt(points);
+            lane.setPoint(index, {random.nextInt(100) * 28'224'000LL, random.nextDouble(), 0.0},
                           undoManager);
+        }
         return "move an automation point";
     case 5:
         if (points > 0)
@@ -241,10 +248,11 @@ juce::String RandomProjectEditor::editProject(model::Project& project,
     {
     case 0:
     case 1:
-        project.addTrack("Track " + juce::String(random.nextInt(100)),
-                         random.nextInt(3) == 0 ? model::TrackKind::midi
-                                                : model::TrackKind::audio,
-                         undoManager);
+    {
+        const auto name = "Track " + juce::String(random.nextInt(100));
+        const auto kind = random.nextInt(3) == 0 ? model::TrackKind::midi : model::TrackKind::audio;
+        project.addTrack(name, kind, undoManager);
+    }
         return "add a track";
     case 2:
         if (project.getNumTracks() > 0)
@@ -260,8 +268,11 @@ juce::String RandomProjectEditor::editProject(model::Project& project,
         project.setTempo(60.0 + random.nextInt(120) + random.nextDouble(), undoManager);
         return "change the tempo";
     case 4:
-        project.setLoopRange(random.nextInt(100) * 28'224'000LL,
-                             random.nextInt(100) * 28'224'000LL, undoManager);
+    {
+        const auto start = random.nextInt(100) * 28'224'000LL;
+        const auto end = random.nextInt(100) * 28'224'000LL;
+        project.setLoopRange(start, end, undoManager);
+    }
         return "change the loop";
     case 5:
         project.setLoopEnabled(!project.isLoopEnabled());
@@ -338,8 +349,11 @@ juce::String RandomProjectEditor::editTrack(model::Project& project, int trackIn
                                        random.nextInt(10) * 1'000'000LL,
                                        (1 + random.nextInt(100)) * 7'056'000LL};
         if (track.isMidi())
-            track.addMidiClip("Clip", bounds, randomNotes(random), randomControllers(random),
-                              undoManager);
+        {
+            auto notes = randomNotes(random);
+            auto controllers = randomControllers(random);
+            track.addMidiClip("Clip", bounds, std::move(notes), std::move(controllers), undoManager);
+        }
         else
             track.addClip(randomFile(), bounds, undoManager);
         return "add a clip";
@@ -386,8 +400,10 @@ juce::String RandomProjectEditor::editTrack(model::Project& project, int trackIn
     case 13:
         if (clips == 0)
             return "nothing";
-        track.addCopyOf(track.getClip(random.nextInt(clips)), random.nextInt(200) * 14'112'000LL,
-                        undoManager);
+    {
+        const auto clip = track.getClip(random.nextInt(clips));
+        track.addCopyOf(clip, random.nextInt(200) * 14'112'000LL, undoManager);
+    }
         return "duplicate a clip";
     case 14:
     case 15:
@@ -399,8 +415,10 @@ juce::String RandomProjectEditor::editTrack(model::Project& project, int trackIn
             if (random.nextInt(3) == 0)
                 track.removeInstrument(undoManager);
             else
-                track.setInstrument(random.nextBool() ? "synth" : "sampler",
-                                    {{"cutoff", randomUnit()}}, undoManager);
+            {
+                const auto* type = random.nextBool() ? "synth" : "sampler";
+                track.setInstrument(type, {{"cutoff", randomUnit()}}, undoManager);
+            }
             return "change the instrument";
         }
         return editAutomation(random, track.getAutomation(), undoManager);

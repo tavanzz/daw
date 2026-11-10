@@ -100,6 +100,15 @@ struct Hosted
     juce::String invite;
 };
 
+// The last message of a type a peer received; there must be one.
+template <typename Type>
+Type lastOf(test::TestPeer& peer)
+{
+    auto found = peer.last<Type>();
+    REQUIRE(found.has_value());
+    return *found;
+}
+
 model::ObjectId firstTrack(const juce::ValueTree& project)
 {
     return model::Project(project.createCopy()).getTrack(0).getId();
@@ -330,11 +339,11 @@ TEST_CASE("Nobody changes a track someone else holds until the lock goes", "[ser
     // Asking for it says who has it.
     guest.send(coop::LockRequest{model::EditScope::track(track), true});
     world.run({&session.host, &guest});
-    CHECK(guest.last<coop::LockState>()->locks[0].second == 1);
+    CHECK(lastOf<coop::LockState>(guest).locks[0].second == 1);
 
     // 30 s without edits: free for the next one.
     world.run({&session.host, &guest}, 31.0);
-    CHECK(guest.last<coop::LockState>()->locks[0].second == 0);
+    CHECK(lastOf<coop::LockState>(guest).locks[0].second == 0);
     guest.send(coop::Transaction{
         2, "Pan", 2, session.edit([](model::Project& p) { p.getTrack(0).setPan(0.3); }), {}});
     world.run({&session.host, &guest});
@@ -457,7 +466,7 @@ TEST_CASE("The host removes participants hands over and closes the session", "[s
 
     session.host.send(coop::HostCommand{coop::HostCommand::Kind::remove, 3});
     world.run({&session.host, &guest, &third}, 2.0);
-    CHECK(third.last<coop::SessionEnded>()->reason == coop::SessionEnded::Reason::removed);
+    CHECK(lastOf<coop::SessionEnded>(third).reason == coop::SessionEnded::Reason::removed);
     world.connect(third);
     third.rejoin();
     world.run({&session.host, &guest, &third});
@@ -480,7 +489,7 @@ TEST_CASE("The host removes participants hands over and closes the session", "[s
     const auto sessionId = session.host.sessionId;
     guest.send(coop::HostCommand{coop::HostCommand::Kind::close, 0});
     world.run({&session.host, &guest}, 2.0);
-    CHECK(session.host.last<coop::SessionEnded>()->reason == coop::SessionEnded::Reason::closed);
+    CHECK(lastOf<coop::SessionEnded>(session.host).reason == coop::SessionEnded::Reason::closed);
     CHECK(world.server.getNumSessions() == 0);
 
     world.connect(session.host);
@@ -499,7 +508,7 @@ TEST_CASE("While someone records the tempo and effect chains stay as they are", 
 
     guest.send(coop::RecordingState{true});
     world.run({&session.host, &guest});
-    CHECK(session.host.last<coop::ParticipantList>()->participants[1].recording);
+    CHECK(lastOf<coop::ParticipantList>(session.host).participants[1].recording);
 
     session.host.send(coop::Transaction{
         1, "Tempo", 1, session.edit([](model::Project& p) { p.setTempo(90.0); }), {}});

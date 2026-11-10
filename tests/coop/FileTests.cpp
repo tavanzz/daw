@@ -13,6 +13,14 @@ namespace
 
 using Kind = coop::FileSync::State::Kind;
 
+// The state of a file the copy knows (it must know it).
+Kind kindOf(const coop::FileSync& files, const juce::String& path)
+{
+    const auto state = files.stateOf(path);
+    REQUIRE(state.has_value());
+    return state->kind;
+}
+
 juce::MemoryBlock randomBytes(std::size_t size, juce::int64 seed)
 {
     juce::MemoryBlock data(size);
@@ -115,8 +123,8 @@ TEST_CASE("Files go up once and come down to everyone checked", "[coop][files]")
     REQUIRE(arrived.size() == 1);
     CHECK(arrived[0] == "Audio/1/take 1.wav");
     CHECK(contentOf(session.guest().folder.getChildFile("Audio/1/take 1.wav")) == take);
-    CHECK(session.guest().client->getFiles().stateOf("Audio/1/take 1.wav")->kind == Kind::present);
-    CHECK(session.host().client->getFiles().stateOf("Audio/1/take 1.wav")->kind == Kind::present);
+    CHECK(kindOf(session.guest().client->getFiles(), "Audio/1/take 1.wav") == Kind::present);
+    CHECK(kindOf(session.host().client->getFiles(), "Audio/1/take 1.wav") == Kind::present);
     CHECK_FALSE(session.guest().folder.getChildFile("Audio/1/take 1.wav.part").exists());
     CHECK(session.world.server().getFileBytes(session.world.server().getSessionIds()[0])
           == take.getSize());
@@ -166,9 +174,9 @@ TEST_CASE("A file the session has no room for is refused", "[coop][files]")
     session.addTake("Audio/1/big.wav", randomBytes(2 * 1024 * 1024, 4));
     session.world.run(2.0);
 
-    CHECK(session.host().client->getFiles().stateOf("Audio/1/big.wav")->kind == Kind::failed);
-    CHECK(session.host().client->getFiles().takeNotices()[0].contains("larger than the session"));
-    CHECK(session.guest().client->getFiles().stateOf("Audio/1/big.wav")->kind == Kind::incoming);
+    CHECK(kindOf(session.host().client->getFiles(), "Audio/1/big.wav") == Kind::failed);
+    CHECK(session.host().client->getFiles().takeNotices().joinIntoString(" ").contains("larger than the session"));
+    CHECK(kindOf(session.guest().client->getFiles(), "Audio/1/big.wav") == Kind::incoming);
 }
 
 TEST_CASE("A file already in the copy is checked and not downloaded again", "[coop][files]")
@@ -179,7 +187,7 @@ TEST_CASE("A file already in the copy is checked and not downloaded again", "[co
     session.addTake("Audio/1/known.wav", take);
     session.runUntilFilesArrive();
 
-    CHECK(session.guest().client->getFiles().stateOf("Audio/1/known.wav")->kind == Kind::present);
+    CHECK(kindOf(session.guest().client->getFiles(), "Audio/1/known.wav") == Kind::present);
     CHECK(session.guest().client->getFiles().getBytesReceived() < 64 * 1024);
 }
 
