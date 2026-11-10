@@ -27,6 +27,7 @@ Modules with one-way dependencies:
 | `controller/` | maps the model onto the engine: session, undo, loading, export, timeline view math | engine, model, non-GUI JUCE |
 | `appearance/` | theme values (colours, fonts, shapes, meter styles, effects) and animation settings, for every UI | non-GUI JUCE modules |
 | `services/`   | what the app needs around the audio: build information, user settings, log, updates, crash reports | non-GUI JUCE modules |
+| `coop/`       | co-op sessions: the protocol, a participant's synchronisation, the server's sessions | model, non-GUI JUCE modules |
 | `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, appearance, services, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, appearance, services, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
@@ -40,7 +41,9 @@ Modules with one-way dependencies:
   or `appearance/` include GUI JUCE modules, `JuceHeader.h` or `daw/ui/...`, if
   `engine/` and `model/` include each other or `controller/`, or if `appearance/` or
   `services/` includes another module or is included by `engine/`, `model/`,
-  `controller/` (or each other).
+  `controller/` (or each other), or if `coop/` includes the engine, the controller,
+  `appearance/` or `services/`, or `engine/`, `model/`, `appearance/` or `services/`
+  include `coop/`.
 - Every module has public headers in `include/daw/<module>/` and private code in
   `src/`. Namespaces: `daw::engine`, `daw::model`, `daw::controller`,
   `daw::appearance`, `daw::services`, `daw::ui::desktop`.
@@ -306,6 +309,20 @@ Modules with one-way dependencies:
   within it. `checkChange()` refuses what would make a project malformed (children a node
   may not have, containers twice or before items, taken ids, personal settings, changing
   an id). Tests make random edits through the model (`tests/support/RandomProjectEdits`).
+- Co-op protocol (Phase 9, `coop/Wire.h`, `coop/Messages.h`): `Writer` / `Reader` write
+  little-endian integers, LEB128 varints (signed ones zig-zag), doubles bit for bit,
+  UTF-8 strings, vars with their exact type, trees, paths and changes; a change's new
+  binary or string value goes as the one range that changed (a note moved in a clip of a
+  thousand costs a few bytes). `Reader` treats its input as hostile: counts are checked
+  against the bytes left before anything is allocated, nesting is limited, strings must be
+  UTF-8, and any fault fails the whole read. Frames start with a `FrameKind`: the client's
+  `Hello` (magic "MICN", protocol and project format versions, then the request: create,
+  join or rejoin a session), `Welcome` or `Refused` (whose layout never changes, nor the
+  start of Hello, so any two versions can tell each other why they cannot talk;
+  `describe()` says what to do), then channel frames carrying `Message`s (a variant whose
+  index is the tag: append only). Project trees in uploads and snapshots are compressed
+  (zlib), decompressed in pieces up to the announced size. A golden test fixes the bytes
+  of the handshake.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2147,7 +2164,7 @@ work merged later, the mobile UI.
       their values before and after, addressed by ids, applied, inverted and checked;
       scopes (track, bus, master, project), personal settings, file paths relative to
       the copy, id ranges per participant, the children each node type allows
-- [ ] 2. Protocol (`coop`): exact binary encoding of values, trees and changes, every
+- [x] 2. Protocol (`coop`): exact binary encoding of values, trees and changes, every
       message, the handshake (protocol and project format versions, clear refusals); a
       golden test of the bytes
 - [ ] 3. TLS transport (`net`): Mbed TLS 4.1 LTS pinned, TLS 1.3, the server's own

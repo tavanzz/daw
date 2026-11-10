@@ -17,6 +17,7 @@ add_executable(daw_tests
     appearance/ContrastTests.cpp
     appearance/ThemeFileTests.cpp
     appearance/ThemeLibraryTests.cpp
+    coop/MessageTests.cpp
     controller/ArrangementBuilderTests.cpp
     controller/AutomationEditingTests.cpp
     controller/EffectSessionTests.cpp
@@ -89,8 +90,8 @@ add_executable(daw_tests
     services/UserSettingsTests.cpp)
 
 target_include_directories(daw_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::engine daw::model
-    daw::services Catch2::Catch2)
+target_link_libraries(daw_tests PRIVATE daw::appearance daw::controller daw::coop daw::engine
+    daw::model daw::services Catch2::Catch2)
 daw_enable_warnings(daw_tests)
 # The test plugins are built with the tests, which find them here.
 add_dependencies(daw_tests daw_test_plugins)
@@ -235,6 +236,16 @@ add_test(NAME architecture.detects_services_include_in_controller
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
 set_tests_properties(architecture.detects_services_include_in_controller PROPERTIES
     PASS_REGULAR_EXPRESSION "controller/src/UsesServices\\.cpp: <daw/services/BuildInfo\\.h>")
+
+add_test(NAME architecture.detects_controller_include_in_coop
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_controller_include_in_coop PROPERTIES
+    PASS_REGULAR_EXPRESSION "coop/src/UsesController\\.cpp: <daw/controller/Session\\.h>")
+
+add_test(NAME architecture.detects_coop_include_in_engine
+    COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
+set_tests_properties(architecture.detects_coop_include_in_engine PROPERTIES
+    PASS_REGULAR_EXPRESSION "engine/src/UsesCoop\\.cpp: <daw/coop/Messages\\.h>")
 
 add_test(NAME architecture.detects_plugin_editors_in_engine
     COMMAND "${CMAKE_COMMAND}" "-DDAW_SOURCE_DIR=${violating_tree}" -P "${check_architecture}")
