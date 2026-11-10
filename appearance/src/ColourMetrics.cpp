@@ -42,9 +42,12 @@ Lab labOf(Colour colour) noexcept
     const double x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
     const double y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     const double z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
-    constexpr double epsilon = 216.0 / 24389.0;
-    constexpr double kappa = 24389.0 / 27.0;
-    const auto f = [](double t) { return t > epsilon ? std::cbrt(t) : (kappa * t + 16.0) / 116.0; };
+    const auto f = [](double t)
+    {
+        constexpr double epsilon = 216.0 / 24389.0;
+        constexpr double kappa = 24389.0 / 27.0;
+        return t > epsilon ? std::cbrt(t) : (kappa * t + 16.0) / 116.0;
+    };
     return {116.0 * f(y) - 16.0, 500.0 * (f(x) - f(y)), 200.0 * (f(y) - f(z))};
 }
 } // namespace
