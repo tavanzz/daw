@@ -52,6 +52,10 @@ struct ColourPair
 /** The smallest difference in CIELAB lightness (L*) between two status colours. */
 inline constexpr double minimumStatusLightnessDifference = 10.0;
 
+/** The smallest difference (colourDifference()) between two participants' colours, so
+    that nobody's cursor or lock is taken for someone else's. */
+inline constexpr double minimumParticipantDifference = 30.0;
+
 /** Every way the theme breaks the contrast rules, e.g. "textSecondary on panel: 3.9:1,
     needs 4.5:1"; empty if it meets them all. */
 [[nodiscard]] juce::StringArray contrastProblems(const Theme& theme);

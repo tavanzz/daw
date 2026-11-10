@@ -10,6 +10,7 @@ add_library(daw_ui_desktop STATIC
     src/AudioSettingsDialog.cpp
     src/AutomationLanes.cpp
     src/CompressorView.cpp
+    src/CoopPanels.cpp
     src/EditorWindow.cpp
     src/EffectEditorWindow.cpp
     src/EffectSlots.cpp

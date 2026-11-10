@@ -178,6 +178,10 @@ struct ClipLook
     [[nodiscard]] Colour colourFor(int trackIndex) const noexcept;
 };
 
+/** How many participants of a co-op session have a colour of their own (the server gives
+    each one of these, coop::ParticipantInfo::colour). */
+inline constexpr std::size_t participantColourCount = 8;
+
 /** Everything a user interface needs to draw in one theme. Read from the JSON files
     in appearance/themes (see ThemeFile.h). */
 struct Theme
@@ -189,6 +193,8 @@ struct Theme
     Shape shape;
     MeterLook meter;
     ClipLook clips;
+    /** Co-op participants: their cursors, playheads, selections, locks and names. */
+    std::array<Colour, participantColourCount> participants{};
     std::array<EffectLook, animationEffectCount> effects{};
     juce::String shapeSummary; ///< for the theme previews
     juce::String meterSummary; ///< for the theme previews
@@ -196,6 +202,8 @@ struct Theme
     [[nodiscard]] Colour colour(ColourRole role) const noexcept;
     [[nodiscard]] const FontSpec& font(FontRole role) const noexcept;
     [[nodiscard]] const EffectLook& effect(AnimationEffect animationEffect) const noexcept;
+    /** The colour of a participant's index (any int: taken in turn). */
+    [[nodiscard]] Colour participantColour(int index) const noexcept;
 
     /** The font families in role order, each once, e.g. "Chakra Petch, JetBrains Mono". */
     [[nodiscard]] juce::String fontSummary() const;

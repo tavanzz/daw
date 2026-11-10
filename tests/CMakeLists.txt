@@ -123,11 +123,13 @@ target_compile_definitions(daw_tests PRIVATE "DAW_CRASH_PROBE=\"$<TARGET_FILE:da
 # UI tests: the desktop interface's themes and windows, with JUCE's GUI running (on
 # Linux CI, on a virtual display).
 add_executable(daw_ui_tests
+    support/SimulatedNetwork.cpp
     support/TestAudioFiles.cpp
     support/UiTestMain.cpp
     support/WindowManagerAtoms.cpp
     ui/AlertsTests.cpp
     ui/AnimationClockTests.cpp
+    ui/CoopUiTests.cpp
     ui/HelpPanelsTests.cpp
     ui/MidiUiTests.cpp
     ui/PanelsTests.cpp
@@ -139,7 +141,7 @@ add_executable(daw_ui_tests
 
 target_include_directories(daw_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(daw_ui_tests PRIVATE daw::ui_desktop daw::appearance daw::controller
-    daw::engine daw::model daw::juce Catch2::Catch2)
+    daw::engine daw::model daw::server daw::coop daw::net daw::services daw::juce Catch2::Catch2)
 daw_enable_warnings(daw_ui_tests)
 # The VST3 test plugins (support/TestPlugins.h, its inline parts only).
 add_dependencies(daw_ui_tests daw_test_plugins)

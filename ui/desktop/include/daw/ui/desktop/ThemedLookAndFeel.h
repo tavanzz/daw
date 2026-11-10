@@ -79,6 +79,8 @@ public:
     [[nodiscard]] const ThemeFonts& getFonts() const noexcept { return fonts; }
 
     [[nodiscard]] juce::Colour colour(appearance::ColourRole role) const noexcept;
+    /** A co-op participant's colour (coop::ParticipantInfo::colour). */
+    [[nodiscard]] juce::Colour participantColour(int index) const noexcept;
     [[nodiscard]] juce::Font font(appearance::FontRole role) const;
     [[nodiscard]] juce::Font font(appearance::FontRole role, float height) const;
 
@@ -380,6 +382,10 @@ public:
         juce::String details;      ///< right-hand side
         juce::String projectName;  ///< for prompt-style bars
         bool cursorVisible = true; ///< the prompt's cursor
+        /** The co-op session, if any: its state and the colours of who is connected. */
+        juce::String coop;
+        appearance::ColourRole coopRole = appearance::ColourRole::textSecondary;
+        std::vector<int> coopPeople;
     };
 
     virtual void drawStatusBar(juce::Graphics& g, juce::Rectangle<float> area,

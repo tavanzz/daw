@@ -61,8 +61,11 @@ juce::String addressText(const ServerAddress& server)
 
 juce::String toText(const JoinLink& link)
 {
-    return "micinstation://join?server=" + escaped(addressText(link.server))
-           + "&key=" + link.server.fingerprint + "&code=" + escaped(link.code);
+    auto text = "micinstation://join?server=" + escaped(addressText(link.server))
+                + "&key=" + link.server.fingerprint + "&code=" + escaped(link.code);
+    if (link.title.isNotEmpty())
+        text << "&title=" << escaped(link.title);
+    return text;
 }
 
 juce::String toText(const HostLink& link)
@@ -80,7 +83,7 @@ std::optional<JoinLink> parseJoinLink(const juce::String& text)
     const auto code = parameter(*parameters, "code");
     if (!server || code.isEmpty())
         return std::nullopt;
-    return JoinLink{*server, code};
+    return JoinLink{*server, code, parameter(*parameters, "title").substring(0, 100)};
 }
 
 std::optional<HostLink> parseHostLink(const juce::String& text)

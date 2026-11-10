@@ -17,12 +17,14 @@ struct ServerAddress
     bool operator==(const ServerAddress&) const = default;
 };
 
-/** An invite: the server and a session's code. As text:
-    micinstation://join?server=<host:port>&key=<fingerprint>&code=<code>. */
+/** An invite: the server and a session's code, and the project's name for the folder of
+    the copy (optional). As text:
+    micinstation://join?server=<host:port>&key=<fingerprint>&code=<code>&title=<name>. */
 struct JoinLink
 {
     ServerAddress server;
     juce::String code;
+    juce::String title;
 };
 
 /** What lets someone open sessions on a server, handed out by whoever runs it. As text:

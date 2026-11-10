@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/controller/CoopSession.h"
 #include "daw/controller/Session.h"
 #include "daw/ui/desktop/AnimationLink.h"
 #include "daw/ui/desktop/ThemedLookAndFeel.h"
@@ -27,6 +28,9 @@ public:
     /** Shows a warning for a few seconds. */
     void showWarning(const juce::String& text);
 
+    /** Shows the state of this co-op session too (null: none). */
+    void setCoop(const controller::CoopSession* coopToShow);
+
     [[nodiscard]] const ThemedLookAndFeel::StatusLine& getLine() const noexcept { return line; }
 
     void paint(juce::Graphics& g) override;
@@ -34,6 +38,7 @@ public:
 
 private:
     controller::Session& session;
+    const controller::CoopSession* coop = nullptr;
     ThemedLookAndFeel::StatusLine line;
     juce::String warning;
     juce::uint32 warningUntil = 0;

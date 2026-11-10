@@ -2,6 +2,7 @@
 
 #include "CrashMarker.h"
 #include "SmokeTest.h"
+#include "daw/controller/CoopSession.h"
 #include "daw/controller/PluginInstances.h"
 #include "daw/controller/PluginLibrary.h"
 #include "daw/controller/Session.h"
@@ -124,6 +125,7 @@ private:
     engine::Engine engine;
     engine::io::AudioDeviceHost deviceHost{engine};
     controller::Session session{engine, sessionOptions()};
+    std::unique_ptr<controller::CoopSession> coop; // the window shows it
     std::unique_ptr<services::UpdateChecker> updates;
     std::unique_ptr<ui::desktop::ThemeManager> themes; // the window draws with its looks
     std::unique_ptr<ui::desktop::MainWindow> window;

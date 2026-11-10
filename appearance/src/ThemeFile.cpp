@@ -16,6 +16,7 @@ constexpr const char* name = "name";
 constexpr const char* palette = "palette";
 constexpr const char* colours = "colours";
 constexpr const char* clips = "clips";
+constexpr const char* participants = "participants";
 constexpr const char* fonts = "fonts";
 constexpr const char* shape = "shape";
 constexpr const char* meter = "meter";
@@ -296,6 +297,22 @@ void readClips(Reader& reader, const juce::var& object, Theme& theme)
         reader.readNumber(object, path, "headerAlpha", 0.0, 1.0).value_or(0.0f);
 }
 
+void readParticipants(Reader& reader, const juce::var& list, Theme& theme)
+{
+    const juce::String path = json::participants;
+    const auto* colours = list.getArray();
+    if (colours == nullptr || colours->size() != static_cast<int>(participantColourCount))
+    {
+        if (!list.isVoid())
+            reader.error(path, "must be a list of " + juce::String(static_cast<int>(participantColourCount))
+                                   + " colours");
+        return;
+    }
+    for (int index = 0; index < colours->size(); ++index)
+        if (const auto colour = reader.readColour((*colours)[index], path + "[" + juce::String(index) + "]"))
+            theme.participants[static_cast<std::size_t>(index)] = *colour;
+}
+
 void readFonts(Reader& reader, const juce::var& object, Theme& theme)
 {
     if (!reader.isObject(object, json::fonts))
@@ -482,7 +499,8 @@ ThemeReadResult readTheme(const juce::String& text)
 
     reader.rejectUnknownKeys(root, {},
                              {json::id, json::name, json::palette, json::colours, json::clips,
-                              json::fonts, json::shape, json::meter, json::effects, json::summary});
+                              json::participants, json::fonts, json::shape, json::meter,
+                              json::effects, json::summary});
 
     theme.id = reader.readString(root, {}, json::id).value_or(juce::String());
     theme.name = reader.readString(root, {}, json::name).value_or(juce::String());
@@ -490,6 +508,7 @@ ThemeReadResult readTheme(const juce::String& text)
     reader.readPalette(reader.member(root, {}, json::palette));
     readColours(reader, reader.member(root, {}, json::colours), theme);
     readClips(reader, reader.member(root, {}, json::clips), theme);
+    readParticipants(reader, reader.member(root, {}, json::participants), theme);
     readFonts(reader, reader.member(root, {}, json::fonts), theme);
     readShape(reader, reader.member(root, {}, json::shape), theme);
     readMeter(reader, reader.member(root, {}, json::meter), theme);

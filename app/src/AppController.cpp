@@ -116,10 +116,15 @@ AppController::AppController(const juce::String& name, Options options)
     deviceHost.openMidiInputs(settings.getMidiInputsSwitchedOff());
     midiDevicesChanged();
 
+    controller::CoopSession::Options coopOptions;
+    coopOptions.appVersion = services::buildInfo().version;
+    coop = std::make_unique<controller::CoopSession>(session, controller::CoopSession::tlsLinks(), coopOptions);
+
     window = std::make_unique<ui::desktop::MainWindow>(applicationName, session,
                                                        deviceHost.getDeviceManager(), *themes, &plugins);
     updates = makeUpdateChecker();
     view().setAppServices(appServices());
+    view().setCoopSession(coop.get());
 
     auto& positions = view().getPluginWindowPositions();
     positions = ui::desktop::WindowPositions::fromJson(settings.getPluginWindows());
@@ -196,6 +201,10 @@ AppController::~AppController()
         saveDeviceState();
     deviceHost.getDeviceManager().removeChangeListener(this);
     window.reset();
+    if (coop != nullptr && coop->isActive())
+        if (const auto saved = coop->saveCopy(); saved.failed())
+            juce::Logger::writeToLog("Co-op: the copy could not be saved: " + saved.getErrorMessage());
+    coop.reset();
     juce::Logger::writeToLog(services::AppLog::endOfSessionLine);
     juce::Logger::setCurrentLogger(nullptr);
 }
@@ -295,6 +304,13 @@ ui::desktop::AppServices AppController::appServices()
     services.licencesFolder = executable.getSiblingFile("Licences");
 #endif
     services.settings = &settings;
+    // Copies of co-op sessions: in Documents, unless this run has settings of its own (a
+    // second copy of the app on the same computer, a release check).
+    services.coopFolder = runOptions.settingsFolder != juce::File()
+                              ? settings.getFolder().getChildFile("Co-op")
+                              : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                                    .getChildFile(services::buildInfo().productName)
+                                    .getChildFile("Co-op");
     services.updates = updates.get();
     services.crashReports = crashReports.get();
     services.updateInstallProblem = services::UpdateInstaller::describeRunningApp().whyNot;
@@ -601,6 +617,8 @@ void AppController::timerCallback()
     if (plugins.update())
         session.pluginsChanged();
     logPlugins();
+    if (coop != nullptr)
+        coop->update(); // changes of others reach the session before it builds the engine's
     session.update();
 
     logProject();

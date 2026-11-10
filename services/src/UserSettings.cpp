@@ -21,6 +21,8 @@ constexpr const char* latencyOffsetsKey = "latencyOffsets";
 constexpr const char* firstLaunchKey = "firstLaunch";
 constexpr const char* crashReportsKey = "crashReports";
 constexpr const char* updatesKey = "updates";
+// Added in version 1 without a migration: a new key, which older versions keep.
+constexpr const char* coopKey = "coop";
 
 // Version 0 kept one key per device pair and rate: "latencyOffset <type>|<in>|<out>|<rate>".
 constexpr const char* oldLatencyOffsetPrefix = "latencyOffset ";
@@ -275,6 +277,25 @@ void UserSettings::setUpdatePreferences(const UpdatePreferences& preferences)
     json->setProperty("channel", preferences.channel == UpdateChannel::preRelease ? "preRelease" : "stable");
     json->setProperty("skippedVersion", preferences.skippedVersion);
     properties->setValue(updatesKey, toJson(json));
+}
+
+CoopPreferences UserSettings::getCoopPreferences() const
+{
+    const auto json = juce::JSON::parse(properties->getValue(coopKey));
+    CoopPreferences preferences;
+    preferences.name = json.getProperty("name", {}).toString();
+    preferences.hostLink = json.getProperty("hostLink", {}).toString();
+    preferences.follow = static_cast<bool>(json.getProperty("follow", true));
+    return preferences;
+}
+
+void UserSettings::setCoopPreferences(const CoopPreferences& preferences)
+{
+    auto json = objectFrom(properties->getValue(coopKey));
+    json->setProperty("name", preferences.name);
+    json->setProperty("hostLink", preferences.hostLink);
+    json->setProperty("follow", preferences.follow);
+    properties->setValue(coopKey, toJson(json));
 }
 
 } // namespace daw::services

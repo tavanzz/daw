@@ -218,11 +218,13 @@ model::ObjectId firstTrack(const controller::Session& session)
 TEST_CASE("Invite and server links survive being pasted", "[controller][coop]")
 {
     const controller::CoopServer server{"203.0.113.7", 443, juce::String::repeatedString("x", 43)};
-    const controller::CoopInvite invite{server, "ABCDE-FGHJK"};
+    const controller::CoopInvite invite{server, "ABCDE-FGHJK", "Song & Dance/1"};
     const auto parsed = controller::parseInvite("  " + controller::inviteLink(invite) + "\n");
     REQUIRE(parsed.has_value());
     CHECK(parsed->server == server);
     CHECK(parsed->code == "ABCDE-FGHJK");
+    CHECK(parsed->title == "Song & Dance/1");
+    CHECK(controller::parseInvite(controller::inviteLink({server, "ABCDE-FGHJK", {}}))->title.isEmpty());
 
     const controller::CoopServerLink link{{"::1", 7443, server.fingerprint}, "a key/with+odd=chars"};
     const auto parsedLink = controller::parseServerLink(controller::serverLink(link));
@@ -233,6 +235,20 @@ TEST_CASE("Invite and server links survive being pasted", "[controller][coop]")
 
     CHECK_FALSE(controller::parseInvite("https://example.com/?code=x").has_value());
     CHECK_FALSE(controller::parseInvite(controller::serverLink(link)).has_value());
+}
+
+TEST_CASE("Copies of co-op projects get folders of their own, named after the project", "[controller][coop]")
+{
+    TemporaryDirectory temporary;
+    const auto parent = temporary.file("Co-op");
+    const auto first = controller::newCopyFolder(parent, "Song: Take/2");
+    CHECK(first.getParentDirectory() == parent);
+    CHECK_FALSE(first.getFileName().containsAnyOf(":/"));
+    REQUIRE(first.createDirectory());
+    const auto second = controller::newCopyFolder(parent, "Song: Take/2");
+    CHECK(second.getFileName() == first.getFileName() + " 2");
+    CHECK(controller::newCopyFolder(parent, "  ").getFileName() == "Session");
+    CHECK(controller::newCopyFolder(parent, "..hidden").getFileName() == "hidden");
 }
 
 TEST_CASE("Hosting copies the project and its files; the guest gets both", "[controller][coop]")

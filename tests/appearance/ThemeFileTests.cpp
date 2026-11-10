@@ -49,6 +49,23 @@ TEST_CASE("A theme without a colour role is refused, naming the role", "[appeara
     CHECK(errors == juce::StringArray("colours.panel: missing"));
 }
 
+TEST_CASE("A theme needs exactly eight participant colours", "[appearance]")
+{
+    CHECK(errorsAfter([](juce::var& json) { json.getDynamicObject()->removeProperty("participants"); })
+          == juce::StringArray("participants: missing"));
+    CHECK(errorsAfter([](juce::var& json) { json["participants"].getArray()->remove(0); })
+          == juce::StringArray("participants: must be a list of 8 colours"));
+    CHECK(errorsAfter([](juce::var& json) { json["participants"].getArray()->set(3, "nonsense"); })
+              .joinIntoString("\n")
+              .startsWith("participants[3]:"));
+
+    const auto theme = readTheme(juce::JSON::toString(completeTheme())).theme;
+    REQUIRE(theme.has_value());
+    CHECK(theme->participantColour(0) == theme->participants[0]);
+    CHECK(theme->participantColour(9) == theme->participants[1]);
+    CHECK(theme->participantColour(-1) == theme->participants[7]);
+}
+
 TEST_CASE("A theme without a font role or an effect is refused", "[appearance]")
 {
     CHECK(errorsAfter([](juce::var& json) { objectAt(json, "fonts").removeProperty("display"); }) ==

@@ -68,6 +68,16 @@
         "bodyAlpha": 0.16,
         "headerAlpha": 0.95
     },
+    "participants": [
+        "orange",
+        "violet",
+        "pink",
+        "turquoise",
+        "#FFD84D",
+        "#7CFF6B",
+        "#5C9DFF",
+        "text"
+    ],
     "fonts": {
         "title": { "family": "Michroma", "style": "Regular", "size": 13, "tracking": 0.12, "uppercase": true },
         "heading": { "family": "Michroma", "style": "Regular", "size": 11, "tracking": 0.08, "uppercase": true },

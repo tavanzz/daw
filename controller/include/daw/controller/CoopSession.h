@@ -49,6 +49,10 @@ struct CoopMembership
 };
 
 [[nodiscard]] std::optional<CoopMembership> readMembership(const juce::File& copyFolder);
+
+/** A new folder in parent for the co-op copy of a project called title: "Song", or
+    "Song 2" if that one exists, and so on (names a file system refuses are made legal). */
+[[nodiscard]] juce::File newCopyFolder(const juce::File& parent, const juce::String& title);
 juce::Result writeMembership(const juce::File& copyFolder, const CoopMembership& membership);
 
 /**
@@ -102,11 +106,19 @@ public:
 
     [[nodiscard]] coop::Client& getClient() noexcept { return *client; }
     [[nodiscard]] const coop::Client& getClient() const noexcept { return *client; }
+    /** The client of the last session started here (it stays, ended, after leaving): null
+        if none was. */
+    [[nodiscard]] const coop::Client* findClient() const noexcept { return client.get(); }
+    /** The project's name, as invites carry it. */
+    [[nodiscard]] juce::String getTitle() const;
     [[nodiscard]] const CoopServer& getServer() const noexcept { return server; }
+    [[nodiscard]] Session& getSession() noexcept { return session; }
     [[nodiscard]] const juce::File& getCopyFolder() const noexcept { return folder; }
     [[nodiscard]] bool isActive() const noexcept;
     /** The invite as a link to paste in a chat; empty without a code. */
     [[nodiscard]] juce::String getInviteLink() const;
+    /** How long the invite stays valid, in seconds (nothing without one, or a clock). */
+    [[nodiscard]] std::optional<double> getInviteSecondsLeft() const;
 
     /** The state of a file of the copy (incoming, downloading with progress...). */
     [[nodiscard]] std::optional<coop::FileSync::State> getFileState(const juce::File& file) const;

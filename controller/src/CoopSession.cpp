@@ -10,6 +10,7 @@
  #include <sys/stat.h>
 #endif
 
+#include <algorithm>
 #include <map>
 
 namespace daw::controller
@@ -60,6 +61,17 @@ juce::Result writeMembership(const juce::File& copyFolder, const CoopMembership&
     chmod(file.getFullPathName().toRawUTF8(), S_IRUSR | S_IWUSR); // the token is a secret
 #endif
     return juce::Result::ok();
+}
+
+juce::File newCopyFolder(const juce::File& parent, const juce::String& title)
+{
+    auto name = juce::File::createLegalFileName(title.trim()).trimCharactersAtStart(".").trim();
+    if (name.isEmpty())
+        name = "Session";
+    auto folder = parent.getChildFile(name);
+    for (int number = 2; folder.exists(); ++number)
+        folder = parent.getChildFile(name + " " + juce::String(number));
+    return folder;
 }
 
 // CoopSession ----------------------------------------------------------------------------
@@ -208,7 +220,10 @@ juce::Result CoopSession::join(const CoopInvite& invite, const juce::String& nam
         return juce::Result::fail("The folder for the co-op copy cannot be made.");
 
     session.newProject();
-    if (const auto saved = session.saveProject(copyFolder.getChildFile("Session" + juce::String(model::projectFileExtension)));
+    auto title = juce::File::createLegalFileName(invite.title.trim()).trimCharactersAtStart(".").trim();
+    if (title.isEmpty())
+        title = "Session";
+    if (const auto saved = session.saveProject(copyFolder.getChildFile(title + model::projectFileExtension));
         saved.failed())
         return saved;
 
@@ -353,11 +368,26 @@ void CoopSession::startTransport(const coop::TransportStart& start)
     session.play();
 }
 
+juce::String CoopSession::getTitle() const
+{
+    const auto file = session.getProjectFile();
+    return file == juce::File() ? juce::String() : file.getFileNameWithoutExtension();
+}
+
 juce::String CoopSession::getInviteLink() const
 {
     if (client == nullptr || !client->getInvite() || client->getInvite()->code.isEmpty())
         return {};
-    return inviteLink({server, client->getInvite()->code});
+    return inviteLink({server, client->getInvite()->code, getTitle()});
+}
+
+std::optional<double> CoopSession::getInviteSecondsLeft() const
+{
+    if (client == nullptr || !client->getInvite() || client->getInvite()->code.isEmpty())
+        return std::nullopt;
+    if (const auto serverNow = client->serverTime(now()))
+        return std::max(0.0, client->getInvite()->expiryTime - *serverNow);
+    return std::nullopt;
 }
 
 std::optional<coop::FileSync::State> CoopSession::getFileState(const juce::File& file) const

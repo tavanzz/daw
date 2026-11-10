@@ -30,7 +30,7 @@ Modules with one-way dependencies:
 | `net/`        | connections of co-op sessions: TLS 1.3 links, frames, a reliable channel | non-GUI JUCE modules, Mbed TLS |
 | `coop/`       | co-op sessions: the protocol, a participant's synchronisation | model, net, non-GUI JUCE modules |
 | `server/`     | the co-op server: sessions, their one order, locks, invites, storage | model, net, coop, non-GUI JUCE modules |
-| `ui/desktop/` | mouse and keyboard interface                                      | controller, engine, model, appearance, services, JUCE GUI |
+| `ui/desktop/` | mouse and keyboard interface                                      | controller (and the co-op types it exposes), engine, model, appearance, services, JUCE GUI |
 | `ui/mobile/`  | touch interface (placeholder only, not built yet)                 | controller, engine, model, appearance, services, JUCE GUI |
 | `app/`        | entry point, connects the modules                                 | everything                       |
 | `tests/`      | unit tests for engine, model, controller, appearance and services; UI tests for ui/desktop | everything but app (they run the app's plugin scanner program, linking none of its code) |
@@ -96,7 +96,8 @@ Modules with one-way dependencies:
   typed values: audio device, MIDI inputs switched off, appearance (the appearance
   module's JSON), plugin window positions, the last project, latency offsets per device
   pair and rate, what the first launch has decided, crash-report consent, update
-  preferences. Versioned like project files: "settingsVersion" (`currentSettingsVersion`)
+  preferences, co-op preferences ("coop": the name, the last server link, follow; a key
+  added in version 1, which older versions keep). Versioned like project files: "settingsVersion" (`currentSettingsVersion`)
   and a chain of migrations run on opening (0, as v0.7.0 wrote it, to 1: the offsets
   gathered into one JSON object, a device or theme already there counts as chosen).
   Settings from a newer version are read as far as understood; their version is never
@@ -1135,7 +1136,11 @@ Modules with one-way dependencies:
   draw: text 4.5:1, large text and graphics 3:1, WCAG 2 ratios), text on fills
   (`textRoleOn()` picks text or textOnAccent, whichever reads better), clip names and
   waveforms on every clip colour, the meter at every level, and status colours
-  (record, mute, solo, clip, automation) at least 10 apart in CIELAB L*. Decorative
+  (record, mute, solo, clip, automation) at least 10 apart in CIELAB L*; the eight
+  participant colours (Phase 9, `Theme::participants`, "participants" in the theme files,
+  `participantColour()`) at least 3:1 on lanes, the piano roll's rows and the panels, a
+  readable initial on each, and every two at least 30 apart (`colourDifference()`, CIE76
+  Delta E). Decorative
   lines, translucent overlays and disabled text are exempt. A UI that draws a new
   combination adds it to `colourPairs()`; the tests run the check on every theme.
 - Animation settings (Phase 5): `appearance::AnimationSettings` (level full /
@@ -1302,6 +1307,23 @@ Modules with one-way dependencies:
   Windows) write the `RunningPlugin` names into `CrashedPlugins.txt` with system calls
   only, then let the signal go on; the next start holds those plugins back
   (`Session::holdBackPlugins()`) and offers to open the last project.
+- Co-op in the desktop UI (Phase 9): the app owns a `controller::CoopSession` (TLS links;
+  updated before the session each tick; the copy saved when the app quits) and hands it
+  to `MainComponent::setCoopSession()`; `AppServices::coopFolder` is where copies go
+  (`Documents/MICINSTATION/Co-op`, or `Co-op` next to the settings with
+  `--settings-dir=`), each in `controller::newCopyFolder()` named after the project. The
+  Co-op menu: Host a Session..., Join a Session... (`CoopStartPanel`: the link and the
+  name, both remembered in the settings; asks to save first, then waits for the server's
+  answer, or says why it refused; Cancel stops trying), Session... (`CoopSessionPanel`: the
+  state, the host's invite with Copy, New Code and Revoke and its time left, the
+  participants with their chips (`drawParticipantChip()`), the host's Remove and Make
+  Host, Play and Stop for Everyone, Follow, Leave and Close Session, both confirmed), Copy
+  Invite Link, Play and Stop for Everyone, Follow the Shared Transport, Leave Session...,
+  Close Session... (the host). The status bar shows "Co-op: 3 here" with a dot per
+  participant connected (or connecting, reconnecting); the co-op notices and refused edits
+  (`Session::takeEditProblem()`, unless a view took it) show as its warnings; the end of
+  a session the copy did not leave is an alert. Invite links carry the project's name
+  (`JoinLink::title`) for the joiner's folder.
 - macOS asks the user before an app reads files in Documents, Desktop or Downloads;
   until they answer, file loads block in `open()`. Test from a session with audio
   copied outside those folders.
@@ -2349,7 +2371,7 @@ work merged later, the mobile UI.
 - [x] 10. The server program and Docker: `micinstation-server` (local mode), a
       multi-architecture image published by the release workflow, a CI job that builds it
       and connects to it, `docs/SERVER.md`
-- [ ] 11. Desktop UI: the Co-op menu and windows (host, join, invite, participants,
+- [x] 11. Desktop UI: the Co-op menu and windows (host, join, invite, participants,
       remove, close, leave, host role), the connection in the status bar, participant
       colours in the three themes
 - [ ] 12. Desktop UI: presence on the timeline and in the piano roll, locks on tracks,
