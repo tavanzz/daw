@@ -474,7 +474,8 @@ Modules with one-way dependencies:
   engines on the simulated network: hosting and joining with files, locks and undo,
   imports, a recording with a simulated sound card, presence, plugin states with the VST3
   test plugin and a computer without it, rejoining after a restart, and the audio thread
-  never allocating while changes arrive.
+  never allocating while changes arrive; one runs two copies over real TLS links through a
+  real `TlsServer` and `server::Server` on the loopback, with the wall clock.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2409,9 +2410,12 @@ work merged later, the mobile UI.
 - [x] 13. App: `micinstation://` links, co-op settings, rejoining after a restart, two
       copies of the app on one computer
 - [x] 14. Benchmark: bandwidth and delay of a typical session (`docs/PERFORMANCE.md`)
-- [ ] 15. UI tests in every theme, documents, practical tests in
+- [x] 15. UI tests in every theme, documents, practical tests in
       `docs/LISTENING_TESTS.md` (two copies on one Mac with a local server, then a
       friend far away); version 0.9.0
+- [ ] Practical tests (`docs/LISTENING_TESTS.md`, checks 123 to 143): two copies on the
+      Mac with a local server (123 to 137), then a friend far away (138 to 143), waiting
+      for the user
 
 Phase 9 decisions (agreed before starting):
 

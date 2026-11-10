@@ -1,6 +1,8 @@
 #include "daw/controller/CoopSession.h"
 #include "daw/controller/Session.h"
 #include "daw/model/SharedProject.h"
+#include "daw/net/Tls.h"
+#include "daw/net/TlsLink.h"
 #include "daw/server/Server.h"
 
 #include "daw/controller/PluginScanner.h"
@@ -14,6 +16,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -530,4 +533,94 @@ TEST_CASE("A plugin's state follows whoever holds its track; a missing one is na
     shared.world.run(0.5);
     CHECK(third.coop->takeNotices().joinIntoString(" ").contains("is not installed on this computer"));
     CHECK(third.session.getEffect(effectId)->getExtraState() == state);
+}
+
+TEST_CASE("Two copies work together over TLS through a real server on this computer",
+          "[controller][coop][tls]")
+{
+    // As the app and micinstation-server do: TLS 1.3 on the loopback, the wall clock.
+    TemporaryDirectory elsewhere, hostFolder, guestFolder, serverFolder;
+    const auto identity = net::ServerIdentity::loadOrCreate(serverFolder.file("identity"));
+    REQUIRE(identity.has_value());
+    server::ServerOptions options;
+    options.hostKeys.add(hostKey);
+    options.dataFolder = serverFolder.file("data");
+    server::Server server(options);
+    net::TlsServer listener(*identity);
+    REQUIRE(listener.start(0, "127.0.0.1").wasOk());
+    const controller::CoopServer address{"127.0.0.1", listener.getPort(), identity->getFingerprint()};
+
+    struct Copy
+    {
+        Copy()
+        {
+            engine.prepare(sampleRate, blockSize);
+            session.setSampleRate(sampleRate);
+            controller::CoopSession::Options coopOptions;
+            coopOptions.appVersion = "test";
+            coop = std::make_unique<controller::CoopSession>(session, controller::CoopSession::tlsLinks(), coopOptions);
+        }
+
+        void tick()
+        {
+            coop->update();
+            session.update();
+            engine.process(block);
+        }
+
+        engine::Engine engine;
+        controller::Session session{engine, {engine::io::DiskStreamer::Mode::manual}};
+        std::unique_ptr<controller::CoopSession> coop;
+        juce::AudioBuffer<float> block{2, blockSize};
+    };
+    Copy host, guest;
+
+    const auto wallClock = [] { return static_cast<double>(juce::Time::currentTimeMillis()) * 0.001; };
+    const auto runUntil = [&](const std::function<bool()>& done) {
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 30000.0;
+        while (!done() && juce::Time::getMillisecondCounterHiRes() < deadline)
+        {
+            for (auto& connection : listener.takeNewConnections())
+                server.addConnection(std::move(connection.link), connection.address, wallClock());
+            server.update(wallClock());
+            host.tick();
+            guest.tick();
+            juce::Thread::sleep(2);
+        }
+        return done();
+    };
+
+    const auto original = writeTone(elsewhere.file("Samples/tone.wav"), 48000, 0.25f);
+    REQUIRE(host.session.importAudio({original}, 0).size() == 1);
+    REQUIRE(host.coop->host({address, hostKey}, "Ann", hostFolder.file("Copy")).wasOk());
+    REQUIRE(runUntil([&] {
+        return host.coop->getClient().getStatus() == coop::Client::Status::connected
+               && host.coop->getInviteLink().isNotEmpty();
+    }));
+
+    const auto invite = controller::parseInvite(host.coop->getInviteLink());
+    REQUIRE(invite.has_value());
+    REQUIRE(guest.coop->join(*invite, "Marco", guestFolder.file("Copy")).wasOk());
+    const auto guestFile = guestFolder.file("Copy/Audio/1/tone.wav");
+    REQUIRE(runUntil([&] {
+        return guest.coop->getClient().getStatus() == coop::Client::Status::connected
+               && guest.session.getProject().getNumTracks() == 1 && guestFile.existsAsFile()
+               && guest.coop->describeFile(guestFile).isEmpty();
+    }));
+    juce::MemoryBlock sent, received;
+    REQUIRE(original.loadFileAsData(sent));
+    REQUIRE(guestFile.loadFileAsData(received));
+    CHECK(sent == received);
+
+    // An edit crosses; the track is then Ann's until she lets it go.
+    const auto track = firstTrack(host.session);
+    host.session.setTrackVolume(track, 0.5);
+    CHECK(runUntil([&] { return juce::exactlyEqual(guest.session.getProject().getTrack(0).getVolume(), 0.5); }));
+    guest.session.setTrackVolume(track, 0.25);
+    CHECK(guest.session.takeEditProblem().contains("Ann"));
+    CHECK(juce::exactlyEqual(guest.session.getProject().getTrack(0).getVolume(), 0.5));
+
+    guest.coop->leave();
+    host.coop->leave();
+    listener.stop();
 }

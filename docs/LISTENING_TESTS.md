@@ -9,7 +9,7 @@ code or the UI.
 ```bash
 cmake --preset release && cmake --build --preset release
 python3 tools/make_listening_test_files.py
-open build/release/app/daw_app_artefacts/Release/DAW.app
+open build/release/app/daw_app_artefacts/Release/MICINSTATION.app
 ```
 
 The reference files are written to `build/listening-tests/` (Phase 2 material in its
@@ -194,7 +194,7 @@ and animations at Full, with "Follow the system's Reduce motion" unticked, unles
 check says otherwise.
 
 The app can open the review windows by itself: in Terminal,
-`open build/release/app/daw_app_artefacts/Release/DAW.app --args "$PWD/build/listening-tests/phase4/phase4-effects.dawproject" --show=previews,animations,mixer,editors`
+`open build/release/app/daw_app_artefacts/Release/MICINSTATION.app --args "$PWD/build/listening-tests/phase4/phase4-effects.dawproject" --show=previews,animations,mixer,editors`
 opens the project with the mixer shown, the theme previews, the animation settings and
 the editors of the first track with effects.
 
@@ -315,3 +315,70 @@ own.
 Anything else (a click, a crackle, wrong pitch, swapped channels, a meter that
 disagrees with the file, a clip in the wrong place) is a bug: note the check number
 and what you heard.
+
+## Phase 9 checks (co-op)
+
+What only people can check: two copies of the app talking through a real server over
+TLS, real mice, real sound cards, and then a friend far away. First everything on this
+Mac with a local server (checks 123 to 137), then with a friend (138 to 143).
+
+### Two copies on this Mac
+
+Build, start the server in a Terminal window of its own (it prints a host link the first
+time: copy it) and leave it running:
+
+```bash
+cmake --preset release && cmake --build --preset release
+python3 tools/make_listening_test_files.py
+build/release/server/micinstation-server --data ~/MICINSTATION-server --public 127.0.0.1:7443
+```
+
+Then, in another Terminal window, start the two copies: "A" with your own settings, "B"
+with settings of its own (its co-op copies go into `~/MICINSTATION-second/Co-op`):
+
+```bash
+open build/release/app/daw_app_artefacts/Release/MICINSTATION.app
+open -n build/release/app/daw_app_artefacts/Release/MICINSTATION.app --args --settings-dir="$HOME/MICINSTATION-second"
+```
+
+B starts with the first-launch questions: choose the same output as A (both play to it
+at once) and a different theme, so that you tell the windows apart. Use headphones and a
+moderate volume.
+
+| # | Do | You should hear / see |
+|---|----|------------------------|
+| 123 | In A, open `phase6/phase6-instruments.dawproject`. Co-op > Host a Session..., paste the host link, name "Ann", Host. | The project is copied (the app may ask to save it first); a moment later the Session window opens: "Connected to 127.0.0.1:7443.", an invite (`micinstation://join?...&title=phase6-instruments`) valid for the next 23 hours, the participants "Ann (you, host)" with a chip in the first participant colour. A's title ends with "co-op", its status bar says "Co-op: 1 here" with one dot. In Finder, `Documents/MICINSTATION/Co-op/phase6-instruments/` has the project and its samples in `Audio/1`; the original project and its folder are unchanged. The server's window logs a session opened, with ids and numbers only: no names. |
+| 124 | In A's Session window click Copy. In B, Co-op > Join a Session..., paste, name "Marco", Join. | B's project is replaced by the session's: the same tracks, clips, effects and instruments. Clips whose files are still coming say "Incoming" or "Downloading n %", then show their waveforms. A's Session window lists "Marco" with a chip of another colour; both status bars say "Co-op: 2 here" with two dots. |
+| 125 | Paste the invite into Safari's address bar and press Return (B is the second copy, so first quit B, then open the link). | macOS asks to open MICINSTATION (allow it): A comes to the front with its Session window, since it is in a session already. Start B again with the command above. |
+| 126 | Move the mouse slowly over A's tracks; click a clip in A; double-click the Chords clip in A and move over its notes, select two. In B, open the same clip. | In B, a line with Ann's chip follows A's mouse along A's track, smoothly; the clip A clicked has an outline in Ann's colour; Ann's chip shows on the track header she points at. In B's piano roll, Ann's pointer moves over the keys and her two notes have her outline. And the same the other way round. |
+| 127 | In A, drag the fader of the Chords track slowly up and down for a few seconds. Meanwhile in B, try to move a clip of Chords, then to change its pan. | B sees the fader move, a little behind A (a tenth of a second or so). Chords' header and mixer strip in B get a bar and the chip in Ann's colour; B's move and pan do nothing and its status bar says: Ann is editing track "Chords". About 30 s after A's last change the bar goes away and B can edit Chords; from then A cannot until B is done. |
+| 128 | In A, change the tempo (double-click it, 100). At once in B, add a track (Cmd+T). | Whichever came first wins: if the tempo, B's new track does not appear and B says Ann is editing the project; if B's track, A's tempo goes back with the same kind of message. Every copy ends up the same. |
+| 129 | In A, move a clip of Drums; in B, move a clip of Bass; then press Cmd+Z in A, and Cmd+Z in B. Then in A move a Chords note, in B (after 30 s, when Chords is free) move the same note again; Cmd+Z in A. | A's undo takes back A's move only, B's undo B's. The last Cmd+Z in A is refused, with a message that the note was changed since: undo never undoes someone else's work. |
+| 130 | In B, arm a new audio track (input 1), record 10 s (R, speak into the microphone), stop. In A, import an audio file from Downloads (Cmd+I). | When B stops, A gets the take on B's track, first "Incoming" or "Downloading", then its waveform; it plays in A as in B. B gets A's import the same way. B's take is in B's copy under `Audio/2/`, A's import under `Audio/1/`. |
+| 131 | In A, open the editor of a plugin on a track A holds and load another preset (a change that is not a parameter). Play the track in B a few seconds later. | B hears the new preset: a second after the change settles, the plugin's state reaches the others. In B, the editor of that plugin says in its title that Ann is editing the track; changing it in B snaps back. |
+| 132 | In A, Co-op > Play for Everyone with the playhead at bar 2. Then in B untick Co-op > Follow the Shared Transport and play for everyone again from A. | Both copies start together from bar 2: you hear one mix, perhaps slightly thicker (two copies a few milliseconds apart), never an echo. With Follow off, only A starts. Stop for Everyone stops the followers. |
+| 133 | Stop the server (Ctrl+C in its window). Wait 10 s; in A move a clip of a track A holds. Start the server again (the same command). | Both status bars say "Co-op: reconnecting..."; A's edit stays in A meanwhile. When the server is back, within a few seconds both say "2 here" and B gets A's edit once (not twice). After 30 s without the server, a copy refuses edits until it is back. |
+| 134 | Quit B (Cmd+Q) and start it again with the same command. | B opens its copy and goes back into the session by itself: "co-op" in its title, "Marco" again in A's list (as "away" while B was closed). |
+| 135 | In A's Session window: Make Marco Host. In B's: Remove Ann. | After the first, B's Session window has the invite and the host's buttons, A's not. After the second, A shows an alert: the host removed you; A's copy stays as an ordinary project (no "co-op" in the title); opening it again opens it without joining. |
+| 136 | In B, Co-op > Close Session..., confirm. | B leaves the session, the server's window logs it closed; `~/MICINSTATION-server/sessions/` no longer has it. B's copy stays, an ordinary project. |
+| 137 | Host a session again in A and join from B; switch themes in both (Cmd+1, Cmd+2, Cmd+3) with the Session window open and the others' pointers moving. | Chips, pointers, outlines and lock bars restyle with each theme, in colours that tell the participants apart and stay readable on the lanes, the piano roll and the panels. |
+
+### A friend far away
+
+Set up the server as `docs/SERVER.md` says (a rented server, or one of you at home),
+then publish v0.9.0 (or send your friend a build) so that both of you have the same
+version.
+
+| # | Do | You should hear / see |
+|---|----|------------------------|
+| 138 | Host a session on the server with a real project (a few minutes of audio); send the invite in a chat. Your friend clicks it. | Their app opens with Join a Session filled in; after Join the project appears at once and its audio arrives in the background, at the speed of your upload and their download, the clips playable as their files arrive. If their connection breaks during the download, it goes on from where it stopped. |
+| 139 | Talk on the phone while you both point at things, select clips and edit your own tracks for a few minutes. | Their pointer and edits appear on your screen within a fraction of a second; nothing jumps back; neither of you ever sees an edit twice. Every copy stays the same (compare a few faders and notes). |
+| 140 | Count "3, 2, 1" on the phone and press Co-op > Play for Everyone. | Both copies start together: the phone hears no echo between your two mixes beyond the phone's own delay. |
+| 141 | Your friend turns Wi-Fi off for 20 s, then on. | Their status bar says "reconnecting...", then "here" again; they go on with the track they held for up to 30 s offline; what they did meanwhile reaches you once. |
+| 142 | Add a plugin your friend does not have (or the other way round) to a track you hold, and change its settings. | Their slot shows the plugin as missing and their status bar names it; their copy keeps the plugin's state, so your settings are still there when you open the project. |
+| 143 | Your friend quits; later they start the app again. | They are back in the session (or, if you closed it meanwhile, an alert says so and the copy is an ordinary project). |
+
+Anything else (an edit lost or applied twice, a copy that differs, a lock that never
+goes, a crackle when someone else's change arrives) is a bug: note the check number,
+what you did and, if you can, the log of both apps (Help > Open Log Folder) and the
+server's.

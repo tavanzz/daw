@@ -90,8 +90,17 @@ notarised when the Apple account is set up), Windows (per user or for everyone) 
 updates signed with Ed25519 and verified before installing; crash reports only with
 consent, a local log, Help > About with every licence, and a first launch that asks only
 for the audio output, the theme and the consent. The app took its name, MICINSTATION, before
-v0.8.0 (it was DAW up to v0.8.0-rc.4: those copies update themselves to it). See
-[CLAUDE.md](CLAUDE.md#status) for the steps.
+v0.8.0 (it was DAW up to v0.8.0-rc.4: those copies update themselves to it).
+
+Phase 9 (v0.9.0): co-op, first stage. Two or more people work on the same project from
+different computers through a small server that one of them runs
+([docs/SERVER.md](docs/SERVER.md): a rented server, one of you at home, or this Mac for
+trying). Each copy plays its own audio; only edits, presence and audio files travel. A
+track someone edits is theirs until they stop; everyone else sees their pointer,
+selection and playhead in their colour; undo is personal; recordings and imports reach
+the others in the background; Play for Everyone starts every copy at the same moment;
+whoever drops out comes back by themselves. See [CLAUDE.md](CLAUDE.md#status) for the
+steps.
 
 ## Building
 
@@ -285,13 +294,29 @@ backgrounds, glitches or panel transitions) or Off, and each effect on its own; 
 default the app follows the system's "Reduce motion". Both are kept in the user
 settings, not in projects.
 
+Co-op (Phase 9): Co-op > Host a Session... opens a copy of the open project in a
+session, on a server whose server link you got from whoever runs it
+([docs/SERVER.md](docs/SERVER.md)); the copy goes into `Documents/MICINSTATION/Co-op`
+and the original stays as it is. Co-op > Session... shows the invite to send to your
+friends (Copy, New Code, Revoke), who joins, and lets the host remove participants,
+hand the host role over or close the session. Friends click the invite (or paste it
+into Co-op > Join a Session...) and choose the name the others will see. Whoever edits
+a track (its clips, notes, mixer, effects, automation) holds it: the others see their
+colour on its header and strip and cannot change it until they are done (30 s after
+their last edit); the tempo, the metre, the loop and adding or removing tracks take a
+lock on the project the same way. Cmd+Z undoes only your own edits. Arming, inputs,
+monitoring, solo, the metronome, count-in, punch, snap and the grid stay yours. Co-op >
+Play for Everyone starts everyone who follows the shared transport from your playhead,
+together. Leaving, or a session that ends, leaves the copy as an ordinary project; quit
+while in a session and the app goes back into it at the next start.
+
 Projects (`.micin`) are small JSON files that refer to the audio files; keep the
 audio next to the project (or in a subfolder) and the folder can be moved as a whole.
 Projects saved by earlier phases open too, also those saved as `.dawproject` before the
 rename (saving one keeps its name). Manual checks with reference files:
 [docs/LISTENING_TESTS.md](docs/LISTENING_TESTS.md). How many tracks fit in an audio
-callback, stream from disk and record, what each effect costs and what each
-instrument's voice costs:
+callback, stream from disk and record, what each effect costs, what each
+instrument's voice costs and what a co-op session costs:
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Repository layout
@@ -302,6 +327,9 @@ instrument's voice costs:
 | `model/`      | project state, timeline time, grid, versioned project files     |
 | `controller/` | maps the project onto the engine; shared by every UI            |
 | `appearance/` | themes (colours, fonts, shapes) and animation settings; no GUI |
+| `net/`        | co-op connections: TLS 1.3 links, frames, a reliable channel    |
+| `coop/`       | co-op protocol and a participant's synchronisation; no GUI      |
+| `server/`     | the co-op server (its logic, storage, the program, Docker)      |
 | `ui/desktop/` | mouse and keyboard interface                                    |
 | `ui/mobile/`  | touch interface (placeholder)                                   |
 | `app/`        | application entry point                                         |
