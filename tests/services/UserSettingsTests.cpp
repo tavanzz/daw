@@ -107,7 +107,7 @@ TEST_CASE("Every setting reads back what was written, also after reopening", "[s
     updates.checkAtLaunch = false;
     updates.channel = UpdateChannel::preRelease;
     updates.skippedVersion = "0.9.1";
-    const CoopPreferences coop{"Ann", "micinstation://server?x", false};
+    const CoopPreferences coop{"Ann", "micinstation://server?x", false, directory.file("Co-op/Song")};
 
     {
         UserSettings settings(folder, "DAW");

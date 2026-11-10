@@ -85,7 +85,8 @@ struct World
         {
             for (auto& computer : computers)
             {
-                computer->coop->update();
+                if (computer->coop != nullptr)
+                    computer->coop->update();
                 computer->session.update();
             }
             server->update(network.now());
@@ -222,6 +223,8 @@ TEST_CASE("The co-op windows host a session, hand out its invite and list who is
     world.run(2.0);
     CHECK(guest.coop->getClient().getStatus() == coop::Client::Status::ended);
     CHECK_FALSE(guest.coop->isActive());
+    // For good: opening his copy again opens an ordinary project.
+    CHECK_FALSE(controller::readMembership(guest.coop->getCopyFolder()).has_value());
     panel->refresh();
     CHECK(panel->getParticipantLines() == juce::StringArray{"Ann (you, host)"});
 
@@ -388,4 +391,33 @@ TEST_CASE("The others show where they look, what they selected and what they hol
     CHECK_FALSE(host.coop->findOtherHolder(model::EditScope::track(drums)).has_value());
     editors.refresh(0.0);
     CHECK_FALSE(editors.find(equaliser)->getName().contains("is editing"));
+}
+
+TEST_CASE("Opening the copy of a session goes back into it as the same participant", "[ui][coop]")
+{
+    test::TemporaryDirectory folder;
+    World world;
+    auto& host = world.add();
+    auto& guest = world.add();
+    REQUIRE(host.coop->host(*controller::parseServerLink(World::serverLink()), "Ann", folder.file("Host copy")).wasOk());
+    world.run(1.0);
+    REQUIRE(guest.coop->join(*controller::parseInvite(host.coop->getInviteLink()), "Marco", folder.file("Guest copy"))
+                .wasOk());
+    world.run(2.0);
+    REQUIRE(guest.coop->getClient().getStatus() == coop::Client::Status::connected);
+    const auto copy = guest.session.getProjectFile();
+    REQUIRE(controller::readMembership(copy.getParentDirectory()).has_value());
+
+    // Marco's app quits (without leaving), and starts again later.
+    guest.coop.reset();
+    auto& later = world.add();
+    Desktop desktop(later, folder.file("Later"));
+    desktop.view.openFile(copy);
+    world.run(2.0);
+
+    REQUIRE(later.coop->isActive());
+    CHECK(later.coop->getClient().getStatus() == coop::Client::Status::connected);
+    CHECK(later.coop->getClient().getParticipant() == 2);
+    CHECK(later.session.getProjectFile() == copy);
+    CHECK(desktop.isActive(MainComponent::coopLeave));
 }

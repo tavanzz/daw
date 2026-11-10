@@ -4,10 +4,23 @@
      app opens from the Finder. Its own, ".micin", which it owns, and ".dawproject", as the
      app saved them under its previous name (DAW, whose bundle id is the update id), which
      it opens without claiming them: Bitwig's DAWproject format has the same extension.
+     And the links of co-op sessions, micinstation://join?... and micinstation://server?...
+     (JUCE hands them to the app as a second launch would).
      No semicolons in here: CMake would take them for list separators and JUCE would drop
      the whole merge without a word. -->
 <plist version="1.0">
 <dict>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>@DAW_BUNDLE_ID@.link</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>micinstation</string>
+      </array>
+    </dict>
+  </array>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

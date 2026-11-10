@@ -1324,6 +1324,19 @@ Modules with one-way dependencies:
   (`Session::takeEditProblem()`, unless a view took it) show as its warnings; the end of
   a session the copy did not leave is an alert. Invite links carry the project's name
   (`JoinLink::title`) for the joiner's folder.
+- Co-op links and coming back (Phase 9): `micinstation://` links open the app (macOS
+  `CFBundleURLTypes` in `Info.plist.in`, JUCE handing them to `anotherInstanceStarted()`;
+  Windows the installer's `micinstation` URL protocol; Linux `x-scheme-handler/micinstation`
+  in the desktop file, `Exec=MICINSTATION %u`, file:// URLs read as files):
+  `AppController::openLink()` → `MainComponent::openCoopLink()` (Join or Host a Session
+  with the link filled in). The app remembers the copy of the session it is in
+  (`CoopPreferences::lastCopy`, kept while in one) and, started with nothing to open,
+  goes back into it (`rejoinLastSession()`, `MainComponent::rejoinCoop()`); opening a
+  project whose folder holds `.coop/session.json` does the same. A session that ended for
+  good (removed, closed, left) deletes that file, so the copy opens as an ordinary project;
+  a refusal for another version keeps it (`Client::canRejoinLater()`). The window title
+  says "co-op" while in a session. Two copies of the app on one computer: start the second
+  with `--settings-dir=<folder>` (settings, log and co-op copies of its own).
 - Presence and locks in the desktop UI (Phase 9): views read the session through
   `controller::CoopSession` (`getOthers()`: each `CoopPeer` with its colour and
   `coop::Presence`; `findOtherHolder(scope)`; `describeFile()`: "Incoming",
@@ -2392,7 +2405,7 @@ work merged later, the mobile UI.
       colours in the three themes
 - [x] 12. Desktop UI: presence on the timeline and in the piano roll, locks on tracks,
       strips and editors, incoming clips, plugin warnings, Play for Everyone, Follow
-- [ ] 13. App: `micinstation://` links, co-op settings, rejoining after a restart, two
+- [x] 13. App: `micinstation://` links, co-op settings, rejoining after a restart, two
       copies of the app on one computer
 - [ ] 14. Benchmark: bandwidth and delay of a typical session (`docs/PERFORMANCE.md`)
 - [ ] 15. UI tests in every theme, documents, practical tests in

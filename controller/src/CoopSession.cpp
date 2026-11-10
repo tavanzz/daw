@@ -293,6 +293,10 @@ void CoopSession::update()
     {
         notices.add(client->getProblem() + " The copy stays, as an ordinary project.");
         [[maybe_unused]] const auto saved = saveCopy();
+        // Removed or closed: opening the copy again opens an ordinary project. Only a copy
+        // that needs an update first may come back.
+        if (!client->canRejoinLater())
+            folder.getChildFile(membershipFile).deleteFile();
         stopCollaborating();
     }
 

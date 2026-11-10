@@ -493,6 +493,30 @@ void AppController::showForReview(const juce::StringArray& what)
     view().showForReview(what);
 }
 
+void AppController::openLink(const juce::String& link)
+{
+    if (runOptions.smokeTest || runOptions.updateTestResult != juce::File())
+        return;
+    juce::Logger::writeToLog("Co-op: a link was opened");
+    view().openCoopLink(link);
+}
+
+void AppController::rejoinLastSession()
+{
+    if (runOptions.smokeTest || runOptions.updateTestResult != juce::File())
+        return;
+    auto preferences = settings.getCoopPreferences();
+    const auto copy = preferences.lastCopy;
+    if (copy == juce::File())
+        return;
+    if (!controller::readMembership(copy) || view().rejoinCoop(copy).failed())
+    {
+        preferences.lastCopy = juce::File();
+        settings.setCoopPreferences(preferences);
+        settings.save();
+    }
+}
+
 void AppController::requestQuit()
 {
     view().askToSaveChanges([] { juce::JUCEApplication::getInstance()->quit(); });
@@ -505,6 +529,8 @@ void AppController::updateWindowTitle()
     title << (file != juce::File() ? file.getFileNameWithoutExtension() : juce::String("Untitled"));
     if (session.hasUnsavedChanges())
         title << "  (edited)";
+    if (coop != nullptr && coop->isActive())
+        title << "  -  co-op";
 
     if (title != shownTitle)
     {
@@ -628,6 +654,17 @@ void AppController::timerCallback()
     {
         shownProject = project;
         settings.setLastProject(project);
+        settings.save();
+    }
+
+    // The co-op copy to go back to at the next start: the session's while in one.
+    if (const auto copy = coop != nullptr && coop->isActive() ? coop->getCopyFolder() : juce::File();
+        copy != shownCoopCopy)
+    {
+        shownCoopCopy = copy;
+        auto preferences = settings.getCoopPreferences();
+        preferences.lastCopy = copy;
+        settings.setCoopPreferences(preferences);
         settings.save();
     }
     openInputsIfNeeded();

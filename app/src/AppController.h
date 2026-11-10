@@ -73,6 +73,13 @@ public:
     /** Opens windows for reviewing the interface (see MainComponent::showForReview()). */
     void showForReview(const juce::StringArray& what);
 
+    /** A micinstation:// link (an invite or a server link) the system handed the app. */
+    void openLink(const juce::String& link);
+
+    /** Back into the co-op session the app was in when it quit, if any (and the copy still
+        belongs to it). */
+    void rejoinLastSession();
+
     /** Quits, after offering to save unsaved changes. */
     void requestQuit();
 
@@ -132,6 +139,7 @@ private:
 
     juce::String shownTitle;
     juce::File shownProject; // the last one kept in the settings
+    juce::File shownCoopCopy; // the co-op copy kept in the settings
     bool shownUnsaved = false;
     juce::String loggedDevice, loggedMidiInputs;
     bool loggedScanning = false;

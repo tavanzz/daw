@@ -131,7 +131,9 @@ public:
         }
 
         controller = std::make_unique<daw::app::AppController>(getApplicationName(), runOptions(commandLine));
-        openFromCommandLine(commandLine);
+        // Nothing given to open: back into the co-op session the app was in, if any.
+        if (!openFromCommandLine(commandLine))
+            controller->rejoinLastSession();
     }
 
     void shutdown() override { controller.reset(); }
@@ -147,13 +149,16 @@ public:
     // A second launch (e.g. opening a file from the Finder) hands its arguments here.
     void anotherInstanceStarted(const juce::String& commandLine) override
     {
-        openFromCommandLine(commandLine);
+        if (controller != nullptr)
+            openFromCommandLine(commandLine);
     }
 
 private:
-    // A project or audio file to open; --show=previews,animations,mixer,editors,browser,
-    // plugins opens those too, for reviewing the interface (see docs/LISTENING_TESTS.md).
-    void openFromCommandLine(const juce::String& commandLine)
+    // A project or audio file to open, or a micinstation:// link (an invite, a server
+    // link; macOS hands them over as a second launch would); --show=previews,animations,
+    // mixer,editors,browser,plugins opens those too, for reviewing the interface (see
+    // docs/LISTENING_TESTS.md). Says whether it opened something.
+    bool openFromCommandLine(const juce::String& commandLine)
     {
         juce::StringArray show;
         bool opened = false;
@@ -167,11 +172,20 @@ private:
                 continue;
             }
 
-            // Other options are not files; only absolute paths make a juce::File.
-            if (opened || text.startsWith("--") || !juce::File::isAbsolutePath(text))
+            if (!opened && text.startsWithIgnoreCase("micinstation://"))
+            {
+                controller->openLink(text);
+                opened = true;
+                continue;
+            }
+
+            // Other options are not files; only absolute paths (or file:// URLs, from Linux
+            // desktops) make a juce::File.
+            const auto path = text.startsWithIgnoreCase("file://") ? juce::URL(text).getLocalFile().getFullPathName() : text;
+            if (opened || text.startsWith("--") || !juce::File::isAbsolutePath(path))
                 continue;
 
-            if (const juce::File file(text); file.existsAsFile())
+            if (const juce::File file(path); file.existsAsFile())
             {
                 controller->openFile(file);
                 opened = true;
@@ -180,6 +194,7 @@ private:
 
         if (!show.isEmpty())
             controller->showForReview(show);
+        return opened;
     }
 
     std::unique_ptr<daw::app::AppController> controller;

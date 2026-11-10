@@ -256,6 +256,32 @@ void MainComponent::startCoop(CoopStartPanel::Mode mode, const juce::String& lin
     });
 }
 
+void MainComponent::openCoopLink(const juce::String& link)
+{
+    if (controller::parseInvite(link))
+        showCoopStart(CoopStartPanel::Mode::join, link);
+    else if (controller::parseServerLink(link))
+        showCoopStart(CoopStartPanel::Mode::host, link);
+    else
+        showError("Not a co-op link", "This link cannot be opened: " + link.substring(0, 80));
+}
+
+juce::Result MainComponent::rejoinCoop(const juce::File& copyFolder)
+{
+    if (coop == nullptr)
+        return juce::Result::fail("Co-op is not available.");
+    effectEditors.closeAll();
+    const auto result = coop->rejoin(copyFolder);
+    juce::Logger::writeToLog(result.wasOk() ? juce::String("Co-op: rejoining the session of a copy")
+                                            : "Co-op: cannot rejoin: " + result.getErrorMessage());
+    if (result.wasOk())
+    {
+        arrangeView.zoomToFit();
+        commandManager.commandStatusChanged();
+    }
+    return result;
+}
+
 void MainComponent::showCoopSession()
 {
     if (coop == nullptr || coop->findClient() == nullptr)
@@ -732,6 +758,11 @@ void MainComponent::togglePlayPause()
 
 void MainComponent::openProjectFile(const juce::File& file, bool withPlugins)
 {
+    // The copy of a co-op session goes back into its session.
+    if (coop != nullptr && !coop->isActive() && controller::readMembership(file.getParentDirectory()))
+        if (rejoinCoop(file.getParentDirectory()).wasOk())
+            return;
+
     effectEditors.closeAll();
     const auto result = session.openProject(file, withPlugins);
     if (result.failed() && result.getErrorMessage().contains(model::newerFormatMessage) &&

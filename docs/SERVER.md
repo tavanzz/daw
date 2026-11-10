@@ -38,7 +38,9 @@ nobody can stand in between. Keep the data folder: a new key means new links.
   for each session: it lets friends join that session, for 24 hours (the host can make a
   new one). Paste it into Discord or anywhere.
 
-Both carry the server's address and the fingerprint of its key.
+Both carry the server's address and the fingerprint of its key. Clicking one opens
+MICINSTATION with the right window (Join a Session, Host a Session) and the link filled in;
+pasting it there works as well.
 
 ## 1. On your Mac (local mode)
 

@@ -286,6 +286,8 @@ CoopPreferences UserSettings::getCoopPreferences() const
     preferences.name = json.getProperty("name", {}).toString();
     preferences.hostLink = json.getProperty("hostLink", {}).toString();
     preferences.follow = static_cast<bool>(json.getProperty("follow", true));
+    if (const auto path = json.getProperty("lastCopy", {}).toString(); juce::File::isAbsolutePath(path))
+        preferences.lastCopy = juce::File(path);
     return preferences;
 }
 
@@ -295,6 +297,7 @@ void UserSettings::setCoopPreferences(const CoopPreferences& preferences)
     json->setProperty("name", preferences.name);
     json->setProperty("hostLink", preferences.hostLink);
     json->setProperty("follow", preferences.follow);
+    json->setProperty("lastCopy", preferences.lastCopy.getFullPathName());
     properties->setValue(coopKey, toJson(json));
 }
 

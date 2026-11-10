@@ -329,12 +329,48 @@ TEST_CASE("Removed participants and closed sessions end the client", "[coop][cli
     session.world.run(2.0);
     CHECK(guest.client->getStatus() == Status::ended);
     CHECK(guest.client->getProblem().contains("removed you"));
+    CHECK_FALSE(guest.client->canRejoinLater());
     CHECK(host.client->getParticipants().size() == 2);
 
     host.client->sendHostCommand({coop::HostCommand::Kind::close, 0});
     session.world.run(2.0);
     CHECK(session[2].client->getStatus() == Status::ended);
     CHECK(session[2].client->getProblem().contains("closed"));
+}
+
+TEST_CASE("A server of another version ends the client, which may rejoin after an update",
+          "[coop][client]")
+{
+    // A server that answers every hello as one of the next protocol would.
+    test::SimulatedNetwork network(4);
+    std::unique_ptr<net::Link> serverEnd;
+    model::Project project;
+    coop::Client client(project.getState(),
+                        juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("daw-newer-server"),
+                        [&] {
+                            auto pair = network.connect({0.005, 0.01, 0.0, 0.0, true});
+                            serverEnd = std::move(pair.server);
+                            return std::move(pair.client);
+                        },
+                        {});
+    client.rejoin("abcdef", 2, "token");
+    for (int step = 0; step < 200 && client.getStatus() != Status::ended; ++step)
+    {
+        client.update(network.now());
+        if (serverEnd != nullptr)
+            for (const auto& frame : serverEnd->receive())
+                if (coop::decodeHello(frame))
+                {
+                    coop::Refused refused;
+                    refused.reason = coop::RefusalReason::incompatibleProtocol;
+                    refused.serverProtocol = 99;
+                    refused.serverFormat = 6;
+                    serverEnd->send(coop::encodeFrame(refused));
+                }
+        network.advance(0.01);
+    }
+    CHECK(client.getStatus() == Status::ended);
+    CHECK(client.canRejoinLater());
 }
 
 TEST_CASE("Play for everyone starts every computer at the same moment", "[coop][client]")

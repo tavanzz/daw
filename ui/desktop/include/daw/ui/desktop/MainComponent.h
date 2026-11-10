@@ -131,6 +131,13 @@ public:
     void showCoopStart(CoopStartPanel::Mode mode, const juce::String& link = {});
     void showCoopSession();
 
+    /** A micinstation:// link the system handed the app: an invite opens Join a Session,
+        a server link Host a Session, with the link filled in. */
+    void openCoopLink(const juce::String& link);
+
+    /** Opens the co-op copy in this folder and goes back into its session. */
+    juce::Result rejoinCoop(const juce::File& copyFolder);
+
     /** The co-op windows' content, when they are open (tests). */
     [[nodiscard]] CoopStartPanel* findCoopStartPanel() const;
     [[nodiscard]] CoopSessionPanel* findCoopSessionPanel() const;

@@ -266,7 +266,10 @@ void Client::handleFrame(const juce::MemoryBlock& frame)
         const auto refused = decodeRefused(frame);
         if (refused && refused->reason == RefusalReason::notReady)
             return linkLost(describe(*refused));
-        return end(refused ? describe(*refused) : juce::String("The server refused the connection."));
+        end(refused ? describe(*refused) : juce::String("The server refused the connection."));
+        rejoinLater = refused && (refused->reason == RefusalReason::incompatibleProtocol
+                                  || refused->reason == RefusalReason::incompatibleProjectFormat);
+        return;
     }
 
     case FrameKind::channel:

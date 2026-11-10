@@ -145,6 +145,9 @@ public:
 
     [[nodiscard]] Status getStatus() const noexcept { return status; }
     [[nodiscard]] juce::String getProblem() const { return problem; }
+    /** Ended only because this copy and the server speak different versions: an update
+        lets it rejoin. Any other end (removed, closed, left) is for good. */
+    [[nodiscard]] bool canRejoinLater() const noexcept { return rejoinLater; }
     [[nodiscard]] juce::String getSessionId() const { return sessionId; }
     [[nodiscard]] ParticipantNumber getParticipant() const noexcept { return participant; }
     [[nodiscard]] juce::String getToken() const { return token; }
@@ -266,6 +269,7 @@ private:
     net::ReliableChannel channel;
     Status status = Status::idle;
     juce::String problem;
+    bool rejoinLater = false;
     double now = 0.0;
     double connectAt = 0.0;
     double retryDelay = 1.0;

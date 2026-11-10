@@ -53,6 +53,7 @@ struct CoopPreferences
     juce::String name;     ///< what the others see
     juce::String hostLink; ///< the server link last hosted with (it holds a host key)
     bool follow = true;    ///< follow the shared transport
+    juce::File lastCopy;   ///< the copy of the session the app was in when it quit
 
     bool operator==(const CoopPreferences&) const = default;
 };
