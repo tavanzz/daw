@@ -77,6 +77,12 @@ void Engine::processBlock(const AudioInputs& inputs, juce::AudioBuffer<float>& o
 
     takeNewSnapshot();
 
+    // The stream clock: this block's first sample, and when the device asked for it.
+    clockSequence.fetch_add(1, std::memory_order_acq_rel);
+    clockStream.store(streamPosition, std::memory_order_relaxed);
+    clockTime.store(inputs.time, std::memory_order_relaxed);
+    clockSequence.fetch_add(1, std::memory_order_acq_rel);
+
     while (const auto command = commands.pop())
         apply(*command);
 
@@ -285,6 +291,24 @@ void Engine::renderBlock(juce::AudioBuffer<float>& output, int numSamples) noexc
         // Playback starts on the sample after the count-in, with the usual fade-in.
         if (countInRemaining == 0)
             transport.play();
+    }
+
+    if (scheduledStart >= 0)
+    {
+        // A start on an exact sample of the stream: the timeline stays as it is up to it.
+        const auto blockStart = streamPosition + renderOffset;
+        if (scheduledStart < blockStart + numSamples)
+        {
+            const int before =
+                static_cast<int>(std::clamp<juce::int64>(scheduledStart - blockStart, done, numSamples));
+            if (before > done)
+                transport.render(*this, output, done, before - done);
+            done = before;
+            if (transport.getPosition() != scheduledPosition)
+                transport.seek(scheduledPosition);
+            transport.play();
+            scheduledStart = -1;
+        }
     }
 
     if (done < numSamples)
@@ -606,6 +630,26 @@ void Engine::resetTransport()
     send({Command::Type::resetTransport, 0});
 }
 
+void Engine::playAt(juce::int64 position, juce::int64 streamIndex)
+{
+    send({Command::Type::playAt, position, streamIndex});
+}
+
+Engine::StreamClock Engine::getStreamClock() const noexcept
+{
+    StreamClock clock;
+    clock.sampleRate = sampleRate;
+    for (;;)
+    {
+        const auto before = clockSequence.load(std::memory_order_acquire);
+        clock.stream = clockStream.load(std::memory_order_relaxed);
+        clock.time = clockTime.load(std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if ((before & 1u) == 0 && clockSequence.load(std::memory_order_relaxed) == before)
+            return clock;
+    }
+}
+
 void Engine::playWithCountIn(juce::int64 position, juce::int64 countInLength)
 {
     send({Command::Type::countIn, position, countInLength});
@@ -722,6 +766,7 @@ void Engine::apply(const Command& command) noexcept
         case Command::Type::play:
         case Command::Type::seek:
         case Command::Type::countIn:
+        case Command::Type::playAt:
         case Command::Type::record: // one recording at a time (the session sees to it)
             return;
         case Command::Type::pause:
@@ -744,11 +789,15 @@ void Engine::apply(const Command& command) noexcept
         }
     }
 
-    // Anything that moves or stops the transport ends a count-in.
+    // Anything that moves or stops the transport ends a count-in, and a start scheduled.
     const bool endsCountIn = command.type == Command::Type::pause ||
                              command.type == Command::Type::stop ||
                              command.type == Command::Type::seek ||
-                             command.type == Command::Type::resetTransport;
+                             command.type == Command::Type::resetTransport ||
+                             command.type == Command::Type::playAt;
+    if (endsCountIn || command.type == Command::Type::play
+        || command.type == Command::Type::countIn)
+        scheduledStart = -1;
     const bool wasCountingIn = countInRemaining > 0;
     if (endsCountIn)
         countInRemaining = 0;
@@ -826,6 +875,14 @@ void Engine::apply(const Command& command) noexcept
     case Command::Type::record:
         pendingRecording = command.recording;
         recordingWaitSince = streamPosition;
+        break;
+    case Command::Type::playAt:
+        waitingForData = false;
+        if (transport.isRunning())
+            transport.pause(); // fades out; the seek lands once it has
+        transport.seek(command.value);
+        scheduledPosition = std::max(juce::int64{0}, command.value);
+        scheduledStart = std::max(command.length, streamPosition);
         break;
     }
 }
@@ -1001,6 +1058,7 @@ void Engine::publish() noexcept
     publishedLength.store(transport.getLength(), std::memory_order_relaxed);
     publishedLooping.store(transport.isLooping(), std::memory_order_relaxed);
     publishedCountingIn.store(countInRemaining > 0, std::memory_order_relaxed);
+    publishedScheduled.store(scheduledStart >= 0, std::memory_order_relaxed);
 }
 
 } // namespace daw::engine

@@ -40,7 +40,8 @@ struct EngineCommand
         resetTransport,
         countIn,
         record,
-        panic
+        panic,
+        playAt
     };
 
     Type type = Type::play;
@@ -171,6 +172,32 @@ public:
         count-in. Stop, pause, seek and reset cancel it. */
     void playWithCountIn(juce::int64 position, juce::int64 countInLength);
 
+    /** Message thread. Starts playback from position on the exact sample streamIndex
+        (in the engine's stream: samples since it started, see getStreamClock()), for
+        several computers starting together. Until then the timeline is silent (playback
+        that runs fades out at once and waits at position, so streamed audio loads); it
+        does not wait for audio still loading. A start already due starts at once. Any
+        other transport command cancels it; ignored while recording. */
+    void playAt(juce::int64 position, juce::int64 streamIndex);
+
+    /** Where the engine's stream stood at the start of the last audio block and when
+        that block came (midi::hostSeconds(); 0 when the device gave no time). */
+    struct StreamClock
+    {
+        juce::int64 stream = 0;
+        double time = 0.0;
+        double sampleRate = 0.0;
+    };
+
+    /** Any thread. */
+    [[nodiscard]] StreamClock getStreamClock() const noexcept;
+
+    /** Any thread. True from playAt() until playback starts (or the start is cancelled). */
+    [[nodiscard]] bool isStartScheduled() const noexcept
+    {
+        return publishedScheduled.load(std::memory_order_relaxed);
+    }
+
     /** Message thread. Records setup's targets (see RecordingSetup), starting as
         soon as the transport is stopped and the audio at the start is loaded, until
         stop() or pause(); stop(), pause() or resetTransport() before it starts
@@ -295,6 +322,8 @@ private:
     Transport transport;
     Mixer mixer;
     dsp::Metronome metronome;
+    juce::int64 scheduledStart = -1;  // the stream index playAt() starts on; -1: none
+    juce::int64 scheduledPosition = 0;
     juce::int64 countInRemaining = 0; // samples of count-in still to click
     juce::int64 countInPosition = 0;  // the timeline position the count-in stands for
     int meteredChannels = 2;          // the device's outputs, as far as the meter goes
@@ -375,6 +404,11 @@ private:
     std::atomic<juce::int64> publishedLength{0};
     std::atomic<bool> publishedLooping{false};
     std::atomic<bool> publishedCountingIn{false};
+    std::atomic<bool> publishedScheduled{false};
+    // The stream clock, published as a sequence lock: odd while being written.
+    std::atomic<std::uint32_t> clockSequence{0};
+    std::atomic<juce::int64> clockStream{0};
+    std::atomic<double> clockTime{0.0};
     std::atomic<bool> publishedWaiting{false};
     std::atomic<int> publishedLatency{0};
     std::atomic<juce::int64> publishedLoopStart{0};

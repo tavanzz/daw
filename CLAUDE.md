@@ -415,6 +415,17 @@ Modules with one-way dependencies:
   is not downloaded. Both directions start again from what the other side has after a
   drop, or after a second without progress (TCP keeps order; the simulated network may not:
   `SimulatedNetwork::Conditions::ordered`). Paths must be `coop::isSafeSharedPath()`.
+- Shared transport (Phase 9): the client keeps the server's clock (pings every 2 s, the
+  offset of the shortest round trip of the last 16, measured again on every connection;
+  `serverTime()`, `localTime()`, `clockUncertainty()` = half that round trip). A
+  `TransportStart` names a moment on the server's clock; `streamSampleHeardAt()` turns a
+  local moment into the engine's stream sample heard then (the block's start and its
+  `midi::hostSeconds()` time, published by the engine with a sequence lock as
+  `Engine::getStreamClock()`, plus one block and the output latency), and
+  `Engine::playAt()` (`Session::playAt()` in ticks) starts the transport from a position
+  on that exact sample: playback that runs fades out at once and waits there (so streamed
+  audio loads), it does not wait for audio still loading, any other transport command
+  cancels it, recording ignores it. Bit-identical for any block sizes (tested).
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2274,7 +2285,7 @@ work merged later, the mobile UI.
       a lossy, reordering network, byte for byte
 - [x] 6. Files: SHA-256, transfers in chunks on a second connection, resumed, never
       twice, the server's store with quotas, hashes checked
-- [ ] 7. Clocks and the shared transport: offsets estimated, playback started at an
+- [x] 7. Clocks and the shared transport: offsets estimated, playback started at an
       exact moment by the engine (output latency included), follow or listen alone
 - [ ] 8. Controller: `Session` edits go through the locks, remote changes take the
       local path (tree, snapshot to the engine), personal undo and settings, the co-op

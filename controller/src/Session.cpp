@@ -1231,6 +1231,15 @@ void Session::seek(model::Ticks position)
     engine.seek(target);
 }
 
+void Session::playAt(model::Ticks position, juce::int64 streamIndex)
+{
+    if (recording.isActive())
+        return;
+    const auto target = model::ticksToSamples(std::max(model::Ticks{0}, position), engineRate());
+    seekCue.store(target); // the read-ahead loads it before the start
+    engine.playAt(target, streamIndex);
+}
+
 model::Ticks Session::getPlayhead() const
 {
     return model::samplesToTicks(engine.getPlayheadPosition(), engineRate());

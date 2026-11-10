@@ -517,6 +517,9 @@ public:
     void pause();
     void stop();
     void seek(model::Ticks position);
+    /** Starts playback from position on the engine's stream sample streamIndex (several
+        computers starting together; see Engine::playAt()). Not while recording. */
+    void playAt(model::Ticks position, juce::int64 streamIndex);
     [[nodiscard]] model::Ticks getPlayhead() const;
     [[nodiscard]] engine::TransportState getTransportState() const;
 

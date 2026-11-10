@@ -38,6 +38,7 @@ add_executable(daw_tests
     controller/MetronomeTests.cpp
     controller/RecordingTests.cpp
     controller/SessionTests.cpp
+    controller/SharedTransportTests.cpp
     controller/StreamingTests.cpp
     controller/TimelineTests.cpp
     engine/AudioDeviceHostTests.cpp
@@ -71,6 +72,7 @@ add_executable(daw_tests
     engine/RecorderTests.cpp
     engine/RecordingWriterTests.cpp
     engine/SamplerTests.cpp
+    engine/ScheduledStartTests.cpp
     engine/ResamplerTests.cpp
     engine/ReverbTests.cpp
     engine/SourcePoolTests.cpp
