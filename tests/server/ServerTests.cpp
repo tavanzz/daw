@@ -18,7 +18,7 @@ namespace
 
 const juce::String hostKey = "host-key-for-tests";
 const juce::File copyFolder = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                                  .getChildFile("daw-server-tests-copy");
+                                  .getChildFile("daw-server-tests-copy-" + juce::String::toHexString(juce::Random::getSystemRandom().nextInt64()));
 
 server::ServerOptions testOptions()
 {

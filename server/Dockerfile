@@ -8,8 +8,8 @@
 # JUCE builds its helper (juceaide) while configuring, with its graphics: hence FreeType and
 # Fontconfig here, though the server itself draws nothing and links neither.
 FROM ubuntu:24.04 AS build
-RUN apt-get update \
- && apt-get install -y --no-install-recommends cmake ninja-build g++ git ca-certificates \
+RUN apt-get -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends cmake ninja-build g++ git ca-certificates \
         pkg-config libfreetype-dev libfontconfig1-dev \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /source

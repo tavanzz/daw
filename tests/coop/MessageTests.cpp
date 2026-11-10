@@ -18,7 +18,7 @@ namespace
 {
 
 const juce::File folder = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                              .getChildFile("daw-message-tests");
+                              .getChildFile("daw-message-tests-" + juce::String::toHexString(juce::Random::getSystemRandom().nextInt64()));
 
 juce::String hexOf(const juce::MemoryBlock& block)
 {

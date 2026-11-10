@@ -37,6 +37,11 @@ public:
     {
     }
 
+    ~CoopWorld() { root.deleteRecursively(); }
+
+    CoopWorld(const CoopWorld&) = delete;
+    CoopWorld& operator=(const CoopWorld&) = delete;
+
     /** The server stops (what it saved stays) and starts again: every link breaks. */
     void restartServer()
     {
@@ -48,9 +53,7 @@ public:
     Participant& add(const juce::String& participantName = {})
     {
         auto participant = std::make_unique<Participant>();
-        participant->folder = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                                  .getChildFile("daw-coop-world")
-                                  .getChildFile(participantName.isNotEmpty()
+        participant->folder = root.getChildFile(participantName.isNotEmpty()
                                                     ? participantName
                                                     : "p" + juce::String(static_cast<int>(participants.size())));
         coop::Client::Options options;
@@ -111,6 +114,11 @@ public:
     {
         return serverPointer->getSequence(serverPointer->getSessionIds()[0]);
     }
+
+    // Folders of this world's copies: tests run in parallel processes, each with its own.
+    juce::File root = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                          .getChildFile("daw-coop-world-"
+                                        + juce::String::toHexString(juce::Random::getSystemRandom().nextInt64()));
 
     SimulatedNetwork network;
     SimulatedNetwork::Conditions conditions;
