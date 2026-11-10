@@ -3,6 +3,7 @@
 
 add_library(daw_coop STATIC
     src/Client.cpp
+    src/FileSync.cpp
     src/Messages.cpp
     src/Wire.cpp)
 add_library(daw::coop ALIAS daw_coop)

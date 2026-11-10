@@ -23,6 +23,7 @@ public:
         double maximumDelay = 0.03;
         double loss = 0.0;        ///< probability that a frame is lost
         double duplication = 0.0; ///< probability that it arrives twice
+        bool ordered = false;     ///< like TCP: never overtaken by the one sent after it
     };
 
     struct Pair

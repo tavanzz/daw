@@ -3,6 +3,7 @@
 # Uses model, net and coop, never the engine, the controller or a UI.
 
 add_library(daw_server STATIC
+    src/FileStore.cpp
     src/Server.cpp
     src/SessionStore.cpp)
 add_library(daw::server ALIAS daw_server)

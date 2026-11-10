@@ -1,5 +1,6 @@
 #include "daw/server/Server.h"
 
+#include "FileStore.h"
 #include "SessionStore.h"
 #include "ServerState.h"
 
@@ -209,7 +210,13 @@ struct Server::Impl
     explicit Impl(ServerOptions serverOptions)
         : options(std::move(serverOptions))
     {
-        if (options.dataFolder != juce::File())
+        if (options.dataFolder == juce::File())
+        {
+            temporaryFiles = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                 .getNonexistentChildFile("micinstation-server-files", {}, false);
+            temporaryFiles.createDirectory();
+        }
+        else
         {
             store = std::make_unique<SessionStore>(options.dataFolder);
             for (auto& session : store->loadAll(log()))
@@ -222,6 +229,16 @@ struct Server::Impl
                 write("loaded " + juce::String(static_cast<int>(sessions.size())) + " sessions");
         }
     }
+
+    ~Impl()
+    {
+        fileStores.clear();
+        if (temporaryFiles != juce::File())
+            temporaryFiles.deleteRecursively();
+    }
+
+    Impl(const Impl&) = delete;
+    Impl& operator=(const Impl&) = delete;
 
     std::function<void(const juce::String&)> log() const
     {
@@ -265,6 +282,11 @@ struct Server::Impl
     {
         if (connection.session.isEmpty())
             return;
+        if (connection.files)
+        {
+            connection.session = {};
+            return;
+        }
         const auto session = sessions.find(connection.session);
         connection.session = {};
         if (session == sessions.end())
@@ -332,6 +354,17 @@ struct Server::Impl
             return;
         }
 
+        if (connection.files)
+        {
+            const auto message = kind == coop::FrameKind::files ? coop::decodeFileFrame(frame)
+                                                                : std::nullopt;
+            if (!message)
+                closeConnection(id, false);
+            else
+                handleFileMessage(connection, *message);
+            return;
+        }
+
         if (kind != coop::FrameKind::channel)
         {
             closeConnection(id, false);
@@ -390,6 +423,113 @@ struct Server::Impl
             joinSession(id, address, *join);
         else if (const auto* rejoin = std::get_if<coop::RejoinSession>(&hello->request))
             rejoinSession(id, address, *rejoin, hello->delivered);
+        else if (const auto* files = std::get_if<coop::AttachFiles>(&hello->request))
+            attachFiles(id, address, *files);
+    }
+
+    // A participant's second connection, for files: the same credentials as a rejoin.
+    void attachFiles(std::uint64_t id, const juce::String& address, const coop::AttachFiles& request)
+    {
+        const auto found = sessions.find(request.sessionId);
+        if (found == sessions.end())
+        {
+            failedAttempt(address);
+            return refuse(id, coop::RefusalReason::badToken, "unknown session");
+        }
+        auto& session = found->second;
+        const auto participant = session.participants.find(request.participant);
+        if (participant == session.participants.end() || participant->second.gone
+            || !sameSecret(participant->second.tokenHash, SessionStore::hashOf(request.token)))
+        {
+            failedAttempt(address);
+            return refuse(id, coop::RefusalReason::badToken, "wrong token");
+        }
+
+        auto& connection = connections.at(id);
+        connection.session = session.id;
+        connection.participant = participant->second.number;
+        connection.files = true;
+
+        coop::Welcome message;
+        message.sessionId = session.id;
+        message.participant = participant->second.number;
+        message.serverTime = now;
+        connection.link->send(coop::encodeFrame(message));
+    }
+
+    FileStore& filesOf(const Session& session)
+    {
+        auto& files = fileStores[session.id];
+        if (files == nullptr)
+        {
+            const auto folder = options.dataFolder != juce::File()
+                                    ? options.dataFolder.getChildFile("sessions")
+                                          .getChildFile(session.id)
+                                          .getChildFile("files")
+                                    : temporaryFiles.getChildFile(session.id);
+            files = std::make_unique<FileStore>(folder, options.maximumSessionBytes,
+                                                options.maximumFileBytes);
+        }
+        return *files;
+    }
+
+    std::uint64_t serverRoom()
+    {
+        std::uint64_t used = 0;
+        for (const auto& [sessionId, files] : fileStores)
+            used += files->getBytes();
+        return used >= options.maximumTotalBytes ? 0 : options.maximumTotalBytes - used;
+    }
+
+    void handleFileMessage(Connection& connection, const coop::FileMessage& message)
+    {
+        const auto found = sessions.find(connection.session);
+        if (found == sessions.end())
+            return;
+        auto& session = found->second;
+        auto& sessionFiles = filesOf(session);
+
+        if (const auto* query = std::get_if<coop::UploadQuery>(&message))
+        {
+            const auto status = sessionFiles.query(query->hash, query->size, serverRoom());
+            if (status.refused)
+                write("session " + shortId(session.id) + ": a file of "
+                      + juce::String(static_cast<juce::int64>(query->size)) + " bytes was refused");
+            connection.link->send(coop::encodeFrame(
+                coop::UploadStatus{query->hash, status.stored, status.complete, status.refused}));
+        }
+        else if (const auto* upload = std::get_if<coop::UploadChunk>(&message))
+        {
+            bool completed = false;
+            const auto status =
+                sessionFiles.write(upload->hash, upload->offset, upload->data, completed);
+            connection.link->send(coop::encodeFrame(
+                coop::UploadStatus{upload->hash, status.stored, status.complete, status.refused}));
+            if (completed)
+            {
+                write("session " + shortId(session.id) + ": a file of "
+                      + juce::String(static_cast<juce::int64>(status.stored)) + " bytes arrived");
+                broadcast(session, coop::FileAvailable{upload->hash});
+            }
+        }
+        else if (const auto* request = std::get_if<coop::DownloadRequest>(&message))
+        {
+            if (!sessionFiles.has(request->hash))
+            {
+                connection.link->send(coop::encodeFrame(coop::DownloadUnavailable{request->hash}));
+                return;
+            }
+            constexpr std::uint64_t chunk = 64 * 1024;
+            const auto end = std::min(sessionFiles.sizeOf(request->hash),
+                                      request->offset + std::min<std::uint64_t>(request->length, 4u << 20));
+            for (auto offset = request->offset; offset < end; offset += chunk)
+            {
+                auto data = sessionFiles.read(request->hash, offset, std::min(chunk, end - offset));
+                if (data.isEmpty())
+                    break;
+                connection.link->send(coop::encodeFrame(coop::DownloadChunk{request->hash, offset, std::move(data)}));
+            }
+        }
     }
 
     void createSession(std::uint64_t id, const juce::String& address,
@@ -850,6 +990,13 @@ struct Server::Impl
             send(participant, coop::SessionEnded{coop::SessionEnded::Reason::removed});
         if (participant.connection != 0)
             closeConnection(participant.connection, true);
+        for (auto& [id, connection] : connections)
+            if (connection.files && connection.session == session.id
+                && connection.participant == participant.number && !connection.closing)
+            {
+                connection.closing = true;
+                connection.closeAt = now;
+            }
         participant.channelValid = false;
         saveNow(session);
         broadcastParticipants(session);
@@ -1061,7 +1208,7 @@ struct Server::Impl
     {
         for (auto& [id, connection] : connections)
         {
-            if (connection.session.isEmpty())
+            if (connection.session.isEmpty() || connection.files)
                 continue;
             const auto session = sessions.find(connection.session);
             if (session == sessions.end())
@@ -1106,6 +1253,9 @@ struct Server::Impl
                 connection.closeAt = now;
             }
         sessions.erase(sessionId);
+        fileStores.erase(sessionId);
+        if (temporaryFiles != juce::File())
+            temporaryFiles.getChildFile(sessionId).deleteRecursively();
         closedSessions.insert(sessionId);
         if (store != nullptr)
         {
@@ -1148,6 +1298,8 @@ struct Server::Impl
     std::map<juce::String, std::vector<double>> failures;
     std::map<juce::String, double> blockedUntil;
     std::set<juce::String> closedSessions;
+    std::map<juce::String, std::unique_ptr<FileStore>> fileStores;
+    juce::File temporaryFiles;
     double now = 0.0;
 };
 
@@ -1209,6 +1361,12 @@ Server::getLocks(const juce::String& sessionId) const
         for (const auto& [scope, lock] : found->second.locks)
             locks.emplace_back(scope, lock.holder);
     return locks;
+}
+
+std::uint64_t Server::getFileBytes(const juce::String& sessionId) const
+{
+    const auto found = impl->fileStores.find(sessionId);
+    return found != impl->fileStores.end() ? found->second->getBytes() : 0;
 }
 
 juce::StringArray Server::getSessionIds() const

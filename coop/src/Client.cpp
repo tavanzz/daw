@@ -99,7 +99,8 @@ Client::Client(juce::ValueTree projectState, juce::File copyFolder, LinkFactory 
       folder(std::move(copyFolder)),
       makeLink(std::move(linkFactory)),
       options(std::move(clientOptions)),
-      recorder(state)
+      recorder(state),
+      files(folder, makeLink, options.files)
 {
     recorder.setRecording(false);
     retryDelay = options.firstRetry;
@@ -186,8 +187,12 @@ void Client::connect()
 void Client::update(double time)
 {
     now = time;
+    files.update(now);
     if (status == Status::idle || status == Status::ended)
         return;
+
+    if (uploadWaiting && welcomed && !files.isHashing())
+        uploadProject();
 
     if (link == nullptr && now >= connectAt)
         connect();
@@ -287,6 +292,9 @@ void Client::handleFrame(const juce::MemoryBlock& frame)
 
 void Client::handleWelcome(const Welcome& welcome)
 {
+    // A new connection may take another path: the clock is measured again.
+    clockSamples.clear();
+    pingSentAt = -1.0e9;
     welcomed = true;
     status = Status::connected;
     problem = {};
@@ -304,20 +312,10 @@ void Client::handleWelcome(const Welcome& welcome)
         channel.reset();
         if (request == Request::create && !uploaded)
         {
-            const auto project = model::sharedCopy(state, folder);
-            ProjectUpload upload{project, {}};
-            if (filesFor)
-            {
-                juce::StringArray paths;
-                collectPaths(project, paths);
-                upload.files = filesFor(paths);
-            }
-            send(upload);
-            uploaded = true;
-            synced = true;
-            sequence = 0;
-            [[maybe_unused]] const auto before = recorder.takeChanges();
-            recorder.setRecording(true);
+            // The project goes up once its files are hashed (they go with it).
+            uploadWaiting = true;
+            if (!files.isHashing())
+                uploadProject();
         }
         else
         {
@@ -326,7 +324,25 @@ void Client::handleWelcome(const Welcome& welcome)
         }
     }
 
+    files.attach(sessionId, participant, token);
     request = Request::rejoin;
+    changed();
+}
+
+void Client::uploadProject()
+{
+    const auto project = model::sharedCopy(state, folder);
+    ProjectUpload upload{project, {}};
+    juce::StringArray paths;
+    collectPaths(project, paths);
+    upload.files = files.entriesFor(paths);
+    send(upload);
+    uploaded = true;
+    uploadWaiting = false;
+    synced = true;
+    sequence = 0;
+    [[maybe_unused]] const auto before = recorder.takeChanges();
+    recorder.setRecording(true);
     changed();
 }
 
@@ -360,6 +376,7 @@ void Client::end(const juce::String& reason)
     welcomed = false;
     synced = false;
     recorder.setRecording(false);
+    files.detach();
     changed();
 }
 
@@ -418,7 +435,7 @@ void Client::handleMessage(const Message& message)
         changed();
     }
     else if (const auto* available = std::get_if<FileAvailable>(&message))
-        availableFiles.push_back(available->hash);
+        files.fileAvailable(available->hash);
     else if (const auto* ended = std::get_if<SessionEnded>(&message))
         end(ended->reason == SessionEnded::Reason::removed ? "The host removed you from this session."
                                                            : "The host closed this session.");
@@ -466,8 +483,7 @@ void Client::handleSnapshot(const ProjectSnapshot& snapshot)
         }
     }
 
-    for (const auto& file : snapshot.files)
-        newFiles.push_back(file);
+    files.addSessionFiles(snapshot.files);
     changed();
 }
 
@@ -483,8 +499,7 @@ void Client::handleAccepted(const AcceptedChange& change)
         return;
     }
     sequence = change.sequence;
-    for (const auto& file : change.files)
-        newFiles.push_back(file);
+    files.addSessionFiles(change.files);
 
     if (change.author == participant)
     {
@@ -687,9 +702,8 @@ void Client::sendPending(const Pending& transaction)
     message.name = transaction.name;
     message.undoStep = transaction.undoStep;
     message.changes = model::sharedChanges(transaction.changes, folder);
-    if (filesFor)
-        if (const auto paths = pathsIn(message.changes); !paths.isEmpty())
-            message.files = filesFor(paths);
+    if (const auto paths = pathsIn(message.changes); !paths.isEmpty())
+        message.files = files.entriesFor(paths);
     send(message);
 }
 
@@ -845,16 +859,6 @@ std::vector<Client::Notice> Client::takeNotices()
     return std::exchange(notices, {});
 }
 
-std::vector<FileEntry> Client::takeNewFiles()
-{
-    return std::exchange(newFiles, {});
-}
-
-std::vector<juce::MemoryBlock> Client::takeAvailableFiles()
-{
-    return std::exchange(availableFiles, {});
-}
-
 void Client::sendHostCommand(HostCommand command)
 {
     send(command);
@@ -890,6 +894,14 @@ std::optional<double> Client::serverTime(double localTime) const
                                        [](const ClockSample& a, const ClockSample& b)
                                        { return a.roundTrip < b.roundTrip; });
     return localTime + best->offset;
+}
+
+std::optional<double> Client::localTime(double serverTimeToConvert) const
+{
+    const auto offset = serverTime(0.0);
+    if (!offset)
+        return std::nullopt;
+    return serverTimeToConvert - *offset;
 }
 
 std::optional<double> Client::clockUncertainty() const

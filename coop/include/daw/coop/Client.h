@@ -1,5 +1,6 @@
 #pragma once
 
+#include "daw/coop/FileSync.h"
 #include "daw/coop/Messages.h"
 #include "daw/model/ChangeRecorder.h"
 #include "daw/net/Link.h"
@@ -59,6 +60,7 @@ public:
         double pingInterval = 2.0;
         double presenceInterval = 0.05;  ///< at most 20 presence updates a second
         double lockRefreshInterval = 10.0;
+        FileSync::Options files;
     };
 
     enum class Status
@@ -158,16 +160,11 @@ public:
 
     [[nodiscard]] std::vector<Notice> takeNotices();
 
-    /** Files changes of others start to refer to (with their hash and size), since the last
-        call; and every file of the session after a snapshot. */
-    [[nodiscard]] std::vector<FileEntry> takeNewFiles();
-    /** Hashes the server has whole now (FileAvailable). */
-    [[nodiscard]] std::vector<juce::MemoryBlock> takeAvailableFiles();
-
-    /** The files (hash and size) behind paths the copy refers to, relative to its folder:
-        given by whoever manages the copy's files, sent with the transactions and the upload
-        that start to refer to them. */
-    std::function<std::vector<FileEntry>(const juce::StringArray& paths)> filesFor;
+    /** The copy's audio files: one's own go up (add them with addLocalFile() and let them
+        be hashed before anything refers to them), those of others come down. Transactions
+        and the host's upload carry the entries of the files they start to refer to. */
+    [[nodiscard]] FileSync& getFiles() noexcept { return files; }
+    [[nodiscard]] const FileSync& getFiles() const noexcept { return files; }
 
     // Host -----------------------------------------------------------------------------
 
@@ -191,6 +188,8 @@ public:
     [[nodiscard]] std::optional<double> serverTime(double localTime) const;
     /** How far off serverTime() may be: half the shortest round trip measured. */
     [[nodiscard]] std::optional<double> clockUncertainty() const;
+    /** The local time at which the server's clock shows serverTime (for a TransportStart). */
+    [[nodiscard]] std::optional<double> localTime(double serverTimeToConvert) const;
 
 private:
     struct Pending
@@ -223,6 +222,7 @@ private:
     void handleSnapshot(const ProjectSnapshot& snapshot);
     void handleAccepted(const AcceptedChange& change);
     void handleRejection(const Rejection& rejection);
+    void uploadProject();
     void linkLost(const juce::String& reason);
     void end(const juce::String& reason);
     void send(const Message& message);
@@ -276,8 +276,8 @@ private:
     std::optional<Invite> invite;
     std::map<ParticipantNumber, Presence> presences;
     std::vector<TransportStart> transportStarts;
-    std::vector<FileEntry> newFiles;
-    std::vector<juce::MemoryBlock> availableFiles;
+    FileSync files;
+    bool uploadWaiting = false; ///< the host's project goes once its files are hashed
 
     juce::String transactionName;
     std::uint64_t transactionStep = 0;

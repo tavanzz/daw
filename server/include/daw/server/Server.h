@@ -30,6 +30,9 @@ struct ServerOptions
     double presenceInterval = 0.05;      ///< presence passed on at most 20 times a second
     double transportLead = 0.3;          ///< "Play for Everyone" starts this much later
     double saveInterval = 5.0;           ///< sessions changed are written at most this often
+    std::uint64_t maximumSessionBytes = std::uint64_t{20} << 30; ///< files a session keeps
+    std::uint64_t maximumTotalBytes = std::uint64_t{100} << 30;  ///< files of all sessions
+    std::uint64_t maximumFileBytes = std::uint64_t{4} << 30;     ///< one file
 
     /** Where sessions are kept between runs; none: in memory only (tests). */
     juce::File dataFolder;
@@ -80,6 +83,8 @@ public:
     [[nodiscard]] std::vector<std::pair<model::EditScope, coop::ParticipantNumber>>
     getLocks(const juce::String& sessionId) const;
     [[nodiscard]] juce::StringArray getSessionIds() const;
+    /** Bytes of files a session keeps. */
+    [[nodiscard]] std::uint64_t getFileBytes(const juce::String& sessionId) const;
 
     struct Impl;
 

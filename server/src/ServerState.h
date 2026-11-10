@@ -69,6 +69,7 @@ struct Connection
     double openedAt = 0.0;
     juce::String session; ///< empty until welcomed
     coop::ParticipantNumber participant = 0;
+    bool files = false; ///< a participant's second connection, for files
     bool closing = false;
     double closeAt = 0.0;
 };

@@ -329,6 +329,38 @@ TEST_CASE("Removed participants and closed sessions end the client", "[coop][cli
     CHECK(session[2].client->getProblem().contains("closed"));
 }
 
+TEST_CASE("Play for everyone starts every computer at the same moment", "[coop][client]")
+{
+    Session session(2);
+    session[0].clockOffset = 0.0;
+    session[1].clockOffset = 1234.5;  // clocks far apart
+    session[2].clockOffset = -321.25;
+    session.world.conditions = {0.01, 0.08, 0.0, 0.0}; // a slow, uneven network
+    session.world.network.cutAll();
+    session.world.run(5.0);
+
+    session[1].client->requestTransport(true, 96000);
+    session.world.run(1.0);
+
+    std::vector<double> networkStarts;
+    for (auto& participant : session.world.participants)
+    {
+        const auto starts = participant->client->takeTransportStarts();
+        REQUIRE(starts.size() == 1);
+        CHECK(starts[0].play);
+        CHECK(starts[0].position == 96000);
+        CHECK(starts[0].by == session[1].client->getParticipant());
+        const auto local = participant->client->localTime(starts[0].startTime);
+        REQUIRE(local.has_value());
+        // The same moment for everyone, each on their own clock, within what the round
+        // trips allow.
+        networkStarts.push_back(*local - participant->clockOffset);
+        CHECK(std::abs(networkStarts.back() - starts[0].startTime)
+              <= *participant->client->clockUncertainty() + 1e-6);
+    }
+    CHECK(std::abs(networkStarts[1] - networkStarts[2]) < 0.1);
+}
+
 TEST_CASE("The server's clock is estimated within the round trip", "[coop][client]")
 {
     Session session(1);

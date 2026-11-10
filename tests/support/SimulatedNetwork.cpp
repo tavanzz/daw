@@ -13,6 +13,7 @@ struct Wire
 {
     SimulatedNetwork::Conditions conditions;
     bool open = true;
+    double lastArrival[2] = {0.0, 0.0};
     std::vector<juce::MemoryBlock> inbox[2];
     juce::String problem[2];
 };
@@ -48,7 +49,11 @@ struct SimulatedNetwork::Impl
             const auto delay = conditions.minimumDelay
                                + random.nextDouble()
                                      * (conditions.maximumDelay - conditions.minimumDelay);
-            scheduled.emplace(std::make_pair(time + delay, order++),
+            auto arrival = time + delay;
+            if (conditions.ordered)
+                arrival = std::max(arrival, wire->lastArrival[1 - fromEnd]);
+            wire->lastArrival[1 - fromEnd] = arrival;
+            scheduled.emplace(std::make_pair(arrival, order++),
                               Scheduled{wire, 1 - fromEnd, frame});
         }
     }

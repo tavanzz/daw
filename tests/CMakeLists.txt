@@ -19,6 +19,7 @@ add_executable(daw_tests
     appearance/ThemeFileTests.cpp
     appearance/ThemeLibraryTests.cpp
     coop/ClientTests.cpp
+    coop/FileTests.cpp
     coop/MessageTests.cpp
     net/NetTests.cpp
     server/ServerTests.cpp

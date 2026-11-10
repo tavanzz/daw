@@ -27,6 +27,7 @@ public:
         model::Project project;
         juce::File folder;
         std::unique_ptr<coop::Client> client;
+        double clockOffset = 0.0; ///< this computer's clock: the network's plus this
     };
 
     explicit CoopWorld(juce::int64 seed, server::ServerOptions options = {})
@@ -79,7 +80,7 @@ public:
     void tick(double step = 0.01)
     {
         for (auto& participant : participants)
-            participant->client->update(network.now());
+            participant->client->update(network.now() + participant->clockOffset);
         serverPointer->update(network.now());
         network.advance(step);
     }

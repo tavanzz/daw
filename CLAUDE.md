@@ -398,6 +398,23 @@ Modules with one-way dependencies:
   thousands of random edits, undos and redos by 2, 3 and 5 participants with latency,
   loss, duplicates, reordering and dropped links, and requires every copy to be the
   server's project byte for byte.
+- Files of a session (Phase 9, `coop::FileSync`, owned by the client; `server/FileStore`):
+  a participant's second connection (`Hello` with `AttachFiles`, the same token) carries
+  `FileMessage`s (frames of kind `files`), so edits never wait behind audio. Files are
+  known by the SHA-256 of their content: one's own are hashed before anything refers to
+  them (`addLocalFile()`, a piece per update), transactions and the host's upload carry
+  their entries (path, hash, size), and the server lists them per session. Uploads ask
+  first (`UploadQuery`: how much the server has, or that the session has no room: 20 GB a
+  session, 100 GB in all, 4 GB a file), then send 64 KB chunks with 1 MB in flight; the
+  server takes them only at the offset it has, hashes them as they come and keeps the file
+  as `<hash>` only if the content has its hash (`<hash>.<size>.part` meanwhile, so it
+  resumes after a restart), then tells everyone (`FileAvailable`). Downloads ask for 1 MB
+  ranges into `<name>.part`, check the hash, and put the file in place (`takeArrived()`);
+  a file not on the server yet waits for `FileAvailable` ("incoming"); a second path with
+  the same content gets a local copy, and a file already in the copy with the right hash
+  is not downloaded. Both directions start again from what the other side has after a
+  drop, or after a second without progress (TCP keeps order; the simulated network may not:
+  `SimulatedNetwork::Conditions::ordered`). Paths must be `coop::isSafeSharedPath()`.
 - Audio files: `engine::io::SourcePool` opens each file once however many clips use
   it, on worker threads, as a streamed source (`io::DiskStreamer`, below) and reads it
   through once for its waveform; finished loads are applied when the owner calls
@@ -2255,7 +2272,7 @@ work merged later, the mobile UI.
       refused, sent again without duplicates, catch-up after a disconnection, personal
       undo; convergence of 2 to 5 simulated clients with thousands of random edits over
       a lossy, reordering network, byte for byte
-- [ ] 6. Files: SHA-256, transfers in chunks on a second connection, resumed, never
+- [x] 6. Files: SHA-256, transfers in chunks on a second connection, resumed, never
       twice, the server's store with quotas, hashes checked
 - [ ] 7. Clocks and the shared transport: offsets estimated, playback started at an
       exact moment by the engine (output latency included), follow or listen alone
